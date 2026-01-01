@@ -34,8 +34,8 @@
 ## Git Remotes
 
 ```
-origin  → git@github.com:a327ex/anchor.git           (main repo)
-blot    → https://blot.im/clients/git/end/anchor.git  (website only, via subtree)
+origin  → git@github.com:a327ex/Anchor.git           (main repo, main branch)
+blot    → https://blot.im/clients/git/end/anchor.git  (website only, via subtree, master branch)
 ```
 
 ---
@@ -143,7 +143,7 @@ git push origin main
 
 **Step 3.10** - Claude pushes website to Blot:
 ```bash
-git subtree push --prefix=website blot main
+git subtree push --prefix=website blot master
 ```
 
 **Step 3.11** - Claude confirms:
