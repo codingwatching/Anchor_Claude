@@ -37,7 +37,7 @@ When running the full workflow, complete all steps before committing (one commit
 
 1. **Write a detailed summary** covering what was accomplished. If the conversation was compacted, read the compaction summaries or the full log to ensure the summary covers the entire session, not just the post-compaction part.
 
-2. **Create a short title** (max 4 words) based on the summary. Do this after writing the summary so it accurately captures the session's focus.
+2. **Create a short title** (max 28 characters) based on the summary. Do this after writing the summary so it accurately captures the session's focus.
 
 3. **Locate the session transcript** - Find the most recent JSONL file:
    ```bash
@@ -79,7 +79,7 @@ When running the full workflow, complete all steps before committing (one commit
 ### Log File Format
 
 ```markdown
-# Short Title (Max 4 Words)
+# Short Title (Max 28 Chars)
 
 ## Summary
 Detailed description of what was accomplished.
