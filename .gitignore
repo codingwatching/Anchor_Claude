@@ -1,0 +1,21 @@
+# Build outputs
+*.o
+*.so
+*.dll
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lua build
+lua/*.lua
+
+# Session data (keep in .claude but not tracked)
+.claude/session-timestamps.log
