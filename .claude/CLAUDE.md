@@ -6,7 +6,7 @@ Guidelines for Claude Code instances working on Anchor and games built with it.
 
 ## Read First
 
-Read `ANCHOR.md` before doing anything. It covers:
+Read `docs/ANCHOR.md` before doing anything. It covers:
 - The mental model (engine services vs object tree)
 - How objects, timers, springs, and colliders work
 - The action-based vs rules-based spectrum
@@ -23,8 +23,8 @@ Read `ANCHOR.md` before doing anything. It covers:
 ### During Session
 
 - Work normally on requested tasks
-- Update `ANCHOR.md` when APIs or architecture changes
-- Update `IMPLEMENTATION_PLAN.md` when tasks are completed
+- Update `docs/ANCHOR.md` when APIs or architecture changes
+- Update `docs/IMPLEMENTATION_PLAN.md` when tasks are completed
 - Update this file (`CLAUDE.md`) when new patterns or conventions are established
 
 ### End of Session
@@ -47,7 +47,7 @@ When the user says "let's wrap up" (or similar):
 
 5. **Sync context files**:
    ```bash
-   cp ANCHOR.md CLAUDE.md IMPLEMENTATION_PLAN.md website/context/
+   cp .claude/CLAUDE.md docs/* website/context/
    ```
 
 6. **Commit with the summary as message**:

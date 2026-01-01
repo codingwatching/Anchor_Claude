@@ -9,12 +9,14 @@
 ```
 /home/adn/a327ex/Anchor/              ← Git repo (github.com/a327ex/anchor)
 ├── .claude/
+│   ├── CLAUDE.md                     ← Master instructions for all Claude instances
 │   ├── settings.json                 ← Hook configuration
 │   └── session-timestamps.log        ← Backup timestamps
 ├── .gitignore
-├── CLAUDE.md                         ← Master instructions for all Claude instances
-├── ANCHOR.md                         ← Engine specification
-├── IMPLEMENTATION_PLAN.md            ← Phased checklist
+├── docs/
+│   ├── ANCHOR.md                     ← Engine specification
+│   ├── IMPLEMENTATION_PLAN.md        ← Phased checklist
+│   └── SESSION_WORKFLOW_PLAN.md      ← This file
 ├── src/                              ← C source (future)
 ├── yue/                              ← YueScript source (future)
 ├── lua/                              ← Compiled Lua output (future)
@@ -24,7 +26,7 @@
 └── website/                          ← Blot website (subtree pushed to Blot)
     ├── logs/                         ← Full session transcripts (Markdown)
     ├── pages/                        ← Website pages
-    ├── context/                      ← Copies of ANCHOR.md, CLAUDE.md, IMPLEMENTATION_PLAN.md
+    ├── context/                      ← Copies of .claude/CLAUDE.md + docs/*
     ├── files/                        ← Downloadable files (.yue examples, etc.)
     └── notes/                        ← Notes and blog posts
 ```
@@ -116,9 +118,8 @@ Brief description of what was accomplished.
 
 **Step 3.6** - Claude syncs context files:
 ```bash
-cp ANCHOR.md website/context/
-cp CLAUDE.md website/context/
-cp IMPLEMENTATION_PLAN.md website/context/
+cp .claude/CLAUDE.md website/context/
+cp docs/* website/context/
 ```
 
 **Step 3.7** - Claude stages all changes:
