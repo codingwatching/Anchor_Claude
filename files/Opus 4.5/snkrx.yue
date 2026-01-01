@@ -1,0 +1,637 @@
+-- =============================================================================
+-- SNKRX
+-- =============================================================================
+-- A snake-like auto-battler. Control a snake made of units that automatically
+-- attack enemies. Survive waves, collect gold, buy more units.
+--
+-- This example demonstrates horizontal links: snake units are siblings under
+-- arena, but all link to the head — if head dies, entire snake dies.
+-- =============================================================================
+
+
+--{{{ CONFIGURATION
+
+CONFIG = {
+  width: 480
+  height: 270
+  
+  -- Snake
+  snake_speed: 100
+  unit_spacing: 14
+  unit_radius: 6
+  snake_hp: 100
+  
+  -- Enemies
+  enemy_speed: 30
+  enemy_radius: 8
+  enemy_hp: 30
+  enemy_damage: 10
+  
+  -- Waves
+  wave_duration: 20
+  enemies_per_wave: 10
+  spawn_margin: 20
+  
+  -- Economy
+  gold_per_kill: 5
+  
+  -- Unit types (damage, attack_rate, range, color)
+  unit_types: {
+    warrior: {damage: 15, rate: 0.8, range: 25, color: 0xDD4444FF, melee: true}
+    ranger:  {damage: 10, rate: 0.5, range: 120, color: 0x44DD44FF, melee: false}
+    mage:    {damage: 20, rate: 1.2, range: 100, color: 0x4444DDFF, melee: false}
+  }
+  
+  colors: {
+    enemy: 0xAA4444FF
+    gold: 0xFFDD44FF
+    hp_bar: 0x44AA44FF
+    hp_bg: 0x333333FF
+  }
+}
+
+--}}}
+
+
+--{{{ UTILITIES
+
+dist = (x1, y1, x2, y2) ->
+  dx = x2 - x1
+  dy = y2 - y1
+  math.sqrt dx * dx + dy * dy
+
+angle_to = (x1, y1, x2, y2) ->
+  math.atan2 y2 - y1, x2 - x1
+
+lerp = (a, b, t) ->
+  a + (b - a) * t
+
+-- Find nearest object with tag
+nearest = (x, y, tag) ->
+  objects = arena\A tag
+  return nil if #objects == 0
+  
+  closest = nil
+  closest_dist = math.huge
+  for obj in *objects
+    d = dist x, y, obj.x, obj.y
+    if d < closest_dist
+      closest = obj
+      closest_dist = d
+  closest, closest_dist
+
+-- Random point on arena edge
+random_edge_point = ->
+  side = an\random_int 1, 4
+  switch side
+    when 1 then an\random_float(0, CONFIG.width), -CONFIG.spawn_margin
+    when 2 then CONFIG.width + CONFIG.spawn_margin, an\random_float(0, CONFIG.height)
+    when 3 then an\random_float(0, CONFIG.width), CONFIG.height + CONFIG.spawn_margin
+    when 4 then -CONFIG.spawn_margin, an\random_float(0, CONFIG.height)
+
+--}}}
+
+
+--{{{ EFFECTS
+
+spawn_particle = (x, y, color, vx, vy) ->
+  E! ^ {x: x, y: y, color: color, radius: 3}
+     ^ =>
+       @vx = vx or an\random_float -50, 50
+       @vy = vy or an\random_float -50, 50
+       @\timer!
+       @\tween an\random_float(0.2, 0.4), @, {radius: 0}, math.quad_out, ->
+         @\kill!
+     / (dt) =>
+       @x += @vx * dt
+       @y += @vy * dt
+       effects\circle @x, @y, @radius, @color
+     >> arena.particles
+
+spawn_hit_particles = (x, y, color, count = 5) ->
+  for i = 1, count
+    angle = an\random_angle!
+    speed = an\random_float 50, 120
+    spawn_particle x, y, color, math.cos(angle) * speed, math.sin(angle) * speed
+
+spawn_death_particles = (x, y, color) ->
+  spawn_hit_particles x, y, color, 8
+
+-- Floating damage/gold text
+spawn_floating_text = (x, y, text, color) ->
+  E! ^ {x: x, y: y, text: text, color: color, alpha: 1}
+     ^ =>
+       @\timer!
+       @\tween 0.8, @, {y: @y - 30, alpha: 0}, math.quad_out, ->
+         @\kill!
+     // (dt) =>
+       ui\draw_text @text, 'default', @x, @y, @color
+     >> arena.particles
+
+--}}}
+
+
+--{{{ ENEMIES
+
+class enemy extends object
+  new: (x, y) =>
+    super!
+    @x, @y = x, y
+    @hp = CONFIG.enemy_hp
+    @speed = CONFIG.enemy_speed * an\random_float 0.8, 1.2
+    @damage = CONFIG.enemy_damage
+    
+    @\tag 'enemy'
+    @\timer!
+    
+    @ + collider 'enemy', 'dynamic', 'circle', CONFIG.enemy_radius
+    @collider\set_position x, y
+    
+    @ + spring 'hit', 1, 300, 10
+    @ + spring 'scale', 0, 200, 10
+    @scale\pull -1
+
+  update: (dt) =>
+    -- Move toward nearest snake unit
+    target, d = nearest @x, @y, 'snake'
+    if target
+      angle = angle_to @x, @y, target.x, target.y
+      @collider\set_velocity math.cos(angle) * @speed, math.sin(angle) * @speed
+    
+    @x, @y = @collider\get_position!
+
+  draw: (dt) =>
+    color = if @hit.x > 1.05 then 0xFFFFFFFF else CONFIG.colors.enemy
+    s = @scale.x * @hit.x
+    game\push @x, @y, 0, s, s
+    game\circle 0, 0, CONFIG.enemy_radius, color
+    game\pop!
+
+  take_damage: (amount, source) =>
+    @hp -= amount
+    @hit\pull 0.3
+    spawn_hit_particles @x, @y, CONFIG.colors.enemy, 3
+    
+    if @hp <= 0
+      @\die!
+
+  die: =>
+    spawn_death_particles @x, @y, CONFIG.colors.enemy
+    gold(@x, @y) >> arena.pickups
+    arena.enemies_killed += 1
+    @\kill!
+
+--}}}
+
+
+--{{{ PICKUPS
+
+class gold extends object
+  new: (x, y) =>
+    super!
+    @x, @y = x, y
+    @value = CONFIG.gold_per_kill
+    
+    @\tag 'gold'
+    @\timer!
+    
+    @ + collider 'gold', 'dynamic', 'circle', 5
+    @collider\set_sensor true
+    @collider\set_position x, y
+    
+    @ + spring 'scale', 0, 200, 10
+    @scale\pull -1
+    
+    -- Slight drift
+    @vx = an\random_float -20, 20
+    @vy = an\random_float -20, 20
+
+  update: (dt) =>
+    @x += @vx * dt
+    @y += @vy * dt
+    @vx *= 0.95
+    @vy *= 0.95
+    @collider\set_position @x, @y
+
+  draw: (dt) =>
+    s = @scale.x
+    game\push @x, @y, 0, s, s
+    game\circle 0, 0, 5, CONFIG.colors.gold
+    game\pop!
+
+  collect: =>
+    arena.gold += @value
+    spawn_floating_text @x, @y, "+#{@value}", CONFIG.colors.gold
+    @\kill!
+
+--}}}
+
+
+--{{{ SNAKE
+
+-- Projectile fired by ranged units
+class projectile extends object
+  new: (x, y, angle, unit_type, owner) =>
+    super!
+    @x, @y = x, y
+    @damage = unit_type.damage
+    @speed = 200
+    @vx = math.cos(angle) * @speed
+    @vy = math.sin(angle) * @speed
+    @color = unit_type.color
+    
+    @\tag 'projectile'
+    
+    @ + collider 'projectile', 'dynamic', 'circle', 3
+    @collider\set_velocity @vx, @vy
+    @collider\set_position x, y
+    
+    -- Link to owner: if the unit that fired this dies, projectile dies
+    -- This is a horizontal dependency (both are under arena, not parent-child)
+    @\link owner
+
+  update: (dt) =>
+    @x, @y = @collider\get_position!
+    
+    -- Kill if out of bounds
+    if @x < -20 or @x > CONFIG.width + 20 or @y < -20 or @y > CONFIG.height + 20
+      @\kill!
+
+  draw: (dt) =>
+    game\circle @x, @y, 3, @color
+
+  on_hit: (enemy) =>
+    spawn_hit_particles @x, @y, @color, 2
+    @\kill!
+
+
+-- Base snake unit
+class snake_unit extends object
+  new: (unit_type_name, index) =>
+    super!
+    @unit_type_name = unit_type_name
+    @unit_type = CONFIG.unit_types[unit_type_name]
+    @index = index
+    @x, @y = CONFIG.width / 2, CONFIG.height / 2
+    @target_x, @target_y = @x, @y
+    
+    @\tag 'snake'
+    @\timer!
+    
+    @ + collider 'snake', 'dynamic', 'circle', CONFIG.unit_radius
+    @collider\set_position @x, @y
+    
+    @ + spring 'attack', 1, 300, 15
+    
+    -- Attack timer
+    @\every @unit_type.rate, 'attack_timer', ->
+      @\try_attack!
+
+  update: (dt) =>
+    -- Movement handled by follow logic, just sync position
+    @collider\set_position @x, @y
+
+  draw: (dt) =>
+    s = @attack.x
+    game\push @x, @y, 0, s, s
+    game\circle 0, 0, CONFIG.unit_radius, @unit_type.color
+    game\pop!
+
+  try_attack: =>
+    target, d = nearest @x, @y, 'enemy'
+    return unless target
+    return if d > @unit_type.range
+    
+    @attack\pull 0.3
+    
+    if @unit_type.melee
+      target\take_damage @unit_type.damage, @
+    else
+      angle = angle_to @x, @y, target.x, target.y
+      projectile(@x, @y, angle, @unit_type, @) >> arena.projectiles
+
+  die: =>
+    spawn_death_particles @x, @y, @unit_type.color
+    @\kill!
+
+
+-- Snake head (special unit that handles input and leading)
+class snake_head extends snake_unit
+  new: (unit_type_name) =>
+    super unit_type_name, 1
+    @name = 'head'
+    @angle = 0
+    @speed = CONFIG.snake_speed
+    
+    -- Head manages the position history for followers
+    @position_history = {}
+    @history_length = 100
+
+  update: (dt) =>
+    -- Input
+    if an\is_down 'left'
+      @angle -= 3 * dt
+    if an\is_down 'right'
+      @angle += 3 * dt
+    
+    -- Move
+    @x += math.cos(@angle) * @speed * dt
+    @y += math.sin(@angle) * @speed * dt
+    
+    -- Wrap around screen
+    @x = @x % CONFIG.width
+    @y = @y % CONFIG.height
+    
+    -- Record position for followers
+    table.insert @position_history, 1, {x: @x, y: @y}
+    if #@position_history > @history_length
+      table.remove @position_history
+    
+    @collider\set_position @x, @y
+
+  draw: (dt) =>
+    s = @attack.x
+    game\push @x, @y, @angle, s, s
+    -- Draw as triangle to show direction
+    game\circle 0, 0, CONFIG.unit_radius, @unit_type.color
+    -- Direction indicator
+    game\line CONFIG.unit_radius, 0, CONFIG.unit_radius + 4, 0, @unit_type.color, 2
+    game\pop!
+
+  -- Get position from history for follower at given index
+  get_follow_position: (index) =>
+    history_index = (index - 1) * math.floor CONFIG.unit_spacing
+    history_index = math.min history_index, #@position_history
+    history_index = math.max history_index, 1
+    
+    if @position_history[history_index]
+      @position_history[history_index].x, @position_history[history_index].y
+    else
+      @x, @y
+
+
+-- Snake follower (follows the head's position history)
+class snake_follower extends snake_unit
+  new: (unit_type_name, index, head) =>
+    super unit_type_name, index
+    @head = head
+    
+    -- Link to head: if head dies, all followers die
+    -- This is the key horizontal dependency
+    @\link head, -> @\die!
+
+  update: (dt) =>
+    -- Follow head's historical position
+    @target_x, @target_y = @head\get_follow_position @index
+    
+    -- Smooth interpolation
+    @x = lerp @x, @target_x, 10 * dt
+    @y = lerp @y, @target_y, 10 * dt
+    
+    @collider\set_position @x, @y
+
+
+-- Snake manager (creates and manages the snake)
+create_snake = (unit_types) ->
+  -- First unit is always the head
+  head = snake_head unit_types[1]
+  head >> arena.units
+  
+  -- Rest are followers
+  for i = 2, #unit_types
+    follower = snake_follower unit_types[i], i, head
+    follower >> arena.units
+  
+  head
+
+--}}}
+
+
+--{{{ ARENA
+
+class arena extends object
+  new: =>
+    super 'arena'
+    @hp = CONFIG.snake_hp
+    @max_hp = CONFIG.snake_hp
+    @gold = 0
+    @wave = 0
+    @wave_timer = CONFIG.wave_duration
+    @enemies_killed = 0
+    @game_active = true
+    
+    @\timer!
+    
+    -- Input
+    an\input_bind 'left', {'key:a', 'key:left'}
+    an\input_bind 'right', {'key:d', 'key:right'}
+    
+    -- Physics
+    an\physics_set_gravity 0, 0
+    an\physics_enable_contact_between 'snake', {'enemy'}
+    an\physics_enable_contact_between 'projectile', {'enemy'}
+    an\physics_enable_sensor_between 'snake', {'gold'}
+    
+    -- Containers
+    @ + E 'units'
+    @ + E 'enemies'
+    @ + E 'projectiles'
+    @ + E 'pickups'
+    @ + E 'particles'
+    
+    -- Create initial snake
+    @head = create_snake {'warrior', 'ranger', 'mage', 'ranger', 'warrior'}
+    
+    -- Start first wave
+    @\start_wave!
+
+  start_wave: =>
+    @wave += 1
+    @wave_timer = CONFIG.wave_duration
+    
+    -- Spawn enemies over time
+    enemies_to_spawn = CONFIG.enemies_per_wave + @wave * 2
+    spawn_interval = CONFIG.wave_duration / enemies_to_spawn
+    
+    @\every spawn_interval, 'spawner', ->
+      @\spawn_enemy! if @game_active
+
+  spawn_enemy: =>
+    x, y = random_edge_point!
+    enemy(x, y) >> @enemies
+
+  take_damage: (amount) =>
+    @hp -= amount
+    spawn_floating_text @head.x, @head.y - 20, "-#{amount}", 0xFF4444FF
+    
+    if @hp <= 0
+      @\game_over!
+
+  game_over: =>
+    @game_active = false
+    @spawner\kill! if @spawner
+    @head\kill! if @head and not @head.dead
+
+  -- Early action: handle collisions
+  early_update: (dt) =>
+    return unless @game_active
+    
+    -- Snake vs Enemy (contact)
+    for c in *an\physics_get_contact_enter 'snake', 'enemy'
+      snake_unit, e = c.a, c.b
+      @\take_damage e.damage
+      spawn_hit_particles snake_unit.x, snake_unit.y, 0xFF4444FF, 3
+    
+    -- Projectile vs Enemy (contact)
+    for c in *an\physics_get_contact_enter 'projectile', 'enemy'
+      p, e = c.a, c.b
+      e\take_damage p.damage, p
+      p\on_hit e
+    
+    -- Snake vs Gold (sensor)
+    for c in *an\physics_get_sensor_enter 'snake', 'gold'
+      _, g = c.a, c.b
+      g\collect!
+
+  update: (dt) =>
+    return unless @game_active
+    
+    -- Wave timer
+    @wave_timer -= dt
+    if @wave_timer <= 0
+      @spawner\kill! if @spawner
+      @\start_wave!
+
+  -- Late action: draw UI
+  draw_ui: (dt) =>
+    -- HP bar
+    bar_w, bar_h = 80, 8
+    bar_x, bar_y = 10, 10
+    hp_ratio = math.max 0, @hp / @max_hp
+    
+    ui\rectangle bar_x, bar_y, bar_w, bar_h, 0, 0, CONFIG.colors.hp_bg
+    ui\rectangle bar_x, bar_y, bar_w * hp_ratio, bar_h, 0, 0, CONFIG.colors.hp_bar
+    
+    -- Gold
+    ui\draw_text "Gold: #{@gold}", 'default', bar_x, bar_y + bar_h + 6, CONFIG.colors.gold
+    
+    -- Wave info
+    ui\draw_text "Wave #{@wave}", 'default', CONFIG.width - 60, bar_y, 0xFFFFFFFF
+    ui\draw_text "#{math.floor @wave_timer}s", 'default', CONFIG.width - 60, bar_y + 14, 0xAAAAAAFF
+    
+    -- Kill count
+    ui\draw_text "Kills: #{@enemies_killed}", 'default', CONFIG.width / 2 - 30, bar_y, 0xFFFFFFFF
+    
+    -- Game over
+    unless @game_active
+      ui\draw_text "GAME OVER", 'large', CONFIG.width / 2 - 50, CONFIG.height / 2 - 20, 0xFF4444FF
+
+--}}}
+
+
+--{{{ MAIN
+
+init = ->
+  export game = an\layer 'game'
+  export effects = an\layer 'effects'
+  export ui = an\layer 'ui'
+  
+  an\font_load 'default', 'assets/fonts/default.ttf', 12
+  an\font_load 'large', 'assets/fonts/default.ttf', 24
+  
+  an\random_seed os.time!
+  
+  export arena = arena!
+
+an.init = init
+
+--}}}
+
+
+-- =============================================================================
+-- TREE STRUCTURE
+-- =============================================================================
+--
+-- arena
+-- ├── units
+-- │   ├── snake_head (named 'head')
+-- │   │   ├── collider
+-- │   │   └── attack_spring
+-- │   ├── snake_follower (linked to head)
+-- │   │   ├── collider
+-- │   │   └── attack_spring
+-- │   ├── snake_follower (linked to head)
+-- │   └── ...
+-- ├── enemies
+-- │   ├── enemy
+-- │   │   ├── collider
+-- │   │   ├── hit_spring
+-- │   │   └── scale_spring
+-- │   └── ...
+-- ├── projectiles
+-- │   ├── projectile (linked to its owner unit)
+-- │   │   └── collider
+-- │   └── ...
+-- ├── pickups
+-- │   ├── gold
+-- │   │   ├── collider (sensor)
+-- │   │   └── scale_spring
+-- │   └── ...
+-- └── particles
+--     └── ...
+--
+-- =============================================================================
+
+
+-- =============================================================================
+-- HORIZONTAL LINKS DEMONSTRATED
+-- =============================================================================
+--
+-- 1. SNAKE FOLLOWERS -> HEAD
+--    All snake_follower units link to the head:
+--      @\link head, -> @\die!
+--    
+--    When head dies (game over), all followers automatically die with proper
+--    death effects. Without link, we'd need checks in every follower's update.
+--
+-- 2. PROJECTILES -> OWNER UNIT
+--    Each projectile links to the unit that fired it:
+--      @\link owner
+--    
+--    If a unit somehow dies while its projectiles are in flight, those
+--    projectiles die too. This prevents orphaned projectiles and ensures
+--    clean state.
+--
+-- These are HORIZONTAL dependencies (siblings under arena), not vertical
+-- (parent-child). The tree can't express them, so we use link.
+--
+-- =============================================================================
+
+
+-- =============================================================================
+-- CLASS METHODS VS NAMED ACTIONS
+-- =============================================================================
+--
+-- This example uses class methods for regular behavior. The engine
+-- automatically calls these methods if they exist:
+--
+--   class enemy extends object
+--     update: (dt) =>
+--       -- called during main phase
+--
+--     draw: (dt) =>
+--       -- called during late phase (rendering)
+--
+--     early_update: (dt) =>
+--       -- called during early phase
+--
+--     take_damage: (amount) =>
+--       -- called externally, NOT called by engine
+--
+-- No registration needed. Child classes can override methods naturally.
+--
+-- Named actions with X helper are for:
+--   - Inline anonymous objects (no class to put methods in)
+--   - Behavior that needs to be dynamically added/removed at runtime
+--
+-- =============================================================================
