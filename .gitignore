@@ -19,3 +19,6 @@ lua/*.lua
 
 # Session data (keep in .claude but not tracked)
 .claude/session-timestamps.log
+
+# Private game repos (nested git repos)
+games/
