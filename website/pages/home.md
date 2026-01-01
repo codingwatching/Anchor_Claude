@@ -14,12 +14,12 @@ To the left are sections that contain various documents:
 
 The contents of this website are uploaded daily [here](https://github.com/a327ex/Anchor/tree/main/website).  
 
-####
+#####
 
 <div id ="notes-list" class="archives-grid"></div>
 
 <div id="logs-list" class="archives-grid"></div>
 
-####
+###
 
 [a327ex](https://a327ex.com) · [GitHub](https://github.com/a327ex) · [Steam](https://store.steampowered.com/developer/a327ex) · [X](https://x.com/a327ex) 
