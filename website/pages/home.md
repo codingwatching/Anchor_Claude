@@ -12,11 +12,13 @@ To the left are sections that contain various documents:
 * logs: daily logs of my interactions with AI (auto-generated)
 * notes: notes about various topics, dev related or not
 
-The contents of this website are uploaded daily [here]().  
+The contents of this website are uploaded daily [here](https://github.com/a327ex/Anchor/tree/main/website).  
 
-###
+#### Notes
 
 <div id ="notes-list" class="archives-grid"></div>
+
+#### Logs
 
 <div id="logs-list" class="archives-grid"></div>
 
