@@ -6,13 +6,95 @@ Guidelines for Claude Code instances working on Anchor and games built with it.
 
 ## Read First
 
-Read `ANCHOR.md` before doing anything. It covers:
+Read `docs/ANCHOR.md` before doing anything. It covers:
 - The mental model (engine services vs object tree)
 - How objects, timers, springs, and colliders work
 - The action-based vs rules-based spectrum
 - Technical implementation details
 
 **For the reasoning behind these decisions** — why the engine works the way it does, how to evaluate new features, the developer's working style — see the [Anchor Context Brief](#anchor-context-brief) at the end of this document.
+
+---
+
+## Session Workflow
+
+**Every Claude Code session follows this workflow.**
+
+### During Session
+
+- Work normally on requested tasks
+- Update `docs/ANCHOR.md` when APIs or architecture changes
+- Update `docs/IMPLEMENTATION_PLAN.md` when tasks are completed
+- Update this file (`CLAUDE.md`) when new patterns or conventions are established
+
+### End of Session
+
+When the user says "let's wrap up" (or similar):
+
+1. **Write a summary** of what was accomplished (2-3 sentences + bullet points)
+
+2. **Locate the session transcript** - Find the current session's JSONL file:
+   ```bash
+   ls -t ~/.claude/projects/-home-adn-a327ex-Anchor/*.jsonl | head -1
+   ```
+
+3. **Convert to Markdown** - Run the converter:
+   ```bash
+   python3 scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/YYYY-MM-DD_HH-MM.md
+   ```
+
+4. **Prepend summary** to the log file (before the transcript)
+
+5. **Sync context files**:
+   ```bash
+   cp .claude/CLAUDE.md docs/* website/context/
+   ```
+
+6. **Commit with the summary as message**:
+   ```bash
+   git add -A
+   git commit -m "Summary here..."
+   ```
+
+7. **Push to GitHub**:
+   ```bash
+   git push origin main
+   ```
+
+8. **Push website to Blot**:
+   ```bash
+   git subtree push --prefix=website blot master
+   ```
+
+9. **Confirm** completion to the user
+
+### Log File Format
+
+```markdown
+# Session YYYY-MM-DD HH:MM
+
+## Summary
+Brief description of what was accomplished.
+- Bullet point 1
+- Bullet point 2
+
+---
+
+## Transcript
+
+> User message here
+
+⏺ ToolName (arguments)
+   ⎿ Result:
+...
+```
+
+### Accidental Closure
+
+If the terminal closes unexpectedly:
+- The JSONL transcript exists with everything up to that point
+- User can resume with `claude --continue`
+- Complete the end-of-session ritual when ready
 
 ---
 
