@@ -29,7 +29,11 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 ### End of Session
 
-When the user says "let's wrap up" (or similar), complete all steps before committing (one commit per session):
+**`/end`** → run the full workflow below (save transcript, commit, push)
+
+**`/end-no-save`** → just end the session without logging or committing
+
+When running the full workflow, complete all steps before committing (one commit per session):
 
 1. **Write a summary** of what was accomplished (2-3 sentences + bullet points)
 
