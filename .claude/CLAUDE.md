@@ -35,50 +35,54 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 When running the full workflow, complete all steps before committing (one commit per session):
 
-1. **Write a summary** of what was accomplished (2-3 sentences + bullet points)
+1. **Write a detailed summary** covering what was accomplished. If the conversation was compacted, read the compaction summaries or the full log to ensure the summary covers the entire session, not just the post-compaction part.
 
-2. **Locate the session transcript** - Find the current session's JSONL file:
+2. **Create a short title** (max 4 words) based on the summary. Do this after writing the summary so it accurately captures the session's focus.
+
+3. **Locate the session transcript** - Find the most recent JSONL file:
    ```bash
-   ls -t ~/.claude/projects/-home-adn-a327ex-Anchor/*.jsonl | head -1
+   ls -t ~/.claude/projects/-home-adn/*.jsonl | grep -v agent | head -1
    ```
 
-3. **Convert to Markdown** - Run the converter:
+4. **Convert to Markdown** - Run the converter:
    ```bash
    python3 scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/YYYY-MM-DD_HH-MM.md
    ```
 
-4. **Prepend summary** to the log file (before the transcript)
+5. **Prepend title + summary** to the log file (replace the default header)
 
-5. **Sync context files**:
+6. **Sync context files**:
    ```bash
    cp .claude/CLAUDE.md docs/* website/context/
    ```
 
-6. **Commit everything with the summary as message**:
+7. **Commit everything** with title as subject line and full summary as body:
    ```bash
    git add -A
-   git commit -m "Summary here..."
+   git commit -m "Title
+
+   Full summary here..."
    ```
 
-7. **Push to GitHub**:
+8. **Push to GitHub**:
    ```bash
    git push origin main
    ```
 
-8. **Push website to Blot**:
+9. **Push website to Blot**:
    ```bash
    git subtree push --prefix=website blot master
    ```
 
-9. **Confirm** completion to the user
+10. **Confirm** completion to the user
 
 ### Log File Format
 
 ```markdown
-# Session YYYY-MM-DD HH:MM
+# Short Title (Max 4 Words)
 
 ## Summary
-Brief description of what was accomplished.
+Detailed description of what was accomplished.
 - Bullet point 1
 - Bullet point 2
 
