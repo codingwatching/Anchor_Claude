@@ -1,0 +1,658 @@
+-- =============================================================================
+-- DUNGEON CRAWLER
+-- =============================================================================
+-- A turn-based roguelike. Move on a grid, enemies move when you move.
+-- No physics — pure rules-based logic.
+--
+-- Demonstrates:
+-- - Rules-based game (no colliders, no physics)
+-- - Turn-based updates (logic runs on input, not every frame)
+-- - Grid as data structure
+-- - Procedural dungeon generation
+-- - FOV / visibility
+-- - State management
+-- =============================================================================
+
+
+--{{{ CONFIGURATION
+
+CONFIG = {
+  width: 480
+  height: 270
+  
+  -- Grid
+  tile_size: 12
+  map_width: 38
+  map_height: 21
+  
+  -- Dungeon generation
+  room_min_size: 4
+  room_max_size: 8
+  max_rooms: 12
+  
+  -- Player
+  player_hp: 100
+  player_damage: 15
+  player_fov_radius: 8
+  
+  -- Enemies
+  enemy_hp: 30
+  enemy_damage: 8
+  
+  -- Tiles
+  FLOOR: 1
+  WALL: 2
+  STAIRS: 3
+  
+  colors: {
+    floor: 0x222233FF
+    floor_seen: 0x111122FF
+    wall: 0x445566FF
+    wall_seen: 0x223344FF
+    player: 0x44FF44FF
+    enemy: 0xFF4444FF
+    stairs: 0xFFFF44FF
+    hp_bar: 0x44AA44FF
+    hp_bg: 0x333333FF
+    fog: 0x000000FF
+  }
+}
+
+-- Offset for centering the map
+CONFIG.offset_x = (CONFIG.width - CONFIG.map_width * CONFIG.tile_size) / 2
+CONFIG.offset_y = (CONFIG.height - CONFIG.map_height * CONFIG.tile_size) / 2
+
+--}}}
+
+
+--{{{ UTILITIES
+
+-- Grid position to screen position
+grid_to_screen = (gx, gy) ->
+  CONFIG.offset_x + gx * CONFIG.tile_size + CONFIG.tile_size / 2,
+  CONFIG.offset_y + gy * CONFIG.tile_size + CONFIG.tile_size / 2
+
+-- Manhattan distance
+manhattan = (x1, y1, x2, y2) ->
+  math.abs(x2 - x1) + math.abs(y2 - y1)
+
+-- Euclidean distance
+distance = (x1, y1, x2, y2) ->
+  dx = x2 - x1
+  dy = y2 - y1
+  math.sqrt dx * dx + dy * dy
+
+-- Direction from key
+key_to_dir = (key) ->
+  switch key
+    when 'up' then 0, -1
+    when 'down' then 0, 1
+    when 'left' then -1, 0
+    when 'right' then 1, 0
+    when 'wait' then 0, 0
+    else nil, nil
+
+--}}}
+
+
+--{{{ MAP
+
+class game_map
+  new: (width, height) =>
+    @width = width
+    @height = height
+    @tiles = {}
+    @visible = {}
+    @explored = {}
+    @rooms = {}
+    
+    -- Initialize all walls
+    for y = 0, height - 1
+      @tiles[y] = {}
+      @visible[y] = {}
+      @explored[y] = {}
+      for x = 0, width - 1
+        @tiles[y][x] = CONFIG.WALL
+        @visible[y][x] = false
+        @explored[y][x] = false
+
+  get: (x, y) =>
+    return CONFIG.WALL if x < 0 or x >= @width or y < 0 or y >= @height
+    @tiles[y][x]
+
+  set: (x, y, tile) =>
+    return if x < 0 or x >= @width or y < 0 or y >= @height
+    @tiles[y][x] = tile
+
+  is_walkable: (x, y) =>
+    tile = @\get x, y
+    tile == CONFIG.FLOOR or tile == CONFIG.STAIRS
+
+  is_visible: (x, y) =>
+    return false if x < 0 or x >= @width or y < 0 or y >= @height
+    @visible[y][x]
+
+  is_explored: (x, y) =>
+    return false if x < 0 or x >= @width or y < 0 or y >= @height
+    @explored[y][x]
+
+  -- Carve a rectangular room
+  carve_room: (x, y, w, h) =>
+    for ry = y, y + h - 1
+      for rx = x, x + w - 1
+        @\set rx, ry, CONFIG.FLOOR
+
+  -- Carve a horizontal tunnel
+  carve_h_tunnel: (x1, x2, y) =>
+    for x = math.min(x1, x2), math.max(x1, x2)
+      @\set x, y, CONFIG.FLOOR
+
+  -- Carve a vertical tunnel
+  carve_v_tunnel: (y1, y2, x) =>
+    for y = math.min(y1, y2), math.max(y1, y2)
+      @\set x, y, CONFIG.FLOOR
+
+  -- Generate dungeon with rooms and corridors
+  generate: =>
+    for i = 1, CONFIG.max_rooms
+      w = an\random_int CONFIG.room_min_size, CONFIG.room_max_size
+      h = an\random_int CONFIG.room_min_size, CONFIG.room_max_size
+      x = an\random_int 1, @width - w - 2
+      y = an\random_int 1, @height - h - 2
+      
+      -- Check for overlap with existing rooms
+      overlaps = false
+      new_room = {x: x, y: y, w: w, h: h}
+      new_room.cx = math.floor x + w / 2
+      new_room.cy = math.floor y + h / 2
+      
+      for room in *@rooms
+        if x <= room.x + room.w + 1 and x + w + 1 >= room.x and
+           y <= room.y + room.h + 1 and y + h + 1 >= room.y
+          overlaps = true
+          break
+      
+      unless overlaps
+        @\carve_room x, y, w, h
+        
+        -- Connect to previous room
+        if #@rooms > 0
+          prev = @rooms[#@rooms]
+          if an\random_int(0, 1) == 0
+            @\carve_h_tunnel prev.cx, new_room.cx, prev.cy
+            @\carve_v_tunnel prev.cy, new_room.cy, new_room.cx
+          else
+            @\carve_v_tunnel prev.cy, new_room.cy, prev.cx
+            @\carve_h_tunnel prev.cx, new_room.cx, new_room.cy
+        
+        table.insert @rooms, new_room
+    
+    -- Place stairs in last room
+    if #@rooms > 0
+      last = @rooms[#@rooms]
+      @\set last.cx, last.cy, CONFIG.STAIRS
+
+  -- Simple raycasting FOV
+  compute_fov: (px, py, radius) =>
+    -- Clear visibility
+    for y = 0, @height - 1
+      for x = 0, @width - 1
+        @visible[y][x] = false
+    
+    -- Cast rays in all directions
+    steps = 360
+    for i = 0, steps - 1
+      angle = i * 2 * math.pi / steps
+      dx = math.cos angle
+      dy = math.sin angle
+      
+      x, y = px + 0.5, py + 0.5
+      for d = 0, radius
+        tx, ty = math.floor(x), math.floor(y)
+        break if tx < 0 or tx >= @width or ty < 0 or ty >= @height
+        
+        @visible[ty][tx] = true
+        @explored[ty][tx] = true
+        
+        break if @tiles[ty][tx] == CONFIG.WALL
+        
+        x += dx * 0.5
+        y += dy * 0.5
+
+  draw: =>
+    for y = 0, @height - 1
+      for x = 0, @width - 1
+        tile = @tiles[y][x]
+        visible = @visible[y][x]
+        explored = @explored[y][x]
+        
+        continue unless explored
+        
+        sx, sy = grid_to_screen x, y
+        half = CONFIG.tile_size / 2
+        
+        color = if visible
+          switch tile
+            when CONFIG.FLOOR then CONFIG.colors.floor
+            when CONFIG.WALL then CONFIG.colors.wall
+            when CONFIG.STAIRS then CONFIG.colors.stairs
+        else
+          switch tile
+            when CONFIG.FLOOR then CONFIG.colors.floor_seen
+            when CONFIG.WALL then CONFIG.colors.wall_seen
+            when CONFIG.STAIRS then CONFIG.colors.floor_seen
+        
+        game\rectangle sx - half, sy - half, CONFIG.tile_size, CONFIG.tile_size, 0, 0, color
+
+--}}}
+
+
+--{{{ ENTITIES
+
+-- Base entity (grid-based, no physics)
+class entity extends object
+  new: (gx, gy, name) =>
+    super name
+    @gx, @gy = gx, gy  -- Grid position
+    @hp = 10
+    @max_hp = 10
+    @damage = 5
+    @\timer!
+    
+    -- Visual interpolation
+    @x, @y = grid_to_screen gx, gy
+    @target_x, @target_y = @x, @y
+    
+    @ + spring 'hit', 1, 300, 10
+    @ + spring 'attack', 1, 300, 15
+
+  -- Try to move to a grid position
+  try_move: (dx, dy) =>
+    new_gx = @gx + dx
+    new_gy = @gy + dy
+    
+    -- Check map
+    return false unless arena.map\is_walkable new_gx, new_gy
+    
+    -- Check for entity blocking
+    blocker = arena\get_entity_at new_gx, new_gy
+    if blocker
+      @\on_bump blocker
+      return false
+    
+    @\move_to new_gx, new_gy
+    true
+
+  move_to: (gx, gy) =>
+    @gx, @gy = gx, gy
+    @target_x, @target_y = grid_to_screen gx, gy
+
+  on_bump: (other) =>
+    -- Override in subclasses
+
+  take_damage: (amount, attacker) =>
+    @hp -= amount
+    @hit\pull 0.4
+    
+    if @hp <= 0
+      @\die!
+
+  die: =>
+    arena\add_message "#{@name or 'Something'} dies!"
+    @\kill!
+
+  update_visual: (dt) =>
+    -- Smooth movement
+    @x += (@target_x - @x) * 15 * dt
+    @y += (@target_y - @y) * 15 * dt
+
+
+-- Player
+class player extends entity
+  new: (gx, gy) =>
+    super gx, gy, 'player'
+    @hp = CONFIG.player_hp
+    @max_hp = CONFIG.player_hp
+    @damage = CONFIG.player_damage
+    @floor = 1
+
+  on_bump: (other) =>
+    if other\is 'enemy'
+      @\attack_entity other
+
+  attack_entity: (target) =>
+    @attack\pull 0.3
+    target\take_damage @damage, @
+    arena\add_message "You hit #{target.name} for #{@damage} damage!"
+
+  check_stairs: =>
+    if arena.map\get(@gx, @gy) == CONFIG.STAIRS
+      @floor += 1
+      arena\generate_floor!
+      arena\add_message "You descend to floor #{@floor}..."
+
+  die: =>
+    arena\add_message "You have died!"
+    arena.game_over = true
+    @\kill!
+
+
+-- Enemy with simple AI
+class enemy extends entity
+  new: (gx, gy, name) =>
+    super gx, gy, name
+    @name = name or 'Goblin'
+    @hp = CONFIG.enemy_hp
+    @max_hp = CONFIG.enemy_hp
+    @damage = CONFIG.enemy_damage
+    
+    @\tag 'enemy'
+
+  on_bump: (other) =>
+    if other.name == 'player'
+      @\attack_entity other
+
+  attack_entity: (target) =>
+    @attack\pull 0.3
+    target\take_damage @damage, @
+    arena\add_message "#{@name} hits you for #{@damage} damage!"
+
+  -- Simple AI: move toward player if visible
+  take_turn: =>
+    return unless arena.player
+    return if @dead
+    
+    px, py = arena.player.gx, arena.player.gy
+    
+    -- Only act if visible to player
+    return unless arena.map\is_visible @gx, @gy
+    
+    -- Calculate direction toward player
+    dx = 0
+    dy = 0
+    
+    if px < @gx then dx = -1
+    elseif px > @gx then dx = 1
+    
+    if py < @gy then dy = -1
+    elseif py > @gy then dy = 1
+    
+    -- Try to move (prefer axis with larger distance)
+    if math.abs(px - @gx) > math.abs(py - @gy)
+      @\try_move(dx, 0) or @\try_move(0, dy) if dx != 0 or dy != 0
+    else
+      @\try_move(0, dy) or @\try_move(dx, 0) if dx != 0 or dy != 0
+
+  draw: (dt) =>
+    return unless arena.map\is_visible @gx, @gy
+    
+    @\update_visual dt
+    
+    s = @hit.x * @attack.x
+    game\push @x, @y, 0, s, s
+    game\circle 0, 0, CONFIG.tile_size / 2 - 2, CONFIG.colors.enemy
+    game\pop!
+
+--}}}
+
+
+--{{{ ARENA
+
+class arena extends object
+  new: =>
+    super 'arena'
+    @game_over = false
+    @messages = {}
+    @max_messages = 5
+    
+    @\timer!
+    
+    -- Input bindings
+    an\input_bind 'up', {'key:w', 'key:up'}
+    an\input_bind 'down', {'key:s', 'key:down'}
+    an\input_bind 'left', {'key:a', 'key:left'}
+    an\input_bind 'right', {'key:d', 'key:right'}
+    an\input_bind 'wait', {'key:space', 'key:.'}
+    
+    -- Containers
+    @ + E 'entities'
+    
+    -- Generate first floor
+    @\generate_floor!
+
+  generate_floor: =>
+    -- Clear entities
+    if @entities
+      for child in *@entities.children
+        child\kill!
+    
+    -- Generate map
+    @map = game_map CONFIG.map_width, CONFIG.map_height
+    @map\generate!
+    
+    -- Place player in first room
+    if #@map.rooms > 0
+      first = @map.rooms[1]
+      if @player
+        @player.gx, @player.gy = first.cx, first.cy
+        @player.x, @player.y = grid_to_screen first.cx, first.cy
+        @player.target_x, @player.target_y = @player.x, @player.y
+      else
+        @player = player first.cx, first.cy
+        @player >> @entities
+    
+    -- Spawn enemies in other rooms
+    for i = 2, #@map.rooms
+      room = @map.rooms[i]
+      -- Don't spawn in stairs room
+      continue if i == #@map.rooms
+      
+      -- 1-2 enemies per room
+      num_enemies = an\random_int 1, 2
+      for j = 1, num_enemies
+        ex = an\random_int room.x + 1, room.x + room.w - 2
+        ey = an\random_int room.y + 1, room.y + room.h - 2
+        
+        -- Don't spawn on player
+        continue if ex == @player.gx and ey == @player.gy
+        
+        names = {'Goblin', 'Orc', 'Rat', 'Skeleton'}
+        name = names[an\random_int 1, #names]
+        enemy(ex, ey, name) >> @entities
+    
+    -- Compute initial FOV
+    @map\compute_fov @player.gx, @player.gy, CONFIG.player_fov_radius
+
+  get_entity_at: (gx, gy) =>
+    for child in *@entities.children
+      continue if child.dead
+      if child.gx == gx and child.gy == gy
+        return child
+    nil
+
+  add_message: (text) =>
+    table.insert @messages, 1, text
+    while #@messages > @max_messages
+      table.remove @messages
+
+  -- Process a turn
+  process_turn: =>
+    -- Enemies take turns
+    for child in *@entities.children
+      if child\is 'enemy'
+        child\take_turn!
+    
+    -- Recompute FOV
+    @map\compute_fov @player.gx, @player.gy, CONFIG.player_fov_radius
+
+  update: (dt) =>
+    return if @game_over
+    
+    -- Check for input (turn-based)
+    moved = false
+    for key in *{'up', 'down', 'left', 'right', 'wait'}
+      if an\is_pressed key
+        dx, dy = key_to_dir key
+        if dx and dy
+          if @player\try_move dx, dy
+            moved = true
+          elseif dx == 0 and dy == 0  -- Wait
+            moved = true
+    
+    if moved
+      @player\check_stairs!
+      @\process_turn!
+
+  draw: (dt) =>
+    -- Draw map
+    @map\draw!
+    
+    -- Draw entities
+    for child in *@entities.children
+      continue if child.dead
+      continue if child.name == 'player'  -- Draw player last
+      if child.draw
+        child\draw dt
+    
+    -- Draw player
+    if @player and not @player.dead
+      @player\update_visual dt
+      s = @player.hit.x * @player.attack.x
+      game\push @player.x, @player.y, 0, s, s
+      game\circle 0, 0, CONFIG.tile_size / 2 - 1, CONFIG.colors.player
+      game\pop!
+    
+    -- UI
+    @\draw_ui!
+
+  draw_ui: =>
+    -- HP bar
+    bar_w, bar_h = 80, 8
+    bar_x, bar_y = 10, 10
+    
+    if @player
+      hp_ratio = math.max 0, @player.hp / @player.max_hp
+      ui\rectangle bar_x, bar_y, bar_w, bar_h, 0, 0, CONFIG.colors.hp_bg
+      ui\rectangle bar_x, bar_y, bar_w * hp_ratio, bar_h, 0, 0, CONFIG.colors.hp_bar
+      ui\draw_text "HP: #{@player.hp}/#{@player.max_hp}", 'default', bar_x, bar_y + bar_h + 4, 0xFFFFFFFF
+      ui\draw_text "Floor #{@player.floor}", 'default', bar_x + bar_w + 10, bar_y, 0xFFFFFFFF
+    
+    -- Messages
+    msg_y = CONFIG.height - 14 * #@messages - 10
+    for i, msg in ipairs @messages
+      alpha = math.floor(255 * (1 - (i - 1) / @max_messages))
+      color = 0xFFFFFF00 + alpha
+      ui\draw_text msg, 'default', 10, msg_y + (i - 1) * 14, color
+    
+    -- Game over
+    if @game_over
+      ui\draw_text "GAME OVER", 'large', CONFIG.width / 2 - 50, CONFIG.height / 2 - 20, 0xFF4444FF
+      ui\draw_text "Press R to restart", 'default', CONFIG.width / 2 - 50, CONFIG.height / 2 + 10, 0xAAAAAAFF
+
+--}}}
+
+
+--{{{ MAIN
+
+init = ->
+  export game = an\layer 'game'
+  export effects = an\layer 'effects'
+  export ui = an\layer 'ui'
+  
+  an\font_load 'default', 'assets/fonts/default.ttf', 12
+  an\font_load 'large', 'assets/fonts/default.ttf', 24
+  
+  an\random_seed os.time!
+  
+  export arena = arena!
+
+an.init = init
+
+--}}}
+
+
+-- =============================================================================
+-- TREE STRUCTURE
+-- =============================================================================
+--
+-- arena
+-- └── entities
+--     ├── player
+--     │   ├── hit_spring
+--     │   └── attack_spring
+--     ├── enemy 'Goblin'
+--     │   ├── hit_spring
+--     │   └── attack_spring
+--     ├── enemy 'Orc'
+--     └── ...
+--
+-- Note: The map is NOT a tree object — it's pure data (2D array of tiles).
+-- Only entities that need update/draw/death semantics are tree objects.
+--
+-- =============================================================================
+
+
+-- =============================================================================
+-- RULES-BASED DESIGN
+-- =============================================================================
+--
+-- This game has NO PHYSICS. All game logic is rules-based:
+--
+-- 1. MOVEMENT
+--    - Grid-based: entities have (gx, gy) grid coordinates
+--    - Movement checks map.is_walkable() and get_entity_at()
+--    - Visual interpolation (x, y) is purely cosmetic
+--
+-- 2. TURN ORDER
+--    - Player acts on input (not every frame)
+--    - After player acts, all enemies take_turn()
+--    - Time only advances on player action
+--
+-- 3. COMBAT
+--    - on_bump() is called when movement is blocked by entity
+--    - Damage is immediate, no projectiles, no physics
+--
+-- 4. VISIBILITY
+--    - FOV computed with raycasting (pure math, no physics)
+--    - Explored tiles remembered, visible tiles updated each turn
+--
+-- 5. DUNGEON GENERATION
+--    - Rooms carved into wall grid
+--    - Corridors connect room centers
+--    - Pure data manipulation, no spawning physics bodies
+--
+-- The only per-frame updates are:
+--    - Visual interpolation (smoothing grid movement)
+--    - Spring animations (hit/attack feedback)
+--    - Drawing
+--
+-- Game state changes only happen during process_turn().
+--
+-- =============================================================================
+
+
+-- =============================================================================
+-- MAP AS DATA, NOT OBJECTS
+-- =============================================================================
+--
+-- The map is a game_map instance (plain class), not an object in the tree.
+-- It holds:
+--    - tiles[y][x]: terrain type
+--    - visible[y][x]: currently in FOV
+--    - explored[y][x]: ever been seen
+--
+-- This is appropriate because the map:
+--    - Doesn't need update() called every frame
+--    - Doesn't need death propagation
+--    - Is queried by entities, not a participant in game logic
+--
+-- Entities ARE tree objects because they:
+--    - Have springs (children)
+--    - Can die and be removed
+--    - Participate in the action system
+--
+-- Not everything needs to be a tree object. Use the tree for things that
+-- benefit from its semantics (update, death, children). Use plain data
+-- structures for static or queried data.
+--
+-- =============================================================================
