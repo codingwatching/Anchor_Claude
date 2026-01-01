@@ -29,7 +29,7 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 ### End of Session
 
-When the user says "let's wrap up" (or similar):
+When the user says "let's wrap up" (or similar), complete all steps before committing (one commit per session):
 
 1. **Write a summary** of what was accomplished (2-3 sentences + bullet points)
 
@@ -50,7 +50,7 @@ When the user says "let's wrap up" (or similar):
    cp .claude/CLAUDE.md docs/* website/context/
    ```
 
-6. **Commit with the summary as message**:
+6. **Commit everything with the summary as message**:
    ```bash
    git add -A
    git commit -m "Summary here..."
