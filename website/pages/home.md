@@ -2,7 +2,7 @@ Title:
 Menu: no
 Link: /
 
-This website serves as a devlog for my work during 2026. In 2025, I worked on [It Follows](https://a327ex.com/posts/it_follows) to hone my skills as a writer.
+This site serves as a devlog for my work during 2026. In 2025, I worked on [It Follows](https://a327ex.com/posts/it_follows) to hone my skills as a writer.
 In 2026, I'm working on games by using the new AI models (i.e. Opus 4.5) to help with my engine's rewrite and with designing and coding the games themselves.
 
 To the left are sections that contain various documents:
@@ -14,14 +14,12 @@ To the left are sections that contain various documents:
 
 The contents of this website are uploaded daily [here](https://github.com/a327ex/Anchor/tree/main/website).  
 
-#### Notes
+####
 
 <div id ="notes-list" class="archives-grid"></div>
 
-#### Logs
-
 <div id="logs-list" class="archives-grid"></div>
 
-###
+####
 
 [a327ex](https://a327ex.com) · [GitHub](https://github.com/a327ex) · [Steam](https://store.steampowered.com/developer/a327ex) · [X](https://x.com/a327ex) 
