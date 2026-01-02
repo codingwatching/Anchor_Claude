@@ -15,8 +15,8 @@ def format_tool_input(tool_name, tool_input):
         return f"({tool_input.get('file_path', '')})"
     elif tool_name == "Bash":
         cmd = tool_input.get('command', '')
-        if len(cmd) > 60:
-            cmd = cmd[:60] + "..."
+        if len(cmd) > 80:
+            cmd = cmd[:80] + "..."
         return f"({cmd})"
     elif tool_name == "WebFetch":
         return f"({tool_input.get('url', '')})"
@@ -31,22 +31,22 @@ def format_tool_input(tool_name, tool_input):
     else:
         return ""
 
-def format_tool_result(content, max_lines=20):
+def format_tool_result(result, max_lines=30):
     """Format tool result, truncating if needed."""
-    if isinstance(content, list):
-        # Tool result array
-        for item in content:
-            if item.get('type') == 'tool_result':
-                return format_tool_result(item.get('content', ''), max_lines)
-        return ""
+    if isinstance(result, list):
+        result = json.dumps(result, indent=2)
+    elif not isinstance(result, str):
+        result = str(result)
 
-    if not isinstance(content, str):
-        return str(content)[:500]
+    # Clean up system reminders
+    if '<system-reminder>' in result:
+        result = result[:result.find('<system-reminder>')].strip()
 
-    lines = content.split('\n')
+    lines = result.split('\n')
     if len(lines) > max_lines:
-        return '\n'.join(lines[:max_lines]) + f"\n... [{len(lines) - max_lines} more lines]"
-    return content
+        result = '\n'.join(lines[:max_lines]) + f"\n... [{len(lines) - max_lines} more lines]"
+
+    return result
 
 def convert_jsonl_to_markdown(jsonl_path, output_path=None):
     """Convert JSONL transcript to Markdown."""
@@ -64,11 +64,8 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                 continue
 
     # Extract session start time
-    session_id = None
     start_time = None
     for msg in messages:
-        if msg.get('sessionId'):
-            session_id = msg['sessionId']
         if msg.get('timestamp') and not start_time:
             start_time = msg['timestamp']
             break
@@ -81,7 +78,7 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
         header = "# Session\n\n---\n\n"
 
     output = header
-    pending_tool_uses = {}  # Track tool uses waiting for results
+    pending_tools = {}  # tool_id -> (tool_name, formatted_input)
 
     for msg in messages:
         msg_type = msg.get('type')
@@ -101,24 +98,18 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                     tool_id = item.get('tool_use_id')
                     result = item.get('content', '')
 
-                    # Handle list results first
-                    if isinstance(result, list):
-                        result = json.dumps(result, indent=2)
-                    elif not isinstance(result, str):
-                        result = str(result)
+                    # Get the pending tool info
+                    tool_info = pending_tools.pop(tool_id, None)
 
-                    # Clean up result (remove system reminders)
-                    if '<system-reminder>' in result:
-                        result = result[:result.find('<system-reminder>')].strip()
+                    if tool_info:
+                        tool_name, formatted_input = tool_info
+                        result_text = format_tool_result(result)
 
-                    if result:
-
-                        # Truncate long results
-                        lines = result.split('\n')
-                        if len(lines) > 30:
-                            result = '\n'.join(lines[:30]) + f"\n... [{len(lines) - 30} more lines]"
-
-                        output += f"&nbsp;&nbsp;&nbsp;⎿ Result:\n\n```\n{result}\n```\n\n"
+                        # Output tool call and result in a single code block
+                        output += f"```\n{tool_name} {formatted_input}\n"
+                        if result_text:
+                            output += f"\nResult:\n{result_text}\n"
+                        output += "```\n\n"
 
         # Assistant message
         elif msg_type == 'assistant' and isinstance(content, list):
@@ -136,12 +127,10 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                     tool_id = item.get('id')
 
                     formatted_input = format_tool_input(tool_name, tool_input)
-                    # Two spaces before newline for markdown line break
-                    output += f"⏺ {tool_name} {formatted_input}  \n"
 
                     # Store for matching with result
                     if tool_id:
-                        pending_tool_uses[tool_id] = tool_name
+                        pending_tools[tool_id] = (tool_name, formatted_input)
 
     if output_path:
         with open(output_path, 'w') as f:
