@@ -8,7 +8,7 @@ This analysis attempts to map the full possibility space of how roguelites handl
 
 ## The Framework
 
-I'll organize these into categories: **Acquisition**, **Management**, **Information**, **Progression**, and **Meta**.
+The axes are organized into categories: **Acquisition**, **Management**, **Information**, **Progression**, **Meta**, and **Experience**.
 
 ---
 
@@ -27,6 +27,18 @@ These govern HOW and WHEN you get power.
 | **Milestone** | At specific progression points | Monster Train champion upgrades |
 | **Reactive** | In response to situations (find, then decide) | FTL event choices |
 | **Continuous** | Constant stream of micro-decisions | TFT shop every round |
+
+#### Pacing
+*What triggers upgrade opportunities?*
+
+| Value | Description | Example |
+|-------|-------------|---------|
+| **Fixed interval** | Every N rooms/waves/minutes | Vampire Survivors level-ups |
+| **Performance-based** | Better play = more upgrades | Skill-gated rewards |
+| **Resource-gated** | Spend currency to upgrade | Shops, FTL scrap |
+| **Event-triggered** | Tied to specific encounters | Boss rewards |
+| **Player-controlled** | Choose when to upgrade | Strategic timing of purchases |
+| **Continuous** | Constant small increments | Idle game mechanics |
 
 ### 2. Distribution Timing
 *When do powers become available to use?*
@@ -61,13 +73,24 @@ These govern HOW and WHEN you get power.
 | **Forced** | Negatives accumulate regardless | Corruption in Curse of the Dead Gods |
 | **Traded** | Must sacrifice to gain | Darkest Dungeon stress |
 
+### 5. Scarcity
+*How abundant or rare are power options?*
+
+| Value | Description | Example |
+|-------|-------------|---------|
+| **Abundant** | Constant stream of options, more than you can take | Vampire Survivors (frequent level-ups) |
+| **Moderate** | Enough options but meaningful constraints | Slay the Spire (can't take everything) |
+| **Scarce** | Limited resources, must prioritize carefully | FTL (limited scrap) |
+| **Competitive** | Shared pool, taking denies others | TFT (other players reduce availability) |
+| **Drought/Feast** | Alternating periods of scarcity and abundance | Some games with resource cycles |
+
 ---
 
 ## MANAGEMENT AXES
 
 These govern how you HANDLE power once acquired.
 
-### 5. Reversibility
+### 6. Reversibility
 *Can you undo or change power choices?*
 
 | Value | Description | Example |
@@ -79,7 +102,17 @@ These govern how you HANDLE power once acquired.
 | **Sellable** | Trade back for resources | Super Auto Pets selling units |
 | **Fluid** | Continuous reorganization | Backpack Hero spatial arrangement |
 
-### 6. Capacity
+#### Commitment Weight
+*How heavy does each choice feel?*
+
+| Value | Description | Example |
+|-------|-------------|---------|
+| **Light** | Easy to undo or replace, low stakes per choice | Super Auto Pets (can sell immediately) |
+| **Medium** | Permanent but many opportunities to choose | Hades (permanent but frequent choices) |
+| **Heavy** | Few choices, each shapes the run significantly | Monster Train champion path |
+| **Critical** | One or two choices determine everything | Into the Breach team choice |
+
+### 7. Capacity
 *How many powers can you have?*
 
 | Value | Description | Example |
@@ -90,7 +123,7 @@ These govern how you HANDLE power once acquired.
 | **Contextual** | Different limits for different types | Isaac (unlimited passives, 1-2 actives) |
 | **Dynamic** | Capacity itself can change | Backpack size upgrades |
 
-### 7. Interaction
+### 8. Interaction
 *How do powers relate to each other?*
 
 | Value | Description | Example |
@@ -102,7 +135,7 @@ These govern how you HANDLE power once acquired.
 | **Competitive** | Powers vie for limited resource | Mana/energy allocation |
 | **Systemic** | Complex emergent interactions | Noita spell combinations |
 
-### 8. Upgrade Depth
+### 9. Upgrade Depth
 *How much can individual powers grow?*
 
 | Value | Description | Example |
@@ -113,13 +146,23 @@ These govern how you HANDLE power once acquired.
 | **Infinite** | Keep stacking/improving | Risk of Rain 2 item stacking |
 | **Evolutionary** | Transforms into something else | Vampire Survivors weapon evolutions |
 
+### 10. Power Source Diversity
+*Where does power come from?*
+
+| Value | Description | Example |
+|-------|-------------|---------|
+| **Single source** | One system provides all power | Vampire Survivors (just upgrades) |
+| **Dual source** | Two distinct systems contribute | Hades (boons + weapon aspects) |
+| **Multi-source** | Several independent power systems | Isaac (items + pills + cards + trinkets + stats) |
+| **Interconnected** | Multiple systems that affect each other | Darkest Dungeon (heroes + trinkets + skills + provisions + stress) |
+
 ---
 
 ## INFORMATION AXES
 
 These govern what you KNOW about power.
 
-### 9. Visibility
+### 11. Visibility
 *What can you see about available powers?*
 
 | Value | Description | Example |
@@ -131,7 +174,7 @@ These govern what you KNOW about power.
 | **Obscured** | Some information hidden | Unknown item effects until used |
 | **Blind** | No information | Gacha pulls, mystery boxes |
 
-### 10. Comprehension
+### 12. Comprehension
 *Do you understand what powers do?*
 
 | Value | Description | Example |
@@ -148,7 +191,7 @@ These govern what you KNOW about power.
 
 These govern how power CHANGES over time.
 
-### 11. Growth Pattern
+### 13. Growth Pattern
 *How does total power change through the run?*
 
 | Value | Description | Example |
@@ -159,29 +202,6 @@ These govern how power CHANGES over time.
 | **Transformative** | Changing form, not necessarily growing | Build pivots in TFT |
 | **Oscillating** | Power ebbs and flows | Loop Hero (stronger each loop, but so is world) |
 | **Plateau** | Diminishing returns, power cap | Some balanced roguelites |
-
-### 12. Pacing
-*When do upgrade opportunities occur?*
-
-| Value | Description | Example |
-|-------|-------------|---------|
-| **Fixed interval** | Every N rooms/waves/minutes | Vampire Survivors level-ups |
-| **Performance-based** | Better play = more upgrades | Skill-gated rewards |
-| **Resource-gated** | Spend currency to upgrade | Shops, FTL scrap |
-| **Event-triggered** | Tied to specific encounters | Boss rewards |
-| **Player-controlled** | Choose when to upgrade | Strategic timing of purchases |
-| **Continuous** | Constant small increments | Idle game mechanics |
-
-### 13. Difficulty Coupling
-*How does difficulty relate to power?*
-
-| Value | Description | Example |
-|-------|-------------|---------|
-| **Fixed** | Difficulty doesn't scale with power | Fixed enemy stats |
-| **Time-scaled** | Difficulty increases over time regardless | Risk of Rain 2 difficulty timer |
-| **Power-scaled** | Difficulty responds to player power | Adaptive difficulty |
-| **Player-chosen** | Player controls difficulty | Heat system in Hades |
-| **Oscillating** | Difficulty varies deliberately | Easy/hard areas in sequence |
 
 ---
 
@@ -223,3 +243,19 @@ These govern persistence and starting conditions.
 | **Emergent** | Identity emerges from opportunities | Isaac "became a poison build" |
 | **Fluid** | Can pivot throughout | TFT reroll compositions |
 | **Convergent** | All runs approach similar end state | Limited viable builds |
+
+---
+
+## EXPERIENCE AXES
+
+These govern how the player ENGAGES with power decisions.
+
+### 17. Skill vs Build Ratio
+*What matters more for success?*
+
+| Value | Description | Example |
+|-------|-------------|---------|
+| **Execution-dominant** | Player skill matters most, build is secondary | Spelunky (items help but skill dominates) |
+| **Build-dominant** | Right build matters most, execution is secondary | Vampire Survivors (right build plays itself) |
+| **Balanced** | Both contribute meaningfully | Hades, Slay the Spire |
+| **Knowledge-dominant** | Knowing interactions/mechanics matters most | Isaac (knowing item interactions matters most) |
