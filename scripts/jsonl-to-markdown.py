@@ -3,6 +3,7 @@
 
 import json
 import sys
+import re
 from datetime import datetime
 
 def format_tool_input(tool_name, tool_input):
@@ -48,6 +49,20 @@ def format_tool_result(result, max_lines=30):
 
     return result
 
+def is_system_message(content):
+    """Check if a user message is actually internal system output."""
+    system_patterns = [
+        r'^Caveat:',
+        r'<command-name>',
+        r'<local-command-stdout>',
+        r'<command-message>',
+        r'<command-args>',
+    ]
+    for pattern in system_patterns:
+        if re.search(pattern, content):
+            return True
+    return False
+
 def convert_jsonl_to_markdown(jsonl_path, output_path=None):
     """Convert JSONL transcript to Markdown."""
 
@@ -89,7 +104,11 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
 
         # User message (plain text)
         if msg_type == 'user' and isinstance(content, str):
-            output += f"> {content}\n\n"
+            # Check if it's internal system output
+            if is_system_message(content):
+                output += f"````\n{content}\n````\n\n"
+            else:
+                output += f"> {content}\n\n"
 
         # User message (tool results)
         elif msg_type == 'user' and isinstance(content, list):
@@ -106,10 +125,11 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                         result_text = format_tool_result(result)
 
                         # Output tool call and result in a single code block
-                        output += f"```\n{tool_name} {formatted_input}\n"
+                        # Use 4 backticks to allow nested code blocks in results
+                        output += f"````\n{tool_name} {formatted_input}\n"
                         if result_text:
                             output += f"\nResult:\n{result_text}\n"
-                        output += "```\n\n"
+                        output += "````\n\n"
 
         # Assistant message
         elif msg_type == 'assistant' and isinstance(content, list):
