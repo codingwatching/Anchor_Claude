@@ -49,9 +49,9 @@ zsh: command not found: kwriteconfig5
 
 Plasma 6 uses different commands. Let me try again:
 
-`Bash (kwriteconfig6 --file kwinrc --group NightColor --key Active true && kwriteconfig...)`
+> `Bash (kwriteconfig6 --file kwinrc --group NightColor --key Active true && kwriteconfig...)`
 
-`Bash (qdbus6 org.kde.KWin /org/kde/KWin/NightColor org.kde.KWin.NightColor.setRunning ...)`
+> `Bash (qdbus6 org.kde.KWin /org/kde/KWin/NightColor org.kde.KWin.NightColor.setRunning ...)`
 
 <details>
 <summary><code>Bash (qdbus6 org.kde.KWin /org/kde/KWin/NightColor 2>/dev/null || qdbus org.kde.KWin /...)</code></summary>
@@ -374,7 +374,7 @@ After saving, the taskbar icon will use the new launcher.
 
 > Please do that yourself.
 
-`Bash (cp /usr/share/applications/google-chrome.desktop ~/.local/share/applications/)`
+> `Bash (cp /usr/share/applications/google-chrome.desktop ~/.local/share/applications/)`
 
 <details>
 <summary><code>Read (/home/adn/.local/share/applications/google-chrome.desktop)</code></summary>
@@ -575,7 +575,7 @@ File created successfully at: /home/adn/.config/kwinrulesrc
 
 </details>
 
-`Bash (dbus-send --type=signal --dest=org.kde.KWin /KWin org.kde.KWin.reloadConfig 2>/d...)`
+> `Bash (dbus-send --type=signal --dest=org.kde.KWin /KWin org.kde.KWin.reloadConfig 2>/d...)`
 
 Done. Close Chrome and reopen it - it should spawn on the left monitor (DP-2). Let me know if it goes to the wrong one and I'll swap the screen number.
 
@@ -597,7 +597,7 @@ The file /home/adn/.config/kwinrulesrc has been updated. Here's the result of ru
 
 </details>
 
-`Bash (dbus-send --type=signal --dest=org.kde.KWin /KWin org.kde.KWin.reloadConfig 2>/d...)`
+> `Bash (dbus-send --type=signal --dest=org.kde.KWin /KWin org.kde.KWin.reloadConfig 2>/d...)`
 
 Try again now - changed to screen 0.
 
@@ -625,7 +625,7 @@ The file /home/adn/.config/kwinrulesrc has been updated. Here's the result of ru
 
 </details>
 
-`Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
+> `Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
 
 Try again - now using output name "DP-2" directly with Force rule.
 
@@ -653,7 +653,7 @@ The file /home/adn/.config/kwinrulesrc has been updated. Here's the result of ru
 
 </details>
 
-`Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
+> `Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
 
 Try now - forcing position to 100,100 which should be on the left monitor.
 
@@ -675,7 +675,7 @@ yay -S discord
 
 > Installed. Can you run it for me?
 
-`Bash (discord &>/dev/null &)`
+> `Bash (discord &>/dev/null &)`
 
 Discord should be opening now.
 
@@ -708,13 +708,13 @@ The file /home/adn/.config/kwinrulesrc has been updated. Here's the result of ru
 
 </details>
 
-`Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
+> `Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
 
 Done. Close and reopen Discord to test.
 
 > Please run it.
 
-`Bash (discord &>/dev/null &)`
+> `Bash (discord &>/dev/null &)`
 
 Should open on the right monitor now.
 
@@ -922,7 +922,7 @@ The file /home/adn/.config/user-dirs.dirs has been updated. Here's the result of
 
 </details>
 
-`Bash (echo "enabled=False" > ~/.config/user-dirs.conf)`
+> `Bash (echo "enabled=False" > ~/.config/user-dirs.conf)`
 
 <details>
 <summary><code>Bash (cat ~/.config/spectaclerc 2>/dev/null || echo "File does not exist")</code></summary>
@@ -1097,7 +1097,7 @@ Options:
 
 </details>
 
-`Bash (find /usr/share -name "*.kcfg" 2>/dev/null | xargs grep -l -i spectacle 2>/dev/n...)`
+> `Bash (find /usr/share -name "*.kcfg" 2>/dev/null | xargs grep -l -i spectacle 2>/dev/n...)`
 
 <details>
 <summary><code>Bash (grep -r "kcfg" /usr/share/kpackage/genericqml/org.kde.spectacle* 2>/dev/null; fi...)</code></summary>
@@ -1137,7 +1137,7 @@ Options:
 
 Let me try a workaround - create a custom shortcut that saves AND copies:
 
-`Bash (cat > ~/.local/bin/screenshot-region.sh << 'EOF'
+> `Bash (cat > ~/.local/bin/screenshot-region.sh << 'EOF'
 #!/bin/bash
 # Take screenshot, ...)`
 
@@ -1209,9 +1209,9 @@ File created successfully at: /home/adn/.local/share/applications/screenshot-reg
 
 </details>
 
-`Bash (kwriteconfig6 --file kglobalshortcutsrc --group "screenshot-region.desktop" --ke...)`
+> `Bash (kwriteconfig6 --file kglobalshortcutsrc --group "screenshot-region.desktop" --ke...)`
 
-`Bash (kquitapp6 kglobalaccel && sleep 1 && kglobalaccel6 &)`
+> `Bash (kquitapp6 kglobalaccel && sleep 1 && kglobalaccel6 &)`
 
 <details>
 <summary><code>Bash (grep -A2 "screenshot-region" ~/.config/kglobalshortcutsrc)</code></summary>
@@ -1231,7 +1231,7 @@ Done. After you install `wl-clipboard`, SUPER+Print will:
 
 > SUPER (meta) + PRINT took a screenshot of the active window directly, no region selection.
 
-`Bash (grep -A20 "\[org.kde.spectacle.desktop\]" ~/.config/kglobalshortcutsrc)`
+> `Bash (grep -A20 "\[org.kde.spectacle.desktop\]" ~/.config/kglobalshortcutsrc)`
 
 <details>
 <summary><code>Bash (grep -i "spectacle\|print" ~/.config/kglobalshortcutsrc)</code></summary>
@@ -1263,7 +1263,7 @@ No such object path '/component/spectacle'
 
 </details>
 
-`Bash (qdbus6 org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.allComponents 2>/...)`
+> `Bash (qdbus6 org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.allComponents 2>/...)`
 
 <details>
 <summary><code>Bash (cat /usr/share/kglobalaccel/org.kde.spectacle.desktop 2>/dev/null || find /usr/s...)</code></summary>
@@ -1306,7 +1306,7 @@ GenericName[ka]=ეკრანის ანაბეჭდის გადა�
 
 Found it. Spectacle has `Meta+Print` hardcoded for "Capture Active Window". I need to disable that and keep your custom script:
 
-`Bash (kwriteconfig6 --file kglobalshortcutsrc --group "org.kde.spectacle.desktop" --ke...)`
+> `Bash (kwriteconfig6 --file kglobalshortcutsrc --group "org.kde.spectacle.desktop" --ke...)`
 
 <details>
 <summary><code>Bash (kquitapp6 kglobalaccel 2>/dev/null; sleep 1; kglobalaccel6 &)</code></summary>
@@ -1317,7 +1317,7 @@ zsh: command not found: kglobalaccel6
 
 </details>
 
-`Bash (kquitapp6 kglobalaccel 2>/dev/null; sleep 1; /usr/lib/kglobalacceld &)`
+> `Bash (kquitapp6 kglobalaccel 2>/dev/null; sleep 1; /usr/lib/kglobalacceld &)`
 
 Try SUPER+Print now - should trigger your region screenshot script instead of Spectacle's active window capture.
 
@@ -1339,7 +1339,7 @@ Decrease Keyboard Brightness=Keyboard Brightness Down,Keyboard Brightness Down,D
 
 Config looks correct. Let me try forcing a reload:
 
-`Bash (pkill -9 kglobalaccel; sleep 2; systemctl --user restart plasma-kglobalaccel.ser...)`
+> `Bash (pkill -9 kglobalaccel; sleep 2; systemctl --user restart plasma-kglobalaccel.ser...)`
 
 Try SUPER+Print again. If it still doesn't work, a logout/login will definitely apply the changes. Or we can use a different shortcut like SUPER+SHIFT+S instead.
 
@@ -1391,7 +1391,7 @@ Exit code 137
 
 > The file is at /mnt/C/nvim, just copy it to my home directory.
 
-`Bash (cp /mnt/C/nvim/init.lua ~/)`
+> `Bash (cp /mnt/C/nvim/init.lua ~/)`
 
 Done. It's at `~/init.lua`.
 
@@ -1841,7 +1841,7 @@ Want me to install LazyVim now?
 
 > First, launch NeoVim for me.
 
-`Bash (nvim &>/dev/null &)`
+> `Bash (nvim &>/dev/null &)`
 
 NeoVim needs a terminal. Either:
 
@@ -1947,9 +1947,9 @@ Then you can launch it with `ghostty` or set it as your default terminal.
 
 > Ok, I installed it, can you set a hotkey (super + enter, or t) to open a ghostty terminal?
 
-`Bash (kwriteconfig6 --file kglobalshortcutsrc --group "ghostty.desktop" --key "_launch...)`
+> `Bash (kwriteconfig6 --file kglobalshortcutsrc --group "ghostty.desktop" --key "_launch...)`
 
-`Bash (pkill -9 kglobalaccel; sleep 1; /usr/lib/kglobalacceld &)`
+> `Bash (pkill -9 kglobalaccel; sleep 1; /usr/lib/kglobalacceld &)`
 
 Done. Try **SUPER + Enter** to open Ghostty.
 
@@ -1966,7 +1966,7 @@ _launch=Meta+Return,none,Ghostty
 
 </details>
 
-`Bash (cat /usr/share/applications/ghostty.desktop 2>/dev/null | grep -E "^Exec=|^Name=...)`
+> `Bash (cat /usr/share/applications/ghostty.desktop 2>/dev/null | grep -E "^Exec=|^Name=...)`
 
 <details>
 <summary><code>Bash (find /usr/share/applications -name "*ghostty*" 2>/dev/null; locate ghostty.deskt...)</code></summary>
@@ -1977,10 +1977,10 @@ _launch=Meta+Return,none,Ghostty
 
 </details>
 
-`Bash (# Remove old entry and add with correct desktop file name
+> `Bash (# Remove old entry and add with correct desktop file name
 kwriteconfig6 --file k...)`
 
-`Bash (pkill kglobalaccel; sleep 1; /usr/lib/kglobalacceld &)`
+> `Bash (pkill kglobalaccel; sleep 1; /usr/lib/kglobalacceld &)`
 
 Try SUPER+Enter again. If still not working, you can set it manually:
 
@@ -1990,7 +1990,7 @@ Then assign Meta+Return to it.
 
 > Great, now can you launch NeoVim?
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Should open in a Ghostty window.
 
@@ -2031,7 +2031,7 @@ find /usr/share/icons -name "*konsole*" 2>/dev/null | head...)</code></summary>
 
 </details>
 
-`Bash (cp /usr/share/applications/com.mitchellh.ghostty.desktop ~/.local/share/applicat...)`
+> `Bash (cp /usr/share/applications/com.mitchellh.ghostty.desktop ~/.local/share/applicat...)`
 
 <details>
 <summary><code>Read (/home/adn/.local/share/applications/com.mitchellh.ghostty.desktop)</code></summary>
@@ -2095,7 +2095,7 @@ File created successfully at: /home/adn/.local/share/applications/nvim.desktop
 
 </details>
 
-`Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null)`
+> `Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null)`
 
 Done:
 
@@ -2339,7 +2339,7 @@ The file /home/adn/.config/ghostty/config has been updated. Here's the result of
 
 </details>
 
-`Bash (rm ~/.local/share/applications/ghostty.terminal.desktop ~/.local/share/applicati...)`
+> `Bash (rm ~/.local/share/applications/ghostty.terminal.desktop ~/.local/share/applicati...)`
 
 Done. Ghostty is back to defaults. Try opening it now.
 
@@ -2364,17 +2364,17 @@ Exit code 1
 
 </details>
 
-`Bash (sed -i '/\[.*ghostty.*\]/,/^$/d' ~/.config/kglobalshortcutsrc)`
+> `Bash (sed -i '/\[.*ghostty.*\]/,/^$/d' ~/.config/kglobalshortcutsrc)`
 
-`Bash (pkill kglobalaccel; sleep 1; /usr/lib/kglobalacceld &)`
+> `Bash (pkill kglobalaccel; sleep 1; /usr/lib/kglobalacceld &)`
 
-`Bash (ghostty &>/dev/null &)`
+> `Bash (ghostty &>/dev/null &)`
 
 Cleaned up stale shortcuts. Ghostty should work now - try SUPER+Enter or launch from app menu.
 
 > Multiple Ghostty instances launched after what you did, but I still can't launch it from SUPER+Enter.
 
-`Bash (kwriteconfig6 --file kglobalshortcutsrc --group "com.mitchellh.ghostty.desktop" ...)`
+> `Bash (kwriteconfig6 --file kglobalshortcutsrc --group "com.mitchellh.ghostty.desktop" ...)`
 
 Re-added the shortcut. Try SUPER+Enter now.
 
@@ -2418,7 +2418,7 @@ You can check/change it in **System Settings > Shortcuts > KWin** — search for
 
 > Ok, run neovim for me.
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Should open in Ghostty now.
 
@@ -2434,11 +2434,11 @@ Cloning into '/home/adn/.config/nvim'...
 
 </details>
 
-`Bash (rm -rf ~/.config/nvim/.git)`
+> `Bash (rm -rf ~/.config/nvim/.git)`
 
 Done. Now launch NeoVim and it will auto-install all plugins:
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 NeoVim should open and start installing plugins automatically. Wait for it to finish, then press `q` to close the Lazy plugin manager window.
 
@@ -2584,7 +2584,7 @@ Want me to disable some of these?
 
 > OK, undo the LazyVim install, go back to the default one, and then list my plugins. I'll take from LazyVim the following: flash.nvim, telescope.nvim, I believe both bufferline and lualine I already have on mine, maybe nui as well? I think my theme is catppuccin as well. So, that's what I'll take. Just revert all changes and set nvim back to default, then list all plugins I have on my old config, the new ones to be added, any potential ones that have better replacements, and all the other features that my old config also has, explaining what each does. Do not apply the new config yet.
 
-`Bash (# Remove LazyVim and restore to clean state
+> `Bash (# Remove LazyVim and restore to clean state
 rm -rf ~/.config/nvim
 rm -rf ~/.loca...)`
 
@@ -2732,7 +2732,7 @@ Which file tree do you prefer? Then I'll prepare the full config.
 
 > Let's keep nvim-tree then. Don't add anything to S. Create the config
 
-`Bash (mkdir -p ~/.config/nvim)`
+> `Bash (mkdir -p ~/.config/nvim)`
 
 <details>
 <summary><code>Write (/home/adn/.config/nvim/init.lua)</code></summary>
@@ -2756,13 +2756,13 @@ Done. Config created at `~/.config/nvim/init.lua`.
 
 Launch nvim to install plugins:
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 NeoVim will auto-install plugins on first launch. Press `q` to close the Lazy window when done.
 
 > Try launching it again, some errors on the first run.
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Should work now. If you still see errors, let me know what they say.
 
@@ -2833,19 +2833,19 @@ The file /home/adn/.config/nvim/init.lua has been updated. Here's the result of 
 
 </details>
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Try again - added error handling for the catppuccin integration.
 
 > Launch again.
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Done.
 
 > Again.
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Done.
 
@@ -2918,7 +2918,7 @@ The file /home/adn/.config/nvim/init.lua has been updated. Here's the result of 
 
 </details>
 
-`Bash (ghostty -e nvim &>/dev/null &)`
+> `Bash (ghostty -e nvim &>/dev/null &)`
 
 Try again.
 
@@ -2963,7 +2963,7 @@ File created successfully at: /home/adn/.local/share/applications/nvim.desktop
 
 </details>
 
-`Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null)`
+> `Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null)`
 
 Created a NeoVim launcher. Now launch NeoVim from your **app menu** (search for "NeoVim") instead of through Ghostty.
 
@@ -2976,7 +2976,7 @@ Try it and let me know if it works.
 
 > Please open it for me.
 
-`Bash (gtk-launch nvim.desktop 2>/dev/null || /usr/bin/ghostty --class=nvim -e nvim &>/...)`
+> `Bash (gtk-launch nvim.desktop 2>/dev/null || /usr/bin/ghostty --class=nvim -e nvim &>/...)`
 
 Should open with its own taskbar identity now.
 
@@ -3002,7 +3002,7 @@ The file /home/adn/.local/share/applications/nvim.desktop has been updated. Here
 
 </details>
 
-`Bash (/usr/bin/ghostty --gtk-single-instance=false --class=nvim -e nvim &>/dev/null &)`
+> `Bash (/usr/bin/ghostty --gtk-single-instance=false --class=nvim -e nvim &>/dev/null &)`
 
 Try now - disabled single-instance mode for NeoVim.
 
@@ -3010,7 +3010,7 @@ Try now - disabled single-instance mode for NeoVim.
 
 Let me try a different approach - a separate Ghostty config file for NeoVim:
 
-`Bash (mkdir -p ~/.config/ghostty)`
+> `Bash (mkdir -p ~/.config/ghostty)`
 
 <details>
 <summary><code>Write (/home/adn/.config/ghostty/nvim-config)</code></summary>
@@ -3039,7 +3039,7 @@ The file /home/adn/.local/share/applications/nvim.desktop has been updated. Here
 
 </details>
 
-`Bash (/usr/bin/ghostty --config-file=/home/adn/.config/ghostty/nvim-config -e nvim &>/...)`
+> `Bash (/usr/bin/ghostty --config-file=/home/adn/.config/ghostty/nvim-config -e nvim &>/...)`
 
 Try now.
 
@@ -3097,7 +3097,7 @@ The file /home/adn/.config/ghostty/nvim-config has been updated. Here's the resu
 
 </details>
 
-`Bash (mv ~/.local/share/applications/nvim.desktop ~/.local/share/applications/org.neov...)`
+> `Bash (mv ~/.local/share/applications/nvim.desktop ~/.local/share/applications/org.neov...)`
 
 <details>
 <summary><code>Edit (/home/adn/.local/share/applications/org.neovim.nvim.desktop)</code></summary>
@@ -3145,7 +3145,7 @@ The file /home/adn/.local/share/applications/org.neovim.nvim.desktop has been up
 
 </details>
 
-`Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null && /usr/bin/gho...)`
+> `Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null && /usr/bin/gho...)`
 
 Try now. Used proper GTK app-id format (`org.neovim.nvim`) and matching desktop file.
 
@@ -3155,7 +3155,7 @@ Sources:
 
 > Perfect, launch again please.
 
-`Bash (/usr/bin/ghostty --config-file=/home/adn/.config/ghostty/nvim-config -e nvim &>/...)`
+> `Bash (/usr/bin/ghostty --config-file=/home/adn/.config/ghostty/nvim-config -e nvim &>/...)`
 
 Done.
 
@@ -3174,7 +3174,7 @@ The file /home/adn/.config/ghostty/nvim-config has been updated. Here's the resu
 
 </details>
 
-`Bash (/usr/bin/ghostty --config-file=/home/adn/.config/ghostty/nvim-config -e nvim &>/...)`
+> `Bash (/usr/bin/ghostty --config-file=/home/adn/.config/ghostty/nvim-config -e nvim &>/...)`
 
 Done. Should have no title bar now.
 
@@ -3349,7 +3349,7 @@ The file /home/adn/.config/ghostty/config has been updated. Here's the result of
 
 </details>
 
-`Bash (ghostty &>/dev/null &)`
+> `Bash (ghostty &>/dev/null &)`
 
 Opened a new Ghostty with MesloLGS Nerd Font at size 11. Adjust size if needed (higher = bigger).
 
@@ -3369,7 +3369,7 @@ Type `exit` or press `Ctrl+D`.
 
 > Let me restart this terminal to see the changes.
 
-`Bash (ghostty &>/dev/null &)`
+> `Bash (ghostty &>/dev/null &)`
 
 Done.
 
@@ -3391,13 +3391,13 @@ The file /home/adn/.config/ghostty/config has been updated. Here's the result of
 
 </details>
 
-`Bash (ghostty &>/dev/null &)`
+> `Bash (ghostty &>/dev/null &)`
 
 Done. New terminal opened with DejaVu Sans Mono.
 
 > Can you open a new terminal again?
 
-`Bash (ghostty &>/dev/null &)`
+> `Bash (ghostty &>/dev/null &)`
 
 Done.
 
@@ -3444,7 +3444,7 @@ The file /home/adn/.config/ghostty/config has been updated. Here's the result of
 
 </details>
 
-`Bash (ghostty &>/dev/null &)`
+> `Bash (ghostty &>/dev/null &)`
 
 Done. New terminal should show the p10k prompt with icons now.
 
@@ -3510,7 +3510,7 @@ Good - the issue was my shell environment affecting the launch. The `command = /
 
 Let me do it properly this time - just override the icon without changing the class:
 
-`Bash (cp /usr/share/applications/com.mitchellh.ghostty.desktop ~/.local/share/applicat...)`
+> `Bash (cp /usr/share/applications/com.mitchellh.ghostty.desktop ~/.local/share/applicat...)`
 
 <details>
 <summary><code>Read (/home/adn/.local/share/applications/com.mitchellh.ghostty.desktop)</code></summary>
@@ -3565,7 +3565,7 @@ The file /home/adn/.local/share/applications/com.mitchellh.ghostty.desktop has b
 
 </details>
 
-`Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null)`
+> `Bash (update-desktop-database ~/.local/share/applications/ 2>/dev/null)`
 
 Done. Close all Ghostty windows and reopen with SUPER+Enter. The taskbar should show Konsole's icon now. May need a logout/login if it doesn't update immediately.
 
@@ -3812,7 +3812,7 @@ The file /home/adn/.config/kwinrulesrc has been updated. Here's the result of ru
 
 </details>
 
-`Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
+> `Bash (qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null || qdbus org.kde.KWin /KWin re...)`
 
 Done. Both Ghostty and NeoVim will now start maximized (with taskbar visible). Try SUPER+Enter and launching NeoVim from taskbar.
 
@@ -3879,9 +3879,9 @@ File created successfully at: /home/adn/a327ex/Anchor/website/logs/header-temp.m
 
 </details>
 
-`Bash (cat website/logs/header-temp.md > website/logs/temp-combined.md && tail -n +3 we...)`
+> `Bash (cat website/logs/header-temp.md > website/logs/temp-combined.md && tail -n +3 we...)`
 
-`Bash (cp .claude/CLAUDE.md docs/* website/context/)`
+> `Bash (cp .claude/CLAUDE.md docs/* website/context/)`
 
 <details>
 <summary><code>Bash (git status)</code></summary>
