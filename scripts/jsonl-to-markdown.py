@@ -124,12 +124,10 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                         tool_name, formatted_input = tool_info
                         result_text = format_tool_result(result)
 
-                        # Output tool call and result in a single code block
-                        # Use 4 backticks to allow nested code blocks in results
-                        output += f"````\n{tool_name} {formatted_input}\n"
+                        # Output tool call visible, result in collapsible
+                        output += f"````\n{tool_name} {formatted_input}\n````\n\n"
                         if result_text:
-                            output += f"\nResult:\n{result_text}\n"
-                        output += "````\n\n"
+                            output += f"<details>\n<summary>Result</summary>\n\n````\n{result_text}\n````\n\n</details>\n\n"
 
         # Assistant message
         elif msg_type == 'assistant' and isinstance(content, list):
