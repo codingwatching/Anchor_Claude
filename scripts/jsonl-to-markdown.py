@@ -108,7 +108,10 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
             if is_system_message(content):
                 output += f"````\n{content}\n````\n\n"
             else:
-                output += f"> {content}\n\n"
+                # Prefix every line with > for proper blockquote
+                lines = content.split('\n')
+                quoted = '\n'.join(f"> {line}" for line in lines)
+                output += f"{quoted}\n\n"
 
         # User message (tool results)
         elif msg_type == 'user' and isinstance(content, list):
