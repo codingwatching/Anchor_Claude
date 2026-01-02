@@ -1,16 +1,17 @@
-# A Taxonomy of Roguelite Power Systems
+# Roguelite Design Analysis
 
 ## Contents
 
 1. [The Framework](#the-framework) — 17 axes across 6 categories
 2. [Game Classifications](#game-classifications) — 22 games analyzed
 3. [Frequency Analysis](#frequency-analysis) — what's common, what's rare
+4. [Hypothetical Designs](#hypothetical-designs) — 12 imaginary games exploring design space
 
 ---
 
 ## The Framework
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
 
 The axes are organized into categories: **Acquisition**, **Management**, **Information**, **Progression**, **Meta**, and **Experience**.
 
@@ -269,7 +270,7 @@ These govern how the player ENGAGES with power decisions.
 
 ## Game Classifications
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
 
 ### The Binding of Isaac (Repentance)
 
@@ -1778,7 +1779,7 @@ Similar to RoR1, adapted to 3D:
 
 ## Frequency Analysis
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
 
 Based on 22 game classifications (including Rogue Legacy Early/Late as separate entries).
 
@@ -1930,3 +1931,743 @@ Based on 22 game classifications (including Rogue Legacy Early/Late as separate 
 - Build-dominant (8): Vampire Survivors, Brotato, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, Rogue Legacy Late
 - Knowledge-dominant (6): Isaac, Noita, Balatro, Super Auto Pets, TFT, Underlords
 - Execution-dominant (4): Nuclear Throne, Into the Breach, Spelunky, Rogue Legacy Late (NG+)
+
+---
+
+## Hypothetical Designs
+
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
+
+These are imaginary roguelite designs that explore the taxonomy's design space. The first three are **archetypal** — they use common options and resemble existing successful games. The remaining nine are **experimental** — they deliberately explore underused design space.
+
+---
+
+### Archetypal Game 1: "Dungeon Cascade"
+*The Standard Action Roguelite*
+
+A room-clearing action roguelite where you fight through procedural dungeons, collecting items and abilities as you go. Combat is real-time with dodging, attacking, and ability usage. Think Hades meets Gungeon — the platonic ideal of the genre. Each floor contains combat rooms, treasure rooms, shops, and a boss. Clear a room, choose a reward from three options, move to the next. The formula works because it provides constant meaningful choices without overwhelming the player, and the real-time combat keeps moment-to-moment gameplay engaging even when the build is suboptimal.
+
+**1. Choice Timing: Distributed**
+After clearing rooms, you're offered a choice of rewards. Boss rooms guarantee powerful items, while regular rooms offer smaller upgrades. The run is a constant stream of decisions from start to finish.
+
+**2. Pacing: Event-triggered + Resource-gated**
+Upgrades appear after room clears (event-triggered) and in shops where you spend gold (resource-gated). You can't grind — progression is tied to advancement through the dungeon.
+
+**3. Distribution Timing: Immediate**
+Every item works the moment you pick it up. No delayed unlocks, no cards to draw later — power is instant.
+
+**4. Agency: Curated + Serendipitous**
+Room rewards let you pick 1 of 3 options (curated), but what appears in chests is random (serendipitous). Shops offer curated choices within a random inventory.
+
+**5. Negative Acquisition: Optional**
+Cursed shrines offer powerful bonuses at a cost — take more damage, move slower, etc. These are always optional; you can ignore them entirely.
+
+**6. Scarcity: Moderate**
+Enough upgrades to build something coherent, but not so many that every run feels the same. Gold and keys create meaningful resource tension.
+
+**7. Reversibility: Permanent**
+Items cannot be removed or changed once taken. Choose carefully. **Commitment Weight: Medium** — permanent choices, but you make many of them.
+
+**8. Capacity: Hard cap**
+You have limited active ability slots (3) and weapon slots (2). Passive items are unlimited but naturally constrained by what you find.
+
+**9. Interaction: Synergistic**
+Items explicitly combo — the flaming sword deals bonus damage to oiled enemies, poison stacks with bleed, etc. Finding synergies is the core satisfaction.
+
+**10. Upgrade Depth: Linear**
+Items can be upgraded at altars — +1, +2, +3 versions of each item. Simple numerical scaling.
+
+**11. Power Source Diversity: Multi-source**
+Weapons, passive items, active abilities, character skills, and consumables all contribute to your build.
+
+**12. Visibility: Present**
+You see what's in front of you — the three options after a room, the shop inventory, the chest contents when opened.
+
+**13. Comprehension: Transparent**
+All items clearly describe their effects with exact numbers. No hidden mechanics.
+
+**14. Growth Pattern: Additive**
+You get stronger throughout the run in a roughly linear fashion. No power loss, no major transformations.
+
+**15. Persistence: Unlocks**
+Beating bosses and completing challenges unlocks new items, characters, and starting loadouts for future runs.
+
+**16. Starting Variance: Character-varied**
+Six characters with different starting weapons, abilities, and stats. Each encourages different build paths.
+
+**17. Run Identity: Emergent**
+Builds emerge from what you find. "This became a fire build" or "I'm doing a tank run" — identity crystallizes mid-run based on offerings.
+
+**Skill vs Build Ratio: Balanced**
+Combat skill matters — dodging, positioning, timing. But build also matters — the right synergies make hard content manageable.
+
+---
+
+### Archetypal Game 2: "Horde Breaker"
+*The Standard Survivors-like*
+
+A top-down auto-attacking survival game where you fight endless waves of monsters. You move, enemies come, your weapons fire automatically. Level up frequently, choose upgrades, survive 20 minutes. The genius of this formula is that it separates the "build" layer (choosing upgrades) from the "execution" layer (movement and positioning), letting players focus on one at a time. The constant stream of level-ups creates dopamine hits every few seconds, while the auto-attacking reduces mechanical demands and makes the game accessible to casual players while still rewarding optimization.
+
+**1. Choice Timing: Distributed**
+Every level-up presents a choice of upgrades. You'll make 30-50 decisions per run, constantly shaping your build.
+
+**2. Pacing: Fixed interval**
+XP fills a bar, bar fills = level up = choice. Early levels come fast (every 10 seconds), later levels take longer. Pure fixed interval based on XP accumulation.
+
+**3. Distribution Timing: Immediate**
+Choose an upgrade, it works now. No delay, no conditions.
+
+**4. Agency: Curated**
+Pick 1 of 3-4 options each level. Rerolls available but limited. You can't force specific builds, but you can shape probability through smart choices.
+
+**5. Negative Acquisition: None**
+Pure power gain. No curses, no drawbacks. The only "negative" is opportunity cost.
+
+**6. Scarcity: Abundant**
+Constant stream of upgrades. You'll max out multiple weapons and passives per run. The constraint is slots, not availability.
+
+**7. Reversibility: Permanent + Evolutionary**
+Weapons can't be removed, but they evolve when paired with the right passive item. Evolution transforms a weapon into a stronger version. **Commitment Weight: Medium** — early choices shape evolution options.
+
+**8. Capacity: Hard cap**
+6 weapon slots, 6 passive slots. Strict limits force build decisions.
+
+**9. Interaction: Synergistic**
+Passives affect weapons (area buffs weapon size, might buffs damage). Evolution requires specific weapon + passive pairs. Synergy is explicit and documented.
+
+**10. Upgrade Depth: Linear + Evolutionary**
+Weapons level up 8 times, then evolve into final forms. Clear progression path per weapon.
+
+**11. Power Source Diversity: Single source + Character**
+Almost everything comes from the level-up system. Character choice adds starting weapon and passive bonuses, but the run is about the unified upgrade pool.
+
+**12. Visibility: Present**
+See your current options. See your weapons and passives. Simple and clear.
+
+**13. Comprehension: Transparent**
+"+10% damage" means +10% damage. Evolution requirements are listed. No mystery.
+
+**14. Growth Pattern: Additive (exponential in practice)**
+Power scales dramatically. You go from struggling at minute 5 to annihilating everything at minute 15. The curve is steep but additive in structure.
+
+**15. Persistence: Unlocks + Upgrades**
+Unlock new characters and weapons through achievements. Spend collected gold on permanent stat upgrades (PowerUps).
+
+**16. Starting Variance: Character-varied + Loadout-varied**
+Different characters have different starting weapons and stats. Some characters let you choose starting weapon.
+
+**17. Run Identity: Early-crystallizing**
+Your first 3-4 weapon choices largely define the run. Hard to pivot once you've committed slots.
+
+**Skill vs Build Ratio: Build-dominant**
+Movement and positioning help, but the right build essentially plays itself. Build decisions are 80% of success.
+
+---
+
+### Archetypal Game 3: "Spell & Steel"
+*The Standard Deckbuilder*
+
+A turn-based deckbuilding roguelite. You have a deck of cards representing attacks, defenses, and skills. Each combat, draw cards, play cards, defeat enemies. Between combats, add cards to your deck, remove cards, upgrade cards. The deckbuilder formula works because it creates two distinct skill expressions: strategic (building a coherent deck) and tactical (playing the hand you're dealt optimally). The delayed-random distribution timing means you must build for consistency, not just power. Thin decks that see their best cards every turn often outperform fat decks with more raw power but less reliability.
+
+**1. Choice Timing: Distributed**
+After each combat, choose a card reward. Shops and events offer more choices. Decisions spread throughout the run.
+
+**2. Pacing: Event-triggered + Resource-gated**
+Combat rewards (event-triggered) and shops/removal services (resource-gated with gold). Rest sites offer upgrade or heal choices.
+
+**3. Distribution Timing: Immediate + Delayed-Random**
+Cards enter your deck immediately, but you access them through random draw during combat. The delay between acquisition and use is core to deckbuilding.
+
+**4. Agency: Curated + Influenced**
+Pick 1 of 3 cards after combat (curated). Skip if nothing fits. Transform and removal events let you shape your deck (influenced). Some relics affect card pools.
+
+**5. Negative Acquisition: Optional**
+Curses can be added through events, relics, or enemy effects. Always avoidable with careful play or choosing not to take risky rewards.
+
+**6. Scarcity: Moderate**
+Can't take every card. Gold limits shop purchases. Removal costs resources. Must prioritize — thin decks often beat fat decks.
+
+**7. Reversibility: Removable + Transformable**
+Cards can be removed at shops or events. Transform events change cards randomly. **Commitment Weight: Medium** — cards are permanent additions but removal is possible.
+
+**8. Capacity: Soft cap**
+No hard limit on deck size, but larger decks dilute your draws. The implicit cap is "how consistent do you need to be?"
+
+**9. Interaction: Synergistic**
+Cards combo within archetypes — poison cards feed Catalyst, strength cards feed Heavy Blade, etc. Building around synergies is the core skill.
+
+**10. Upgrade Depth: Linear**
+Each card can be upgraded once at rest sites. Upgrades improve numbers or add effects.
+
+**11. Power Source Diversity: Multi-source**
+Cards, relics (passive effects), potions (consumables). Three distinct power systems that interact.
+
+**12. Visibility: Present + Complete + Forecast**
+See card rewards when offered. View your deck and relics anytime. Map shows upcoming node types (elite, shop, rest, boss).
+
+**13. Comprehension: Transparent**
+Card text is precise. "Deal 6 damage" means 6 damage. Keyword glossary available.
+
+**14. Growth Pattern: Additive + strategic Subtractive**
+Generally gaining power, but smart removal of bad cards (Strikes, Defends) is often more valuable than adding cards.
+
+**15. Persistence: Unlocks**
+Winning and completing challenges unlocks new cards and relics for future runs.
+
+**16. Starting Variance: Character-varied**
+Four characters with completely different card pools, mechanics, and strategies. The Warrior plays nothing like the Rogue.
+
+**17. Run Identity: Emergent**
+"This became an exhaust deck" or "I'm going infinite with draw loops." Build identity emerges from early card choices and relic finds.
+
+**Skill vs Build Ratio: Balanced**
+Deckbuilding decisions are crucial. In-combat card sequencing and math are equally crucial. Both matter for high-level play.
+
+---
+
+### Experimental Game 1: "Loadout"
+*The All-Upfront Tactical Roguelite*
+
+Before each mission, you have 5 minutes to build your entire loadout: weapons, gadgets, skills, consumables. Then you deploy into a 15-minute mission with NO upgrades during play. Success depends entirely on preparation. Think XCOM loadout phase meets roguelite mission structure. The key insight is that most roguelites spread decisions across the run, but this game frontloads everything. You're essentially solving a puzzle: "Given these mission parameters and this equipment, what's the optimal loadout?" The mission itself becomes execution of your plan, not adaptation to new choices.
+
+**1. Choice Timing: Pre-run**
+All choices happen before the mission. Once deployed, you have what you brought. The entire decision layer is frontloaded.
+
+**2. Pacing: Pre-run**
+No upgrade opportunities during missions. The "pacing" is the loadout timer ticking down before deployment.
+
+**3. Distribution Timing: Frontloaded**
+Full power available from mission start. No power curve within the mission — you're at 100% from second one.
+
+**4. Agency: Deterministic**
+You choose exactly what you bring. No randomness in loadout — if you own it, you can equip it. The randomness is in what missions offer and what enemies appear.
+
+**5. Negative Acquisition: Traded**
+Equipment has weight. Bringing heavy weapons means less gadget space. Bringing more consumables means fewer passives. Every choice trades against something.
+
+**6. Scarcity: Moderate**
+Enough equipment to build many loadouts, but weight limits mean you can't bring everything. Meaningful constraints force specialization.
+
+**7. Reversibility: N/A (all choices pre-run)**
+Within a mission, equipment is fixed. Between missions, full loadout restructuring. **Commitment Weight: Critical** — your loadout IS the run. Wrong loadout = failed mission.
+
+**8. Capacity: Hard cap**
+Weight limit creates a hard ceiling. 100 weight units, items cost 5-30 each. Math puzzle of fitting the best combination.
+
+**9. Interaction: Highly Synergistic**
+Equipment designed to combo. Stealth suit + silenced weapons + motion sensors. Heavy armor + shield + minigun. Synergies are explicit and planned.
+
+**10. Upgrade Depth: Flat (within run) + Linear (meta)**
+No upgrades during missions. Between campaigns, equipment can be upgraded with collected resources.
+
+**11. Power Source Diversity: Multi-source**
+Weapons, armor, gadgets, consumables, character skills. Many systems to balance in loadout construction.
+
+**12. Visibility: Complete**
+Full visibility of your inventory, mission parameters, and enemy compositions before deploying. Information is power.
+
+**13. Comprehension: Transparent**
+Equipment stats clearly listed. Mission parameters explicit. Plan with complete information.
+
+**14. Growth Pattern: Minimal (within run)**
+No power growth during mission. You're as strong at the end as the start. Challenge comes from depleting resources (ammo, consumables) not gaining power.
+
+**15. Persistence: Unlocks + Resources**
+Complete missions to unlock new equipment. Collect resources to upgrade existing gear. Strong meta-progression.
+
+**16. Starting Variance: Loadout-varied**
+Your loadout IS your starting variance. Two players with identical unlocks could bring completely different builds.
+
+**17. Run Identity: Pre-determined**
+Identity is set before the mission starts. "I'm doing a stealth run" or "I'm going loud" — decided in loadout, not discovered.
+
+**Skill vs Build Ratio: Both Critical**
+Loadout construction is a puzzle. Mission execution requires tactical skill. Bad loadout can't be saved by skill; bad skill wastes a good loadout.
+
+---
+
+### Experimental Game 2: "Tide Runner"
+*The Resource Wave Roguelite*
+
+Resources come in waves. After drought periods with nothing, abundance floods in — more upgrades than you can hold. You must choose quickly during abundance, then survive the drought. Timing your upgrades to the resource tide is the core skill. The drought/feast pattern creates a fundamentally different emotional rhythm than most roguelites. During drought, you're focused purely on survival with what you have. During tide, you're making rapid decisions under time pressure. The contrast keeps both phases feeling distinct and meaningful.
+
+**1. Choice Timing: Milestone**
+Upgrades only available during "tide" phases (every 3-4 areas). Between tides, no upgrade opportunities at all.
+
+**2. Pacing: Player-controlled + Milestone**
+During tides, YOU decide when to stop and which upgrades to take. Tides last 60 seconds — grab what you can. Between tides, pure survival.
+
+**3. Distribution Timing: Immediate**
+Whatever you grab during the tide works immediately. No delays.
+
+**4. Agency: Serendipitous + Influenced**
+Tides wash up random items (serendipitous). Tide totems placed pre-run influence what categories appear (influenced) — place fire totem for more fire items.
+
+**5. Negative Acquisition: Coupled**
+Some tide items are "cursed flotsam" — powerful but with drawbacks. Appears mixed with good items, must evaluate quickly during tide timer.
+
+**6. Scarcity: Drought/Feast**
+Core mechanic. Drought phases have NO upgrades. Feast phases have MORE than you can process. Average is "moderate" but distribution is extreme.
+
+**7. Reversibility: Swappable**
+Can drop items to pick up others during tide. Dropped items wash away. **Commitment Weight: Light during tide** (can swap), **Heavy after tide** (stuck with choices).
+
+**8. Capacity: Hard cap**
+8 item slots. During tide, must decide what to keep vs what to swap. Hard choices when tide brings 20 items and you can hold 8.
+
+**9. Interaction: Synergistic**
+Items combo. Tides that bring matching items feel amazing. Tides that bring mismatched items force hard choices.
+
+**10. Upgrade Depth: Flat**
+Items are what they are. No upgrade system — just finding better versions during tides.
+
+**11. Power Source Diversity: Single source**
+Just items from tides. No shops, no events, no alt systems. All power from the same source.
+
+**12. Visibility: Present (chaotic)**
+During tides, items appear everywhere — on the ground, floating by. You see them but can't process everything. Deliberate information overload.
+
+**13. Comprehension: Transparent**
+Items clearly labeled. Challenge isn't understanding — it's deciding fast enough.
+
+**14. Growth Pattern: Oscillating**
+Power spikes during tides, then plateaus (or effectively decreases relative to scaling enemies) during droughts. Wave pattern of relative power.
+
+**15. Persistence: Unlocks**
+Unlock new tide pools (different item categories), new totems (tide manipulation), new characters.
+
+**16. Starting Variance: Character-varied + Loadout-varied**
+Characters start with different base abilities. Totem loadout affects tide composition.
+
+**17. Run Identity: Emergent**
+What the tides bring defines your build. Plan for fire, but if tides bring ice, you adapt.
+
+**Skill vs Build Ratio: Balanced**
+Tide navigation skill (quick evaluation, fast decisions). Drought survival skill (combat with limited power). Build quality depends on tide luck AND tide navigation skill.
+
+---
+
+### Experimental Game 3: "The Branching Path"
+*The Skill Tree Roguelite*
+
+Instead of collecting items, you invest in a massive procedurally-generated skill tree. Each node unlocks adjacent nodes. Deep investment in one branch locks out distant branches. Your build is a path through possibility space. The key difference from normal skill trees: the tree is different every run. You can't memorize optimal paths. Instead, you must evaluate each tree fresh, reading its structure to find powerful node clusters and synergy chains. Deep investment in one branch yields stronger effects than shallow investment across many.
+
+**1. Choice Timing: Distributed**
+Earn skill points throughout the run. Spend them anytime by opening the tree.
+
+**2. Pacing: Performance-based + Resource-gated**
+Better combat performance = more XP = more skill points. Points are the resource; spending is player-controlled.
+
+**3. Distribution Timing: Immediate**
+Unlock a node, gain its benefit now.
+
+**4. Agency: Deterministic**
+You choose exactly which nodes to unlock. No randomness in the spending — only in tree generation at run start.
+
+**5. Negative Acquisition: None (Exclusive by structure)**
+Nodes aren't negative, but taking some paths means not taking others. The tree structure creates implicit exclusion without explicit negatives.
+
+**6. Scarcity: Moderate**
+Enough points to go deep in 2-3 branches, or shallow in many. Can't unlock everything.
+
+**7. Reversibility: Permanent**
+Points spent are spent. No refunds. **Commitment Weight: Heavy** — each point commits you further to a path.
+
+**8. Capacity: Contextual**
+No hard cap on how many nodes, but point economy limits total unlocks. Go wide and shallow or narrow and deep.
+
+**9. Interaction: Hierarchical + Exclusive**
+Nodes deeper in tree are strictly stronger than shallow nodes. Tree branches are mutually exclusive in practice — can't reach both fire mastery and ice mastery in one run.
+
+**10. Upgrade Depth: Branching**
+Core mechanic. Each node leads to multiple further nodes. Branches diverge and rarely reconnect.
+
+**11. Power Source Diversity: Single source**
+Just the skill tree. All power comes from one unified system.
+
+**12. Visibility: Complete**
+Full tree visible from start. Can plan your entire path. Deep knowledge rewards strategic planning.
+
+**13. Comprehension: Transparent**
+All node effects clearly described. Optimal paths are calculable by theorycrafters.
+
+**14. Growth Pattern: Additive**
+Steady upward progression as you invest more points. Later nodes are more powerful.
+
+**15. Persistence: Unlocks**
+Unlock new "seed" trees — different tree structures for variety. Unlock starting positions deeper in trees.
+
+**16. Starting Variance: Random-varied**
+Each run generates a new tree. Same meta-structure, different node arrangements and values.
+
+**17. Run Identity: Pre-determined → Emergent**
+You might plan a path, but tree generation might make that path weak. Identity emerges from adapting your plan to the generated tree.
+
+**Skill vs Build Ratio: Balanced**
+Combat skill determines XP gain rate. Tree navigation skill (picking optimal paths) determines build quality. Both feed into final power.
+
+---
+
+### Experimental Game 4: "The Expedition"
+*Route Planning + Resource Packing*
+
+Before each expedition, you see the full branching map: paths, encounters, rewards, and dangers. You plan your exact route AND pack supplies for that specific journey. Once you depart, the route is locked — you can only use what you brought. The strategy is matching preparation to plan. This combines the puzzle-like satisfaction of logistics planning with roguelite exploration. Seeing the full map beforehand transforms the game from reactive adaptation to proactive optimization. The challenge isn't dealing with surprises — it's solving the puzzle of "what's the optimal path through this specific dungeon, and what do I need to walk that path?"
+
+**1. Choice Timing: Pre-run (planning) + Milestone (resupply camps)**
+Two phases: extensive pre-run planning, then rare resupply opportunities at camps along your chosen route. 90% of decisions happen before departure.
+
+**2. Pacing: Pre-run + Milestone**
+The loadout/route phase has no timer — think as long as you want. During expedition, resupply camps appear at planned milestones (every 3-4 nodes on your path).
+
+**3. Distribution Timing: Frontloaded + Distributed (supplies)**
+Your build is frontloaded — you have it all from the start. But supplies (consumables, limited-use items) distribute as you consume them. Packing 10 health potions means distributing healing across the run.
+
+**4. Agency: Deterministic**
+You see the entire map. You choose your exact path. You choose your exact loadout. Zero randomness in what you bring or where you go. Randomness only in combat execution.
+
+**5. Negative Acquisition: Traded**
+Weight limits force tradeoffs. Every healing item is a damage item you didn't bring. Every utility tool is combat power you sacrificed. The pack has finite space.
+
+**6. Scarcity: Planned scarcity**
+You choose your scarcity level. Pack light and move fast but have less margin for error. Pack heavy and have resources but move slow (more encounters before resupply). Scarcity is a strategic variable you set.
+
+**7. Reversibility: Permanent (route) + Consumable (supplies)**
+Route cannot be changed once departed. Supplies are consumed as used. **Commitment Weight: Critical** — route and pack define everything. Bad planning = failed expedition.
+
+**8. Capacity: Hard cap (weight)**
+Weight limit creates hard packing constraints. Different items have different weight-to-power ratios. Optimization puzzle in packing phase.
+
+**9. Interaction: Synergistic (planned)**
+Items synergize, and you can plan synergies perfectly since you control what you bring. "I'm bringing the ice sword AND the freeze-shatter passive because I planned this combo."
+
+**10. Upgrade Depth: Flat (within expedition) + Linear (meta)**
+No upgrades during expedition — you have what you packed. Between expeditions, equipment can be upgraded with collected resources.
+
+**11. Power Source Diversity: Multi-source**
+Weapons, armor, consumables, tools, character abilities. Many systems to balance in packing.
+
+**12. Visibility: Complete (pre-run) + Present (during)**
+Full map visible before departure. During expedition, see immediate surroundings and your remaining supplies.
+
+**13. Comprehension: Transparent**
+All items, enemies, and path rewards clearly documented. Perfect information enables perfect planning.
+
+**14. Growth Pattern: Subtractive (within expedition)**
+You start at full power (full supplies) and deplete over the expedition. Resource management is watching your power decrease and making it last.
+
+**15. Persistence: Unlocks + Resources**
+Complete expeditions to unlock new equipment, routes, and characters. Collect resources for meta-upgrades.
+
+**16. Starting Variance: Loadout-varied + Route-varied**
+Every expedition differs by what you bring and where you go. Even with same equipment, different routes create different experiences.
+
+**17. Run Identity: Pre-determined**
+Identity is set before departure. "This is a speed-run with minimal supplies" or "This is a full-clear with heavy combat loadout" — decided in planning.
+
+**Skill vs Build Ratio: Planning-dominant + Execution matters**
+80% of success is the planning phase — route selection and packing optimization. 20% is combat execution and resource timing during the expedition.
+
+---
+
+### Experimental Game 5: "Stance Dancer"
+*Multiple Loadouts, Tactical Swapping*
+
+Before combat, you build three complete "stances" — different equipment sets, abilities, and playstyles. During combat, you can swap stances with a cooldown. One stance tanks, one deals damage, one provides utility. Mastering the dance between stances is the core skill. This creates a unique rhythm where you're constantly asking "which stance do I need right now?" The pre-built stances mean you've already made the build decisions; the skill expression is in reading situations and swapping at the right moments. It also triples the equipment you interact with per run, creating more complex build puzzles.
+
+**1. Choice Timing: Pre-run (stance building) + Reactive (stance swapping)**
+Build all three stances before the run. During combat, reactively swap stances based on the situation. Both layers are critical.
+
+**2. Pacing: Pre-run + Player-controlled (swapping)**
+Stance building is unpaced (take your time). Stance swapping is player-controlled with a cooldown — you decide when to switch, but can't spam it.
+
+**3. Distribution Timing: Frontloaded + Conditional**
+All three stances exist from run start (frontloaded). But only one is active at a time — accessing a stance's power requires swapping to it (conditional).
+
+**4. Agency: Deterministic (building) + Curated (during run)**
+You choose exactly what goes in each stance. During runs, new items drop that you must assign to a stance — curated choices about where new power goes.
+
+**5. Negative Acquisition: Traded (between stances)**
+Each item can only be in ONE stance. Putting the best sword in Stance A means Stances B and C don't have it. Trade-offs between stances.
+
+**6. Scarcity: Distributed across stances**
+Total power is moderate, but it's split three ways. Each individual stance feels scarce; the totality is abundant.
+
+**7. Reversibility: Swappable (between runs) + Fixed (during run)**
+Can reassign items between stances between runs. During a run, stance composition is locked. **Commitment Weight: Medium** — locked per run but flexible between runs.
+
+**8. Capacity: Hard cap per stance**
+Each stance has limited slots: 2 weapons, 3 abilities, 4 passives. Total of 27 slots across all stances. Must distribute items strategically.
+
+**9. Interaction: Synergistic (within stance) + Complementary (between stances)**
+Items synergize within a stance. Stances complement each other — Tank stance protects while Damage stance is cooling down. The three-stance system should cover all situations.
+
+**10. Upgrade Depth: Linear**
+Items upgrade through use. Items in your active stance when you gain XP level faster. Creates incentive to use all stances.
+
+**11. Power Source Diversity: Multi-source (unified by stance)**
+Weapons, abilities, passives — but organized into three coherent packages rather than one pile.
+
+**12. Visibility: Complete (stances) + Present (combat)**
+Full visibility of all three stances anytime. Combat visibility is standard.
+
+**13. Comprehension: Transparent**
+Clear item effects. Clear stance swap cooldowns. The complexity is in stance composition, not hidden mechanics.
+
+**14. Growth Pattern: Additive (overall) + Oscillating (moment-to-moment)**
+Overall power grows as items upgrade. Moment-to-moment power oscillates as you swap between stronger/weaker stances for different situations.
+
+**15. Persistence: Unlocks**
+Unlock new items, new stance slots, new characters with different stance mechanics (some have 2 stances, some have 4).
+
+**16. Starting Variance: Loadout-varied (x3)**
+Three loadouts means triple the starting variance. Huge build diversity.
+
+**17. Run Identity: Pre-determined + Emergent**
+Stance archetypes are pre-determined (Tank/Damage/Utility). But which stance dominates emerges from combat needs and item drops.
+
+**Skill vs Build Ratio: Balanced**
+Stance building is deep (build skill). Stance swapping is reactive (execution skill). Combat within stances requires normal action game skill. All three layers matter.
+
+---
+
+### Experimental Game 6: "Tide Caller"
+*Controlled Abundance Timing*
+
+You have a "Tide Gauge" that fills slowly during combat. At any time, you can release it to trigger an Abundance Phase — a 30-second window where upgrades rain down. But the longer you wait, the fuller the gauge, and the better the Abundance. The core tension: release early for safety, or hold for greater reward? This inverts the normal relationship between player and power acquisition. Instead of power coming TO you, you control WHEN power comes. The greed/safety tension creates dramatic moments: you're at 10% HP with a full gauge, knowing that if you can just survive 30 more seconds, you'll get amazing upgrades, but releasing now would be safer...
+
+**1. Choice Timing: Player-controlled (tide release) + Distributed (during abundance)**
+YOU decide when choices appear by releasing the tide. During abundance, standard distributed choices (pick 1 of 3, repeatedly).
+
+**2. Pacing: Player-controlled + Time-limited abundance**
+Tide release is entirely player-controlled. Once released, abundance lasts 30 seconds — frantic decision-making under time pressure.
+
+**3. Distribution Timing: Immediate**
+Upgrades grabbed during abundance work instantly.
+
+**4. Agency: Curated + Gauge-influenced**
+Choose 1 of 3 during abundance (curated). Higher gauge = more options per choice (3 becomes 4 becomes 5). Gauge level influences quality.
+
+**5. Negative Acquisition: Coupled (tide risk)**
+If you die while holding a full gauge, you lose significant progress. The "negative" is the risk of holding too long. Greed is punished.
+
+**6. Scarcity: Player-controlled feast**
+You control when abundance happens. Wait longer = more abundance when it comes. But waiting means surviving without upgrades. Scarcity is self-imposed.
+
+**7. Reversibility: Permanent**
+Upgrades grabbed during abundance are permanent. **Commitment Weight: Medium** — permanent choices but many of them during each abundance.
+
+**8. Capacity: Soft cap**
+No hard limit, but upgrade pools have limited synergies. Eventually more upgrades provide diminishing returns.
+
+**9. Interaction: Synergistic**
+Standard synergies. Finding combos during abundance is exciting — "yes, the synergy piece I needed appeared!"
+
+**10. Upgrade Depth: Linear**
+Upgrades can level up. During abundance, existing upgrades can appear again to level.
+
+**11. Power Source Diversity: Single source**
+All power from abundance phases. No shops, no events, no alternative sources. The tide is everything.
+
+**12. Visibility: Present + Gauge visible**
+Standard combat visibility. Tide gauge always visible. Gauge level affects expected abundance quality — information for decisions.
+
+**13. Comprehension: Transparent + Probabilistic**
+Upgrade effects are clear. Gauge-to-quality relationship is learnable (X% gauge = Y expected quality).
+
+**14. Growth Pattern: Staircase**
+Flat between abundances, sharp spike during each. Power graph looks like stairs. Longer holds = taller steps.
+
+**15. Persistence: Unlocks**
+Unlock new upgrade pools, new characters with different gauge mechanics, new abundance modifiers.
+
+**16. Starting Variance: Character-varied**
+Different characters have different gauge speeds, abundance durations, and starting tide levels.
+
+**17. Run Identity: Emergent + Timing-shaped**
+Build emerges from abundance choices. Early abundant runs differ from late abundant runs — timing shapes identity.
+
+**Skill vs Build Ratio: Balanced + Timing skill**
+Combat skill (survive while holding gauge). Timing skill (when to release). Build skill (choices during abundance). Three distinct skill types.
+
+---
+
+### Experimental Game 7: "Labyrinth of Choices"
+*The Skill Tree IS the Dungeon*
+
+The map is a massive branching skill tree. Each node is an encounter: combat, event, or treasure. Completing a node unlocks its bonus AND unlocks adjacent nodes. Your "build" is literally your path through the labyrinth. Going left precludes going right. The dungeon and character build are unified. This collapses the distinction between exploration and character building. In most roguelites, you explore a dungeon AND build a character — two parallel progressions. Here, they're identical. Every step you take is a build decision; every build decision is a navigation choice. This creates incredibly tight design where spatial reasoning and build planning become the same skill.
+
+**1. Choice Timing: Distributed (every node)**
+Each node is a choice — complete it to gain its power and access its branches. Constant decision-making.
+
+**2. Pacing: Player-controlled**
+You decide which node to attempt next. No forced pacing — explore at your own speed.
+
+**3. Distribution Timing: Immediate**
+Complete a node, gain its power immediately.
+
+**4. Agency: Deterministic (pathing) + Serendipitous (loot within nodes)**
+You choose which nodes to complete. What drops within combat nodes has randomness. Path is deterministic; loot is serendipitous.
+
+**5. Negative Acquisition: Exclusive (by distance)**
+Every step away from a branch makes it harder to reach later (more nodes between you and it). Deep branches become inaccessible. "Negatives" are opportunity costs.
+
+**6. Scarcity: Moderate (forced by geometry)**
+Can't complete every node — branches diverge, time is limited, some paths lock others. Geometry enforces scarcity.
+
+**7. Reversibility: Permanent (pathing)**
+Can't un-complete a node or return to skipped branches (one-way paths). **Commitment Weight: Heavy** — each node commits you further down a branch.
+
+**8. Capacity: Unlimited (but geometry-limited)**
+No hard cap on node bonuses, but you can only reach so many nodes. Practical limit from labyrinth structure.
+
+**9. Interaction: Hierarchical + Synergistic**
+Deeper nodes are strictly stronger than shallow nodes (hierarchical). Nodes in the same branch synergize (synergistic within paths).
+
+**10. Upgrade Depth: Branching (literally)**
+The entire upgrade system IS branching. Deeper nodes are upgraded versions of the branch's theme.
+
+**11. Power Source Diversity: Single source (unified)**
+All power from node completion. The labyrinth is the only system.
+
+**12. Visibility: Complete (map) + Fog (unvisited areas)**
+See the full map structure. Unvisited nodes show their type but not exact rewards — must get closer to see details.
+
+**13. Comprehension: Transparent**
+Node rewards clearly shown when adjacent. No hidden mechanics.
+
+**14. Growth Pattern: Additive + Accelerating**
+Power grows as you complete nodes. Deeper nodes give more power — late-run growth accelerates.
+
+**15. Persistence: Unlocks + Seeded**
+Unlock new labyrinth "seeds" — different branch structures. Unlock starting positions deeper in labyrinths.
+
+**16. Starting Variance: Seeded**
+Each run uses a labyrinth seed. Same seed = same layout. Different seeds = different strategic puzzles.
+
+**17. Run Identity: Path-defined**
+Your path IS your build. "I went fire branch into AoE" is both your route and your character identity. Unified.
+
+**Skill vs Build Ratio: Navigation-dominant + Combat execution**
+Reading the labyrinth and choosing optimal paths is 60%. Combat execution within nodes is 40%. Strategic pathing matters most.
+
+---
+
+### Experimental Game 8: "The Bloodline Labyrinth"
+*Generational Skill Tree Navigation*
+
+The skill tree IS your family tree — ancestors' choices determine your starting position, and your choices become your descendants' inheritance. Each run you play the latest heir of a dungeon-delving dynasty. Unlike Rogue Legacy where traits are random, here inheritance is deterministic and strategic. You're not just playing one run — you're cultivating a bloodline across many generations. Early generations sacrifice themselves to develop branches that later generations will benefit from. The multi-generational perspective creates unique long-term planning where a "bad" run can still be strategically valuable for the dynasty.
+
+**1. Choice Timing: Pre-run (lineage selection) + Distributed (skill unlocks)**
+Before each run, choose which ancestor to descend from (different inherited skills). During the run, earn points and unlock nodes like a standard skill tree.
+
+**2. Pacing: Milestone (generational) + Performance-based (within run)**
+Major decisions happen between generations (which line to continue, which skills to "master"). Within a run, skill point acquisition is performance-based — better combat yields more points.
+
+**3. Distribution Timing: Inherited + Immediate**
+Some power is inherited at run start (frontloaded from lineage). Additional power is gained immediately as you unlock nodes during the run.
+
+**4. Agency: Deterministic (both layers)**
+You choose which ancestor to descend from. You choose which nodes to unlock. No randomness in the skill tree itself — only in dungeon encounters.
+
+**5. Negative Acquisition: Exclusive (by ancestry)**
+Choosing one ancestor means not choosing another. Investing in fire mastery across generations makes it harder to develop ice mastery — your bloodline is specialized by its history.
+
+**6. Scarcity: Generationally Earned**
+Within a run, skill points feel abundant because your ancestors invested in this tree. But that abundance was built through many generations of careful investment.
+
+**7. Reversibility: Permanent (generationally)**
+Skills mastered at death become permanent additions to the family tree. You can't un-master a skill, can't prune branches. **Commitment Weight: Critical** — mastery choices affect many future descendants.
+
+**8. Capacity: Generational scaling**
+Capacity grows across generations. A first-generation character has few options. A hundredth-generation character starts with an elaborate tree of ancestral investments.
+
+**9. Interaction: Hierarchical + Inherited synergies**
+Deeper nodes require parent nodes (hierarchical). Inherited traits from different ancestors might synergize in unexpected ways — grandmother's fire affinity with grandfather's area effects.
+
+**10. Upgrade Depth: Evolutionary**
+Traits evolve across generations. A weak fire affinity becomes strong after five fire-focused generations. The tree deepens through sustained investment.
+
+**11. Power Source Diversity: Single source (family tree)**
+All power from the family skill tree. The tree is the only system — but it's shaped by generational history.
+
+**12. Visibility: Complete (historical)**
+Full tree visible including ancestor choices, undeveloped branches, and potential paths. Family history is fully transparent.
+
+**13. Comprehension: Transparent + Probabilistic inheritance**
+Node effects are clear. But inheritance to descendants has probability — a child MIGHT inherit a mastered skill. Learning inheritance odds takes time.
+
+**14. Growth Pattern: Additive (within run) + Generational scaling (across runs)**
+Normal additive growth during a run. Bloodlines trend upward across generations through accumulated inheritance.
+
+**15. Persistence: Legacy (core mechanic)**
+The game IS persistence. Everything feeds the bloodline. True progress is generational — individual runs are chapters in a dynasty's story.
+
+**16. Starting Variance: Inherited**
+Starting position depends entirely on your chosen ancestor. Two players at the same generation could have wildly different bloodlines based on their ancestors' choices.
+
+**17. Run Identity: Bloodline-shaped**
+Individual runs emerge from skill choices, but overall identity is shaped by bloodline. A fire-focused bloodline character is predisposed toward fire builds before the run even starts.
+
+**Skill vs Build Ratio: Generational planning + Combat execution**
+Combat skill matters each generation. Eugenics skill (planning optimal bloodlines across generations) matters for long-term success. Both contribute — immediate and generational.
+
+---
+
+### Experimental Game 9: "The Gambler's Dungeon"
+*Bet-Based Build Construction*
+
+Before each run, you place bets on your own performance at the betting house. Bet on killing 50 enemies? You get damage equipment but lose everything if you fail. Your bets shape your build, and your build must fulfill your bets. This creates a fascinating self-assessment loop: you must accurately judge your own capabilities to bet optimally. Overconfident bets give great equipment but doom you to failure. Underconfident bets are safe but leave power on the table. Learning to bet accurately IS learning to play the game. The betting house becomes a mirror reflecting your skill level.
+
+**1. Choice Timing: Pre-run (betting) + Performance-locked (during run)**
+All bets are placed before the run. During the run, you have no new choices — only performance toward fulfilling bets. The build IS the bets.
+
+**2. Pacing: Event-driven (bet checkpoints)**
+The run is punctuated by bet checkpoints. "Kill 10 enemies by Room 3" creates event-driven pacing where specific moments must deliver results.
+
+**3. Distribution Timing: Frontloaded (bet-provided equipment)**
+All equipment is received before entry based on your bets. Bet on speedrunning? You get speed equipment immediately. No mid-run rewards.
+
+**4. Agency: Deterministic (betting)**
+You choose exactly what bets to place. Bet conditions are explicit, equipment provided is clear. No randomness in the build — only in dungeon encounters.
+
+**5. Negative Acquisition: Traded (risk ↔ reward)**
+You trade safety for power. Each bet increases potential reward but also potential loss. Conservative bets give modest equipment; aggressive bets give powerful equipment with harder conditions.
+
+**6. Scarcity: Self-imposed**
+Conservative bets = scarcity. Aggressive bets = abundance with risk. You choose your scarcity level through bet ambition.
+
+**7. Reversibility: Permanent (bet-locked)**
+Bets cannot be canceled. Equipment cannot be returned. Fail a bet, lose everything. **Commitment Weight: Critical** — bets are life-or-death commitments.
+
+**8. Capacity: Bet-determined**
+More aggressive bets provide more equipment slots. Conservative betting limits your capacity. The ceiling is how much you dare to wager.
+
+**9. Interaction: Synergistic (bet combos)**
+Certain bets synergize. "Kill quickly" + "Take no damage" provide equipment that combos into glass cannon builds. Parlay bets combine conditions for multiplicative rewards.
+
+**10. Upgrade Depth: Flat (within run)**
+No upgrades during the run — you have what your bets provided. The "depth" is in bet selection before running.
+
+**11. Power Source Diversity: Single source (bets)**
+All power from bet-provided equipment. No shops, no drops, no alternative sources. Your bets are your entire build.
+
+**12. Visibility: Complete**
+Bet conditions fully disclosed. Equipment provided fully visible. Win/lose conditions clear. No hidden information — the gamble is in your execution, not hidden rules.
+
+**13. Comprehension: Transparent**
+Exact numbers visible for all bets and equipment. Perfect information for calculating risk/reward ratios.
+
+**14. Growth Pattern: Flat (within run)**
+No power growth during the run. You're as strong at minute one as minute ten. The "growth" is fulfilling bet conditions, not gaining power.
+
+**15. Persistence: Unlocks + Wagered**
+Successful bets unlock new bet types and equipment. But winnings can also be wagered on future runs — bet your unlocks for bigger rewards, lose them if you fail.
+
+**16. Starting Variance: Bet-determined**
+Every run differs by what you bet. Two players with identical unlocks could place completely different bets and have completely different experiences.
+
+**17. Run Identity: Pre-determined (by bets)**
+Identity is set at the betting house. "I'm doing a speed run" or "I'm doing a no-damage run" — your bets define who you are before entering.
+
+**Skill vs Build Ratio: Bet-selection + Execution**
+Knowing your capabilities and betting accurately is 50%. Executing to fulfill those bets is 50%. Overconfident bets doom you; underconfident bets limit you.
