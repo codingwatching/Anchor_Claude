@@ -16,4 +16,4 @@ Quality ceilings differ too. Readers might achieve higher quality for taste-depe
 
 Most real workflows will probably be a hybrid, mixing both approaches depending on the task. Verification for the boring or dangerous parts (edge cases, interface contracts), reading for the creative parts (architecture, naming, feel). Some domains force the choice on you — safety-critical almost requires verification, games almost require reading.
 
-If this division holds, we expect model specialization to follow. Verifiers want slower, more careful models that don't make mistakes during long autonomous runs, while readers want models with taste that work well in tight loops. This can already be seen in how people use GPT 5.2 xhigh vs. Opus 4.5.
+If this division holds, we expect model specialization to follow. Verifiers want slower, more careful models that don't make mistakes during long autonomous runs, while readers want models with taste that work well in tight loops. This can already be seen in how people use GPT 5.2 xhigh and Opus 4.5.
