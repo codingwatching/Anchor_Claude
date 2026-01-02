@@ -1,0 +1,19 @@
+Co-authored by a327ex and Claude (Opus 4.5)
+
+---
+
+There are two kinds of programmers emerging in the age of AI coding tools: verifiers and readers.
+
+Verifiers want the AI to work by itself for as long as possible. They build scaffolding — types, tests, specs, complex agent setups — so the AI can enter a feedback loop with itself and converge on a solution without human intervention. The human steps back, the machine runs until it either succeeds or fails a check.
+
+Readers, instead, want to stay in the loop. They care about terse syntax, locality, common patterns, simplicity — anything that makes the AI's output easier to read. The feedback loop is between human and code. The human reads everything, catches problems and maintains quality through direct oversight.
+
+Verifiers scale in ways readers don't. If you've invested in specs and tests, adding another feature costs you little — the verification infrastructure already exists. Readers pay a constant tax: every feature requires reading. This makes verifiers better suited for larger projects, and readers better suited for smaller ones, or projects where *taste* dominates.
+
+But the reader ceiling isn't fixed, as better tooling pushes it higher through things like good diffs, smart summarization, and AI-assisted review of AI output.
+
+Quality ceilings differ too. Readers might achieve higher quality for taste-dependent work — games, creative tools, anything where "this feels wrong" matters but is hard to encode as a test. Verifiers might achieve higher quality for correctness-dominated work — safety-critical systems, financial code, infrastructure.
+
+Most real workflows will probably be a hybrid, mixing both approaches depending on the task. Verification for the boring or dangerous parts (edge cases, interface contracts), reading for the creative parts (architecture, naming, feel). Some domains force the choice on you — safety-critical almost requires verification, games almost require reading.
+
+If this division holds, we expect model specialization to follow. Verifiers want slower, more careful models that don't make mistakes during long autonomous runs, while readers want models with taste that work well in tight loops. This can already be seen in how people use GPT 5.2 xhigh vs. Opus 4.5.
