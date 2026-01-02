@@ -124,11 +124,14 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                         tool_name, formatted_input = tool_info
                         result_text = format_tool_result(result)
 
-                        # Command is clickable summary, result is hidden content
-                        output += f"<details>\n<summary><code>{tool_name} {formatted_input}</code></summary>\n\n"
                         if result_text:
+                            # Command is clickable summary, result is hidden content
+                            output += f"<details>\n<summary><code>{tool_name} {formatted_input}</code></summary>\n\n"
                             output += f"````\n{result_text}\n````\n\n"
-                        output += "</details>\n\n"
+                            output += "</details>\n\n"
+                        else:
+                            # No result, just show command in blockquoted code block
+                            output += f"> `{tool_name} {formatted_input}`\n\n"
 
         # Assistant message
         elif msg_type == 'assistant' and isinstance(content, list):

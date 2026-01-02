@@ -31,32 +31,34 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 **`/end`** → run the full workflow below (save transcript, commit, push)
 
-**`/end-no-save`** → just end the session without logging or committing
-
 When running the full workflow, complete all steps before committing (one commit per session):
 
-1. **Write a detailed summary** covering what was accomplished. If the conversation was compacted, read the compaction summaries or the full log to ensure the summary covers the entire session, not just the post-compaction part.
-
-2. **Create a short title** (max 28 characters) based on the summary. Do this after writing the summary so it accurately captures the session's focus.
-
-3. **Locate the session transcript** - Find the most recent JSONL file:
+1. **Locate the session transcript** - Find the most recent JSONL file:
    ```bash
-   ls -t ~/.claude/projects/-home-adn/*.jsonl | grep -v agent | head -1
+   ls -t ~/.claude/projects/-home-adn-a327ex-Anchor/*.jsonl | grep -v agent | head -1
    ```
 
-4. **Convert to Markdown** - Run the converter:
+2. **Convert to Markdown** - Run the converter:
    ```bash
    python3 scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/YYYY-MM-DD_HH-MM.md
    ```
 
-5. **Prepend title + summary** to the log file (replace the default header)
+3. **Read the converted log** to review the full session, especially if the conversation was compacted. This ensures the summary covers everything, not just what's in current context.
 
-6. **Sync context files**:
+4. **Write a detailed summary** covering what was accomplished throughout the entire session.
+
+5. **Create a short title** (max 28 characters) based on the summary.
+
+6. **Show title + summary to user** and wait for approval. The user may want to change the title or edit details in the summary before proceeding.
+
+7. **Prepend title + summary** to the log file (replace the default header)
+
+8. **Sync context files**:
    ```bash
    cp .claude/CLAUDE.md docs/* website/context/
    ```
 
-7. **Commit everything** with title as subject line and full summary as body:
+9. **Commit everything** with title as subject line and full summary as body:
    ```bash
    git add -A
    git commit -m "Title
@@ -64,17 +66,17 @@ When running the full workflow, complete all steps before committing (one commit
    Full summary here..."
    ```
 
-8. **Push to GitHub**:
-   ```bash
-   git push origin main
-   ```
+10. **Push to GitHub**:
+    ```bash
+    git push origin main
+    ```
 
-9. **Push website to Blot**:
-   ```bash
-   git subtree push --prefix=website blot master
-   ```
+11. **Push website to Blot**:
+    ```bash
+    git subtree push --prefix=website blot master
+    ```
 
-10. **Confirm** completion to the user
+12. **Confirm** completion to the user
 
 ### Log File Format
 
