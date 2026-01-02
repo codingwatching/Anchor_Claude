@@ -45,7 +45,11 @@ When running the full workflow, complete all steps before committing (one commit
 
 3. **Read the converted log** to review the full session, especially if the conversation was compacted. This ensures the summary covers everything, not just what's in current context.
 
-4. **Write a detailed summary** covering what was accomplished throughout the entire session.
+4. **Write a detailed summary** covering what was accomplished throughout the entire session:
+   - Organize sections in chronological order (matching conversation flow)
+   - Give weight to one-off fixes, attempts, and problems solved
+   - Include specific details: error messages, what was tried, what worked
+   - This helps future-me look back and see what was accomplished and tried
 
 5. **Create a short title** (max 28 characters) based on the summary.
 
