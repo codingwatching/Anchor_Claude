@@ -51,7 +51,7 @@ When running the full workflow, complete all steps before committing (one commit
    - Include specific details: error messages, what was tried, what worked
    - This helps future-me look back and see what was accomplished and tried
 
-5. **Create a short title** (max 28 characters) based on the summary.
+5. **Create a short title** (max 30 characters) based on the summary.
 
 6. **Show title + summary to user** and wait for approval. The user may want to change the title or edit details in the summary before proceeding.
 
@@ -85,7 +85,7 @@ When running the full workflow, complete all steps before committing (one commit
 ### Log File Format
 
 ```markdown
-# Short Title (Max 28 Chars)
+# Short Title (Max 30 Chars)
 
 ## Summary
 Detailed description of what was accomplished.
