@@ -62,13 +62,19 @@ When running the full workflow, complete all steps before committing (one commit
    cp .claude/CLAUDE.md docs/* website/context/
    ```
 
-9. **Commit everything** with title as subject line and full summary as body:
+9. **Commit everything** with title as subject line, full summary as body, and co-authorship:
    ```bash
    git add -A
    git commit -m "Title
 
-   Full summary here..."
+   Full summary here...
+
+   🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+   Co-Authored-By: Claude <noreply@anthropic.com>"
    ```
+
+   **Important:** Always include the robot line and `Co-Authored-By` so commits show as authored by both of us.
 
 10. **Push to GitHub**:
     ```bash

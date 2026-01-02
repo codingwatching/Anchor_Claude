@@ -1,12 +1,16 @@
 # A Taxonomy of Roguelite Power Systems
 
-Most roguelites use what could be called "distributed power choice + distribution" — players choose their powers in a "choose 1 of 3" screen multiple times as the run progresses. There's nothing inherently wrong with this, except that it's overplayed. The benefits: players constantly make strategic choices about their builds, hitting the correct choice cadence. The drawbacks: because you have so many choices, you can usually force the run to always be what you want. Plus, you have to keep making choices all the time — sometimes you're not in the mood.
+## Contents
 
-This analysis attempts to map the full possibility space of how roguelites handle power acquisition and management, using a multi-axis framework.
+1. [The Framework](#the-framework) — 17 axes across 6 categories
+2. [Game Classifications](#game-classifications) — 22 games analyzed
+3. [Frequency Analysis](#frequency-analysis) — what's common, what's rare
 
 ---
 
 ## The Framework
+
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis)
 
 The axes are organized into categories: **Acquisition**, **Management**, **Information**, **Progression**, **Meta**, and **Experience**.
 
@@ -263,162 +267,9 @@ These govern how the player ENGAGES with power decisions.
 
 ---
 
-## Frequency Analysis
-
-Based on 22 game classifications (including Rogue Legacy Early/Late as separate entries).
-
-### 1. Choice Timing
-- Distributed (14): Isaac, Hades, Dead Cells, Gungeon, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, FTL, Rogue Legacy Early
-- Reactive (7): Isaac, Gungeon, Noita, FTL, Spelunky, Risk of Rain 1, Risk of Rain 2
-- Pre-run (4): Dead Cells, Into the Breach, Rogue Legacy Early, Rogue Legacy Late
-- Continuous (3): Super Auto Pets, TFT, Underlords
-- Milestone (1): Into the Breach
-- Early-run (0): None
-
-#### Pacing
-- Event-triggered (13): Isaac, Hades, Dead Cells, Gungeon, Noita, Slay the Spire, Peglin, TFT, FTL, Spelunky, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
-- Resource-gated (9): Isaac, Hades, Dead Cells, Gungeon, Slay the Spire, Into the Breach, FTL, Risk of Rain 1, Risk of Rain 2
-- Fixed interval (9): Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Balatro, Super Auto Pets, TFT, Underlords
-- Pre-run (2): Rogue Legacy Early, Rogue Legacy Late
-- Time-scaled (2): Risk of Rain 1, Risk of Rain 2
-- Milestone (1): Into the Breach
-- Performance-based (0), Player-controlled (0), Continuous (0): None
-
-### 2. Distribution Timing
-- Immediate (21): Almost all games
-- Delayed-Random (3): Slay the Spire, Balatro, Peglin
-- Frontloaded (2): Into the Breach, Rogue Legacy Late
-- Conditional (1): Isaac
-- Distributed (1): Into the Breach
-- Delayed-Sequential (0): None
-
-### 3. Agency
-- Curated (20): Almost all games
-- Serendipitous (10): Isaac, Dead Cells, Gungeon, Noita, Nuclear Throne, FTL, Spelunky, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
-- Influenced (10): Isaac, Hades, Brotato, SNKRX, Slay the Spire, Balatro, Super Auto Pets, TFT, Underlords, Risk of Rain 2
-- Deterministic (2): Noita, Into the Breach
-- Competitive (2): TFT, Underlords
-- Predetermined (0): None
-
-### 4. Negative Acquisition
-- Optional (14): Isaac, Hades, Dead Cells, Gungeon, Noita, Brotato, Slay the Spire, Balatro, Peglin, FTL, Spelunky, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
-- None (8): Nuclear Throne, Vampire Survivors, SNKRX, 20 Minutes Till Dawn, Super Auto Pets, TFT, Underlords, Into the Breach
-- Forced (5): Isaac, Dead Cells, FTL, Rogue Legacy Early, Rogue Legacy Late
-- Coupled (3): Isaac, Noita, Spelunky
-- Traded (0): None
-
-### 5. Scarcity
-- Moderate (~11): Isaac, Gungeon, Nuclear Throne, Brotato, SNKRX, Slay the Spire, Balatro, Peglin, Super Auto Pets (+ Hades, Noita partial)
-- Abundant (~5): Dead Cells, Vampire Survivors, 20 Minutes Till Dawn, Rogue Legacy Late (+ Hades partial)
-- Scarce (~5): Into the Breach, FTL, Spelunky, Rogue Legacy Early (+ Noita partial)
-- Competitive (2): TFT, Underlords
-- Time-pressured (2): Risk of Rain 1, Risk of Rain 2
-- Drought/Feast (0): None
-
-### 6. Reversibility
-- Permanent (15): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, 20 Minutes Till Dawn, Into the Breach, FTL, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
-- Swappable (13): Dead Cells, Gungeon, Noita, Nuclear Throne, Brotato, SNKRX, Super Auto Pets, TFT, Underlords, Into the Breach, FTL, Spelunky, Rogue Legacy Early
-- Sellable (7): Hades, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, FTL
-- Transformable (5): Isaac, Slay the Spire, Balatro, Peglin, Risk of Rain 2
-- Removable (3): Slay the Spire, Balatro, Peglin
-- Evolutionary (1): Vampire Survivors
-- Fluid (0): None
-
-#### Commitment Weight
-- Medium (10+): Hades, Gungeon, Nuclear Throne, Vampire Survivors, 20 Minutes Till Dawn, Slay the Spire, Peglin, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
-- Light (~2 pure + 6 partial): SNKRX, Super Auto Pets
-- Heavy (2 pure + partials): FTL, Rogue Legacy Early
-- Critical (1): Into the Breach
-
-### 7. Capacity
-- Hard cap (15): Dead Cells, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, Into the Breach, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late
-- Unlimited (4): Hades, Gungeon, Risk of Rain 1, Risk of Rain 2
-- Soft cap (3): 20 Minutes Till Dawn, Slay the Spire, Peglin
-- Contextual (3): Isaac, Hades, Gungeon
-- Dynamic (0): None
-
-### 8. Interaction
-- Synergistic (14): Hades, Dead Cells, Gungeon, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
-- Systemic (5): Noita, TFT, Underlords, FTL, Spelunky
-- Highly Synergistic (4): Isaac, Balatro, Super Auto Pets, Into the Breach
-- Multiplicative (2): Risk of Rain 1, Risk of Rain 2
-- Exclusive (1): Isaac
-- Independent (0), Hierarchical (0), Competitive (0): None
-
-### 9. Upgrade Depth
-- Linear (14): Hades, Dead Cells, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, Super Auto Pets, TFT, Underlords, Into the Breach, FTL, Rogue Legacy Early
-- Flat (5): Isaac, Dead Cells, Gungeon, Nuclear Throne, Spelunky
-- Infinite (2): Risk of Rain 1, Risk of Rain 2
-- Evolutionary (2): Hades, Vampire Survivors
-- Transformable (2): Isaac, Balatro
-- Transformative (1): Noita
-- Maxed (1): Rogue Legacy Late
-- Branching (0): None
-
-### 10. Power Source Diversity
-- Multi-source (15): Isaac, Hades, Dead Cells, Gungeon, Noita, Slay the Spire, Balatro, TFT, Underlords, Into the Breach, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 2
-- Dual source (6): Nuclear Throne, Brotato, 20 Minutes Till Dawn, Peglin, Super Auto Pets, Risk of Rain 1
-- Single source (2): Vampire Survivors, SNKRX
-- Interconnected (0): None
-
-### 11. Visibility
-- Present (17): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
-- Complete (7): Brotato, SNKRX, Slay the Spire, Balatro, Peglin, Super Auto Pets, Into the Breach
-- Forecast (5): Hades, Dead Cells, Slay the Spire, TFT, FTL
-- Pool-visible (4): SNKRX, Super Auto Pets, TFT, Underlords
-- Obscured (2): Isaac, Noita
-- Blind (0): None
-
-### 12. Comprehension
-- Transparent (17): Hades, Dead Cells, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, Super Auto Pets, Into the Breach, FTL, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
-- Learnable (7): Isaac, Gungeon, Noita, TFT, Underlords, Spelunky, Risk of Rain 1
-- Calculable (1): Balatro
-- Opaque (1): Noita
-- Unknown (1): Isaac
-
-### 13. Growth Pattern
-- Additive (16): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, Super Auto Pets, Into the Breach, FTL, Rogue Legacy Early
-- Multiplicative (3): Balatro, Risk of Rain 1, Risk of Rain 2
-- Transformative (3): Isaac, Noita, Super Auto Pets
-- Oscillating (2): TFT, Underlords
-- Minimal (2): Spelunky, Rogue Legacy Late
-- Subtractive (1): Slay the Spire
-- Plateau (0): None
-
-### 14. Persistence
-- Unlocks (19): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, Super Auto Pets, Into the Breach, FTL, Spelunky, Risk of Rain 1, Risk of Rain 2
-- Upgrades (4): Hades, Dead Cells, Vampire Survivors, Rogue Legacy Early
-- Nothing (2): TFT, Underlords
-- Legacy (1): Into the Breach
-- Resources (1): Rogue Legacy Early
-- Progress (0): None
-
-### 15. Starting Variance
-- Character-varied (17): Isaac, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
-- Loadout-varied (8): Hades, Dead Cells, Vampire Survivors, 20 Minutes Till Dawn, Balatro, Super Auto Pets, Into the Breach, Risk of Rain 2
-- Identical (2): Super Auto Pets, Spelunky
-- Random-varied (2): Isaac, Noita
-- Varied (2): TFT, Underlords
-- Seeded (0), Inherited (0): None
-
-### 16. Run Identity
-- Emergent (14): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, FTL, Risk of Rain 1, Risk of Rain 2
-- Influenced (6): Hades, Dead Cells, Nuclear Throne, Brotato, 20 Minutes Till Dawn, FTL
-- Fluid (4): Super Auto Pets, TFT, Underlords, Balatro
-- Pre-determined (3): Into the Breach, Rogue Legacy Early, Rogue Legacy Late
-- Early-crystallizing (3): Vampire Survivors, Balatro, TFT
-- Convergent (2): Risk of Rain 1, Risk of Rain 2
-- Minimal (1): Spelunky
-
-### 17. Skill vs Build Ratio
-- Balanced (12): Isaac, Hades, Dead Cells, Gungeon, Noita, 20 Minutes Till Dawn, Slay the Spire, Peglin, FTL, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
-- Build-dominant (8): Vampire Survivors, Brotato, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, Rogue Legacy Late
-- Knowledge-dominant (6): Isaac, Noita, Balatro, Super Auto Pets, TFT, Underlords
-- Execution-dominant (4): Nuclear Throne, Into the Breach, Spelunky, Rogue Legacy Late (NG+)
-
----
-
 ## Game Classifications
+
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis)
 
 ### The Binding of Isaac (Repentance)
 
@@ -1922,3 +1773,160 @@ Similar to RoR1, adapted to 3D:
 **17. Skill vs Build Ratio:** Balanced
 - 3D movement skill matters more than 2D
 - Build still dominates late-game
+
+---
+
+## Frequency Analysis
+
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis)
+
+Based on 22 game classifications (including Rogue Legacy Early/Late as separate entries).
+
+### 1. Choice Timing
+- Distributed (14): Isaac, Hades, Dead Cells, Gungeon, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, FTL, Rogue Legacy Early
+- Reactive (7): Isaac, Gungeon, Noita, FTL, Spelunky, Risk of Rain 1, Risk of Rain 2
+- Pre-run (4): Dead Cells, Into the Breach, Rogue Legacy Early, Rogue Legacy Late
+- Continuous (3): Super Auto Pets, TFT, Underlords
+- Milestone (1): Into the Breach
+- Early-run (0): None
+
+#### Pacing
+- Event-triggered (13): Isaac, Hades, Dead Cells, Gungeon, Noita, Slay the Spire, Peglin, TFT, FTL, Spelunky, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
+- Resource-gated (9): Isaac, Hades, Dead Cells, Gungeon, Slay the Spire, Into the Breach, FTL, Risk of Rain 1, Risk of Rain 2
+- Fixed interval (9): Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Balatro, Super Auto Pets, TFT, Underlords
+- Pre-run (2): Rogue Legacy Early, Rogue Legacy Late
+- Time-scaled (2): Risk of Rain 1, Risk of Rain 2
+- Milestone (1): Into the Breach
+- Performance-based (0), Player-controlled (0), Continuous (0): None
+
+### 2. Distribution Timing
+- Immediate (21): Almost all games
+- Delayed-Random (3): Slay the Spire, Balatro, Peglin
+- Frontloaded (2): Into the Breach, Rogue Legacy Late
+- Conditional (1): Isaac
+- Distributed (1): Into the Breach
+- Delayed-Sequential (0): None
+
+### 3. Agency
+- Curated (20): Almost all games
+- Serendipitous (10): Isaac, Dead Cells, Gungeon, Noita, Nuclear Throne, FTL, Spelunky, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
+- Influenced (10): Isaac, Hades, Brotato, SNKRX, Slay the Spire, Balatro, Super Auto Pets, TFT, Underlords, Risk of Rain 2
+- Deterministic (2): Noita, Into the Breach
+- Competitive (2): TFT, Underlords
+- Predetermined (0): None
+
+### 4. Negative Acquisition
+- Optional (14): Isaac, Hades, Dead Cells, Gungeon, Noita, Brotato, Slay the Spire, Balatro, Peglin, FTL, Spelunky, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
+- None (8): Nuclear Throne, Vampire Survivors, SNKRX, 20 Minutes Till Dawn, Super Auto Pets, TFT, Underlords, Into the Breach
+- Forced (5): Isaac, Dead Cells, FTL, Rogue Legacy Early, Rogue Legacy Late
+- Coupled (3): Isaac, Noita, Spelunky
+- Traded (0): None
+
+### 5. Scarcity
+- Moderate (~11): Isaac, Gungeon, Nuclear Throne, Brotato, SNKRX, Slay the Spire, Balatro, Peglin, Super Auto Pets (+ Hades, Noita partial)
+- Abundant (~5): Dead Cells, Vampire Survivors, 20 Minutes Till Dawn, Rogue Legacy Late (+ Hades partial)
+- Scarce (~5): Into the Breach, FTL, Spelunky, Rogue Legacy Early (+ Noita partial)
+- Competitive (2): TFT, Underlords
+- Time-pressured (2): Risk of Rain 1, Risk of Rain 2
+- Drought/Feast (0): None
+
+### 6. Reversibility
+- Permanent (15): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, 20 Minutes Till Dawn, Into the Breach, FTL, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
+- Swappable (13): Dead Cells, Gungeon, Noita, Nuclear Throne, Brotato, SNKRX, Super Auto Pets, TFT, Underlords, Into the Breach, FTL, Spelunky, Rogue Legacy Early
+- Sellable (7): Hades, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, FTL
+- Transformable (5): Isaac, Slay the Spire, Balatro, Peglin, Risk of Rain 2
+- Removable (3): Slay the Spire, Balatro, Peglin
+- Evolutionary (1): Vampire Survivors
+- Fluid (0): None
+
+#### Commitment Weight
+- Medium (10+): Hades, Gungeon, Nuclear Throne, Vampire Survivors, 20 Minutes Till Dawn, Slay the Spire, Peglin, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
+- Light (~2 pure + 6 partial): SNKRX, Super Auto Pets
+- Heavy (2 pure + partials): FTL, Rogue Legacy Early
+- Critical (1): Into the Breach
+
+### 7. Capacity
+- Hard cap (15): Dead Cells, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, Into the Breach, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late
+- Unlimited (4): Hades, Gungeon, Risk of Rain 1, Risk of Rain 2
+- Soft cap (3): 20 Minutes Till Dawn, Slay the Spire, Peglin
+- Contextual (3): Isaac, Hades, Gungeon
+- Dynamic (0): None
+
+### 8. Interaction
+- Synergistic (14): Hades, Dead Cells, Gungeon, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
+- Systemic (5): Noita, TFT, Underlords, FTL, Spelunky
+- Highly Synergistic (4): Isaac, Balatro, Super Auto Pets, Into the Breach
+- Multiplicative (2): Risk of Rain 1, Risk of Rain 2
+- Exclusive (1): Isaac
+- Independent (0), Hierarchical (0), Competitive (0): None
+
+### 9. Upgrade Depth
+- Linear (14): Hades, Dead Cells, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, Super Auto Pets, TFT, Underlords, Into the Breach, FTL, Rogue Legacy Early
+- Flat (5): Isaac, Dead Cells, Gungeon, Nuclear Throne, Spelunky
+- Infinite (2): Risk of Rain 1, Risk of Rain 2
+- Evolutionary (2): Hades, Vampire Survivors
+- Transformable (2): Isaac, Balatro
+- Transformative (1): Noita
+- Maxed (1): Rogue Legacy Late
+- Branching (0): None
+
+### 10. Power Source Diversity
+- Multi-source (15): Isaac, Hades, Dead Cells, Gungeon, Noita, Slay the Spire, Balatro, TFT, Underlords, Into the Breach, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 2
+- Dual source (6): Nuclear Throne, Brotato, 20 Minutes Till Dawn, Peglin, Super Auto Pets, Risk of Rain 1
+- Single source (2): Vampire Survivors, SNKRX
+- Interconnected (0): None
+
+### 11. Visibility
+- Present (17): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
+- Complete (7): Brotato, SNKRX, Slay the Spire, Balatro, Peglin, Super Auto Pets, Into the Breach
+- Forecast (5): Hades, Dead Cells, Slay the Spire, TFT, FTL
+- Pool-visible (4): SNKRX, Super Auto Pets, TFT, Underlords
+- Obscured (2): Isaac, Noita
+- Blind (0): None
+
+### 12. Comprehension
+- Transparent (17): Hades, Dead Cells, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, Super Auto Pets, Into the Breach, FTL, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
+- Learnable (7): Isaac, Gungeon, Noita, TFT, Underlords, Spelunky, Risk of Rain 1
+- Calculable (1): Balatro
+- Opaque (1): Noita
+- Unknown (1): Isaac
+
+### 13. Growth Pattern
+- Additive (16): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, Super Auto Pets, Into the Breach, FTL, Rogue Legacy Early
+- Multiplicative (3): Balatro, Risk of Rain 1, Risk of Rain 2
+- Transformative (3): Isaac, Noita, Super Auto Pets
+- Oscillating (2): TFT, Underlords
+- Minimal (2): Spelunky, Rogue Legacy Late
+- Subtractive (1): Slay the Spire
+- Plateau (0): None
+
+### 14. Persistence
+- Unlocks (19): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Balatro, Peglin, Super Auto Pets, Into the Breach, FTL, Spelunky, Risk of Rain 1, Risk of Rain 2
+- Upgrades (4): Hades, Dead Cells, Vampire Survivors, Rogue Legacy Early
+- Nothing (2): TFT, Underlords
+- Legacy (1): Into the Breach
+- Resources (1): Rogue Legacy Early
+- Progress (0): None
+
+### 15. Starting Variance
+- Character-varied (17): Isaac, Dead Cells, Gungeon, Noita, Nuclear Throne, Vampire Survivors, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, FTL, Spelunky, Rogue Legacy Early, Rogue Legacy Late, Risk of Rain 1, Risk of Rain 2
+- Loadout-varied (8): Hades, Dead Cells, Vampire Survivors, 20 Minutes Till Dawn, Balatro, Super Auto Pets, Into the Breach, Risk of Rain 2
+- Identical (2): Super Auto Pets, Spelunky
+- Random-varied (2): Isaac, Noita
+- Varied (2): TFT, Underlords
+- Seeded (0), Inherited (0): None
+
+### 16. Run Identity
+- Emergent (14): Isaac, Hades, Dead Cells, Gungeon, Noita, Nuclear Throne, Brotato, SNKRX, 20 Minutes Till Dawn, Slay the Spire, Peglin, FTL, Risk of Rain 1, Risk of Rain 2
+- Influenced (6): Hades, Dead Cells, Nuclear Throne, Brotato, 20 Minutes Till Dawn, FTL
+- Fluid (4): Super Auto Pets, TFT, Underlords, Balatro
+- Pre-determined (3): Into the Breach, Rogue Legacy Early, Rogue Legacy Late
+- Early-crystallizing (3): Vampire Survivors, Balatro, TFT
+- Convergent (2): Risk of Rain 1, Risk of Rain 2
+- Minimal (1): Spelunky
+
+### 17. Skill vs Build Ratio
+- Balanced (12): Isaac, Hades, Dead Cells, Gungeon, Noita, 20 Minutes Till Dawn, Slay the Spire, Peglin, FTL, Rogue Legacy Early, Risk of Rain 1, Risk of Rain 2
+- Build-dominant (8): Vampire Survivors, Brotato, SNKRX, Balatro, Super Auto Pets, TFT, Underlords, Rogue Legacy Late
+- Knowledge-dominant (6): Isaac, Noita, Balatro, Super Auto Pets, TFT, Underlords
+- Execution-dominant (4): Nuclear Throne, Into the Breach, Spelunky, Rogue Legacy Late (NG+)
