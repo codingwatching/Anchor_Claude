@@ -258,12 +258,7 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                 if item_type == 'text':
                     text = item.get('text', '')
                     if text:
-                        # If text contains code fences, wrap in higher-level fence
-                        if '```' in text:
-                            fence = get_fence(text)
-                            output += f"{fence}\n{text}\n{fence}\n\n"
-                        else:
-                            output += f"{text}\n\n"
+                        output += f"{text}\n\n"
 
                 elif item_type == 'tool_use':
                     tool_name = item.get('name', 'Unknown')
