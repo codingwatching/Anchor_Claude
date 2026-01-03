@@ -6,12 +6,14 @@
 2. [Game Classifications](#game-classifications) — 22 games analyzed
 3. [Frequency Analysis](#frequency-analysis) — what's common, what's rare
 4. [Hypothetical Designs](#hypothetical-designs) — 12 imaginary games exploring design space
+5. [Experimental Analysis](#experimental-games-frequency-analysis) — patterns in the hypothetical designs
+6. [Summary](#summary-design-space-for-new-roguelites) — what the experimental designs reveal
 
 ---
 
 ## The Framework
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs) | [Experimental](#experimental-games-frequency-analysis)
 
 The axes are organized into categories: **Acquisition**, **Management**, **Information**, **Progression**, **Meta**, and **Experience**.
 
@@ -272,7 +274,7 @@ These govern how the player ENGAGES with power decisions.
 
 ## Game Classifications
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs) | [Experimental](#experimental-games-frequency-analysis)
 
 ### The Binding of Isaac (Repentance)
 
@@ -1781,7 +1783,7 @@ Similar to RoR1, adapted to 3D:
 
 ## Frequency Analysis
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs) | [Experimental](#experimental-games-frequency-analysis)
 
 Based on 22 game classifications (including Rogue Legacy Early/Late as separate entries).
 
@@ -1938,7 +1940,7 @@ Based on 22 game classifications (including Rogue Legacy Early/Late as separate 
 
 ## Hypothetical Designs
 
-[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs)
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs) | [Experimental](#experimental-games-frequency-analysis)
 
 These are imaginary roguelite designs that explore the taxonomy's design space. The first three are **archetypal** — they use common options and resemble existing successful games. The remaining nine are **experimental** — they deliberately explore underused design space.
 
@@ -2821,3 +2823,17 @@ Based on 9 experimental game designs (excluding the 3 archetypal games).
 - **Drought/Feast scarcity**: 2/9 use Drought/Feast vs 0/22 real games. Another previously unused option explored in experimental designs.
 
 - **All Balanced**: Every experimental game uses Balanced skill/build ratio — no extreme designs in either direction.
+
+---
+
+## Summary: Design Space for New Roguelites
+
+The experimental designs reveal a consistent pattern: they trade randomness for player control. Where real roguelites typically use Curated or Serendipitous agency (letting RNG shape runs), the experimental games overwhelmingly favor Deterministic agency — the player decides exactly what they get. This represents a fundamental shift from "adapt to what you find" toward "plan and execute." The trade-off is clear: deterministic systems offer deeper strategic planning but sacrifice the surprise and adaptability that define traditional roguelike appeal. Developers exploring this space should consider hybrid approaches like Labyrinth of Choices, which uses deterministic pathing but serendipitous loot within nodes.
+
+The experimental games also cluster around frontloaded decision-making with critical commitment weight. Five of nine games use Pre-run choice timing, and four use Critical commitment weight — meaning a small number of choices define the entire run. Real games rarely do this (Into the Breach being the notable exception). This creates a different emotional arc: instead of gradually discovering your build, you architect it upfront and then test your design. The satisfaction shifts from "look what emerged" to "my plan worked." For developers, this suggests an underexplored design space: roguelites where the run is won or lost in the planning phase, with execution serving as validation rather than adaptation.
+
+Several framework options went completely unused in the 22 real games but appear in experimental designs: Traded negative acquisition, Drought/Feast scarcity, Plateau growth pattern, and Dynamic capacity. These represent genuinely unexplored territory. Traded negatives (where gaining power requires sacrificing something) appeared in five experimental games but zero real ones — a striking gap given how common trade-off mechanics are in other genres. Drought/Feast scarcity, where resources alternate between absence and overwhelming abundance, creates a rhythm fundamentally different from the steady drip of most roguelites. Developers looking to differentiate should examine these unused options as starting points.
+
+The experimental games also show a strong preference for Single source power diversity (6/9) compared to real games (2/22). This suggests that innovative roguelites might benefit from committing fully to one unified system rather than layering multiple semi-independent systems. When power comes from a single source — whether it's a skill tree, a betting mechanic, or a tide gauge — that system can be deeper and more mechanically distinctive. The complexity comes from the system's internal richness rather than from juggling multiple systems. This is the opposite of the "more systems = more depth" assumption that drives many roguelite designs.
+
+Finally, the complete absence of Build-dominant or Execution-dominant designs in the experimental games is notable. Every experimental game targets Balanced skill/build ratio. This may reflect a design philosophy that interesting new mechanics should matter for both planning and execution, rather than tilting heavily toward either. It may also represent a blind spot — perhaps the most innovative unexplored designs are ones that go fully Build-dominant (the game plays itself once properly constructed) or fully Execution-dominant (moment-to-moment skill matters far more than build choices). The space at the extremes remains largely uncharted.
