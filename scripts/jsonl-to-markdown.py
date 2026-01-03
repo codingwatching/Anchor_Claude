@@ -32,6 +32,21 @@ def format_tool_input(tool_name, tool_input):
     else:
         return ""
 
+def get_fence(content):
+    """Get a code fence that won't conflict with content."""
+    # Use tildes if content has backticks, otherwise use backticks
+    if '```' in content:
+        fence = "~~~"
+        while fence in content:
+            fence += "~"
+        return fence
+    else:
+        return "```"
+
+def html_escape(text):
+    """Escape HTML special characters."""
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
 def format_tool_result(result, max_lines=30):
     """Format tool result, truncating if needed."""
     if isinstance(result, list):
@@ -63,6 +78,93 @@ def is_system_message(content):
             return True
     return False
 
+def filter_rewound_messages(messages):
+    """Filter out rewound messages by resolving branch points.
+
+    When a user rewinds, multiple messages can share the same parentUuid.
+    At each such branch point, we keep only the branch containing the
+    last message in file order (the "winning" branch). This handles:
+    - Rewinds within a chain (orphaned branches get filtered)
+    - Continuations (disconnected chains from --continue are preserved)
+    """
+    if not messages:
+        return messages
+
+    # Build uuid -> message map with file index for ordering
+    uuid_map = {}
+    uuid_to_index = {}
+    for i, msg in enumerate(messages):
+        uuid = msg.get('uuid')
+        if uuid:
+            uuid_map[uuid] = msg
+            uuid_to_index[uuid] = i
+
+    # Find branch points: parents with multiple children
+    from collections import defaultdict
+    children_of = defaultdict(list)
+    for msg in messages:
+        parent_uuid = msg.get('parentUuid')
+        uuid = msg.get('uuid')
+        if parent_uuid and uuid:
+            children_of[parent_uuid].append(uuid)
+
+    # For each branch point, find which child leads to the latest message
+    # Build set of "losing" branches (to be filtered out)
+    orphaned = set()
+
+    def get_latest_descendant_index(uuid):
+        """Get the highest file index reachable from this uuid."""
+        visited = set()
+        max_index = uuid_to_index.get(uuid, -1)
+        stack = [uuid]
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            idx = uuid_to_index.get(current, -1)
+            if idx > max_index:
+                max_index = idx
+            # Add all children
+            for child in children_of.get(current, []):
+                stack.append(child)
+        return max_index
+
+    def mark_orphaned(uuid):
+        """Mark this uuid and all descendants as orphaned."""
+        stack = [uuid]
+        while stack:
+            current = stack.pop()
+            if current in orphaned:
+                continue
+            orphaned.add(current)
+            for child in children_of.get(current, []):
+                stack.append(child)
+
+    for parent_uuid, children in children_of.items():
+        if len(children) > 1:
+            # Branch point - find which child leads to the latest message
+            best_child = None
+            best_index = -1
+            for child in children:
+                latest = get_latest_descendant_index(child)
+                if latest > best_index:
+                    best_index = latest
+                    best_child = child
+            # Mark all other children as orphaned
+            for child in children:
+                if child != best_child:
+                    mark_orphaned(child)
+
+    # Filter messages: keep those not orphaned OR without uuid (system messages)
+    filtered = []
+    for msg in messages:
+        uuid = msg.get('uuid')
+        if uuid is None or uuid not in orphaned:
+            filtered.append(msg)
+
+    return filtered
+
 def convert_jsonl_to_markdown(jsonl_path, output_path=None):
     """Convert JSONL transcript to Markdown."""
 
@@ -77,6 +179,9 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                 messages.append(msg)
             except json.JSONDecodeError:
                 continue
+
+    # Filter out rewound messages
+    messages = filter_rewound_messages(messages)
 
     # Extract session start time
     start_time = None
@@ -106,7 +211,15 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
         if msg_type == 'user' and isinstance(content, str):
             # Check if it's internal system output
             if is_system_message(content):
-                output += f"````\n{content}\n````\n\n"
+                fence = get_fence(content)
+                output += f"{fence}\n{content}\n{fence}\n\n"
+            # Check if it's HTML content (pasted HTML)
+            elif content.strip().startswith('<') and re.search(r'<(p|div|details|pre|blockquote|h[1-6]|ul|ol|table)\b', content):
+                # Put HTML content in a collapsible details block
+                escaped = html_escape(content)
+                output += f"<details>\n<summary><code>[Pasted HTML content]</code></summary>\n\n"
+                output += f"<pre><code>{escaped}</code></pre>\n\n"
+                output += "</details>\n\n"
             else:
                 # Prefix every line with > for proper blockquote
                 lines = content.split('\n')
@@ -128,9 +241,10 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                         result_text = format_tool_result(result)
 
                         if result_text:
-                            # Command is clickable summary, result is hidden content
+                            # Use HTML pre/code since markdown isn't processed inside HTML blocks
+                            escaped = html_escape(result_text)
                             output += f"<details>\n<summary><code>{tool_name} {formatted_input}</code></summary>\n\n"
-                            output += f"````\n{result_text}\n````\n\n"
+                            output += f"<pre><code>{escaped}</code></pre>\n\n"
                             output += "</details>\n\n"
                         else:
                             # No result, just show command in blockquoted code block
@@ -144,7 +258,12 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                 if item_type == 'text':
                     text = item.get('text', '')
                     if text:
-                        output += f"{text}\n\n"
+                        # If text contains code fences, wrap in higher-level fence
+                        if '```' in text:
+                            fence = get_fence(text)
+                            output += f"{fence}\n{text}\n{fence}\n\n"
+                        else:
+                            output += f"{text}\n\n"
 
                 elif item_type == 'tool_use':
                     tool_name = item.get('name', 'Unknown')
