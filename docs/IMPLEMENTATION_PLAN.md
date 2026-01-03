@@ -2,8 +2,6 @@
 
 C-first approach with YueScript as the scripting layer. Minimize plain Lua; write game-facing code in YueScript from the start.
 
-**Target Game:** Emoji Ball Battles — Minesweeper dungeon exploration + physics auto-battler combat.
-
 ---
 
 ## Build Strategy
@@ -123,7 +121,7 @@ anchor/
 
 ### 2.4 Effect System
 
-**Scope limited to what Emoji Ball Battles needs:**
+**Scope limited to essential effects:**
 
 - [ ] Effect types enum and params struct
 - [ ] effect_apply dispatcher
@@ -439,222 +437,6 @@ export X = (name, fn) -> {[name]: fn}
 
 ---
 
-## Phase 8: Emoji Ball Battles - Core Game
-
-**Goal:** Build the actual game, not a throwaway test. This phase implements Emoji Ball Battles Layers 0-2.
-
-### 8.1 Layer 0: Physics Combat (`game/combat.yue`)
-
-Two balls fighting in an arena with gravity.
-
-```yuescript
--- Combat arena
-class Arena extends object
-  new: (w, h) =>
-    super 'arena'
-    @w, @h = w, h
-    -- Create walls (static bodies)
-    @ + collider 'wall', 'static', 'rect', 0, 0, w, 10      -- top
-    @ + collider 'wall', 'static', 'rect', 0, h-10, w, 10   -- bottom
-    @ + collider 'wall', 'static', 'rect', 0, 0, 10, h      -- left
-    @ + collider 'wall', 'static', 'rect', w-10, 0, 10, h   -- right
-
--- Ball entity
-class Ball extends object
-  new: (x, y, hp, damage, team) =>
-    super 'ball'
-    @x, @y = x, y
-    @hp, @max_hp = hp, hp
-    @damage = damage
-    @team = team
-    @radius = 20
-    
-    @ + collider team .. '_ball', 'dynamic', 'circle', @radius
-    @ + spring 'hit', 1, 200, 10  -- For hit feedback
-    
-    @ / (dt) =>
-      @x, @y = @collider\get_position!
-    
-    @ // (dt) =>
-      s = @hit.x
-      game\push @x, @y, 0, s, s
-      game\circle @x, @y, @radius, @team == 'player' and {0, 1, 0, 1} or {1, 0, 0, 1}
-      game\pop!
-      -- HP bar
-      game\rectangle @x - 15, @y - 30, 30 * (@hp / @max_hp), 4, 0, 0, {0, 1, 0, 1}
-
-  take_damage: (amount) =>
-    @hp -= amount
-    @hit\pull 0.3
-    an\sound_play hit_sfx
-    if @hp <= 0
-      @\kill!
-
--- Combat manager
-class Combat extends object
-  new: (player_ball, enemy_ball) =>
-    super 'combat'
-    @arena = Arena(480, 270) >> @
-    @player = player_ball >> @
-    @enemy = enemy_ball >> @
-    @result = nil
-    
-    @ / (dt) =>
-      -- Check contact events (physical collisions)
-      for c in *an\physics_get_contact_enter 'player_ball', 'enemy_ball'
-        @player\take_damage @enemy.damage
-        @enemy\take_damage @player.damage
-      
-      -- Check win/lose
-      if @player.dead
-        @result = 'lose'
-      elseif @enemy.dead
-        @result = 'win'
-```
-
-### 8.2 Layer 1-2: Dungeon Navigation (`game/dungeon.yue`)
-
-Grid-based Minesweeper dungeon.
-
-```yuescript
-class Dungeon extends object
-  new: (width, height, mine_count) =>
-    super 'dungeon'
-    @w, @h = width, height  -- Values TBD through playtesting
-    @tiles = {}
-    @player_x, @player_y = 0, 0
-    @player_hp = 3
-    
-    -- Generate grid
-    for y = 0, @h - 1
-      @tiles[y] = {}
-      for x = 0, @w - 1
-        @tiles[y][x] = {
-          revealed: false
-          is_mine: false
-          adjacent_mines: 0
-          is_boss: false
-        }
-    
-    -- Place mines (avoiding start and adjacent to start)
-    @\place_mines mine_count
-    
-    -- Place boss (furthest corner)
-    @tiles[@h - 1][@w - 1].is_boss = true
-    
-    -- Calculate adjacent mine counts
-    @\calculate_numbers!
-    
-    -- Reveal start
-    @tiles[0][0].revealed = true
-    
-    -- Input handling
-    @ / (dt) =>
-      if an\is_pressed 'move_up' then @\try_move 0, -1
-      if an\is_pressed 'move_down' then @\try_move 0, 1
-      if an\is_pressed 'move_left' then @\try_move -1, 0
-      if an\is_pressed 'move_right' then @\try_move 1, 0
-    
-    -- Rendering
-    @ // (dt) =>
-      for y = 0, @h - 1
-        for x = 0, @w - 1
-          @\draw_tile x, y
-      -- Draw player
-      px, py = @player_x * 32 + 16, @player_y * 32 + 16
-      game\circle px, py, 10, {0, 0.8, 1, 1}
-      -- Draw HP
-      game\draw_text 'HP: ' .. @player_hp, 'default', 10, 10
-
-  try_move: (dx, dy) =>
-    nx, ny = @player_x + dx, @player_y + dy
-    return if nx < 0 or nx >= @w or ny < 0 or ny >= @h
-    
-    @player_x, @player_y = nx, ny
-    tile = @tiles[ny][nx]
-    
-    if not tile.revealed
-      tile.revealed = true
-      if tile.is_mine
-        @player_hp -= 1
-        an\sound_play mine_sfx
-        if @player_hp <= 0
-          -- Game over
-    
-    if tile.is_boss
-      -- Transition to combat
-      @\start_boss_fight!
-
-  draw_tile: (x, y) =>
-    tile = @tiles[y][x]
-    sx, sy = x * 32, y * 32
-    
-    if not tile.revealed
-      game\rectangle sx, sy, 30, 30, 2, 2, {0.3, 0.3, 0.4, 1}
-      game\draw_text '?', 'default', sx + 10, sy + 8
-    elseif tile.is_mine
-      game\rectangle sx, sy, 30, 30, 2, 2, {0.5, 0.1, 0.1, 1}
-      game\draw_text '💣', 'default', sx + 6, sy + 6
-    elseif tile.is_boss
-      game\rectangle sx, sy, 30, 30, 2, 2, {0.6, 0.5, 0.1, 1}
-      game\draw_text '⭐', 'default', sx + 6, sy + 6
-    else
-      game\rectangle sx, sy, 30, 30, 2, 2, {0.2, 0.2, 0.25, 1}
-      if tile.adjacent_mines > 0
-        game\draw_text tostring(tile.adjacent_mines), 'default', sx + 10, sy + 8
-```
-
-### 8.3 Main Game Loop (`game/main.yue`)
-
-```yuescript
-init = ->
-  -- Resolution and scale TBD
-  an\anchor_start 'Emoji Ball Battles', 640, 360, 2, 2
-  
-  an\input_bind 'move_up', {'key:w', 'key:up'}
-  an\input_bind 'move_down', {'key:s', 'key:down'}
-  an\input_bind 'move_left', {'key:a', 'key:left'}
-  an\input_bind 'move_right', {'key:d', 'key:right'}
-  an\input_bind 'confirm', {'mouse:1', 'key:space'}
-  
-  -- Gravity value TBD through playtesting
-  an\physics_set_gravity 0, GRAVITY
-  
-  -- Configure contact events for ball combat
-  an\physics_enable_contact_between 'player_ball', {'enemy_ball', 'wall'}
-  an\physics_enable_contact_between 'enemy_ball', {'wall'}
-  
-  game = an\layer 'game'
-  game\set_effect 'outline', {color = 0x000000FF, thickness = 1}
-  
-  -- Load sounds
-  export hit_sfx = an\sound_load 'hit.ogg'
-  export mine_sfx = an\sound_load 'mine.ogg'
-  
-  -- Dungeon size TBD through playtesting
-  an + Dungeon DUNGEON_WIDTH, DUNGEON_HEIGHT, MINE_COUNT
-```
-
-### 8.4 Verification Checklist
-- [ ] Combat: Two balls spawn and fight with gravity
-- [ ] Combat: Contact deals damage, HP bars update
-- [ ] Combat: Hit feedback (spring squash, sound, screen shake)
-- [ ] Combat: Ball death ends combat with win/lose result
-- [ ] Dungeon: Grid renders with fog of war
-- [ ] Dungeon: WASD/arrows move player
-- [ ] Dungeon: Tile reveals on entry
-- [ ] Dungeon: Mine numbers display correctly (8-neighbor count)
-- [ ] Dungeon: Stepping on mine deals damage, plays sound
-- [ ] Dungeon: HP reaches 0 ends run
-- [ ] Dungeon: Reaching boss triggers combat
-- [ ] Integration: Combat victory returns to dungeon (next floor)
-- [ ] Integration: Combat defeat ends run
-- [ ] Both Windows and Web verified
-
-**Deliverable:** Playable Emoji Ball Battles with dungeon exploration and physics combat.
-
----
-
 ## Summary: Build Order
 
 | Phase | Focus | Deliverable |
@@ -667,7 +449,6 @@ init = ->
 | 6 | Random | Seedable PRNG |
 | 6.5 | Text | TTF font loading, glyph rendering |
 | 7 | YueScript | Object tree, operators, timers, springs |
-| 8 | Game | Emoji Ball Battles Layers 0-2 (combat + dungeon) |
 
 **Critical:** Every phase must be verified on both Windows and Web before proceeding.
 
@@ -679,7 +460,7 @@ init = ->
 - Debug tooling
 - SDF text rendering (for website)
 
-**Estimated time:** Phases 1-6.5 (C foundation) are the bulk of the work. Phase 7 (YueScript) requires developer consultation for implementation details. Phase 8 is the actual game.
+**Estimated time:** Phases 1-6.5 (C foundation) are the bulk of the work. Phase 7 (YueScript) requires developer consultation for implementation details.
 
 ---
 
@@ -712,9 +493,7 @@ init = ->
 
 11. **Effects scope:** Only outline, tint, brightness implemented initially. Blur and other effects added if needed.
 
-12. **Phase 8 is the game:** No throwaway test game. Phase 8 builds Emoji Ball Battles directly.
-
-13. **Box2D 3.1 events:** Use sensor events for overlap detection (triggers, pickups) and contact events for physical collisions (bouncing, damage). Use hit events for high-speed impact feedback (sounds, particles).
+12. **Box2D 3.1 events:** Use sensor events for overlap detection (triggers, pickups) and contact events for physical collisions (bouncing, damage). Use hit events for high-speed impact feedback (sounds, particles).
 
 ---
 

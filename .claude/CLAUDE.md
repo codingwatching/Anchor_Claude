@@ -130,9 +130,7 @@ git subtree push --prefix=website blot master
 
 ## The Project
 
-**Emoji Ball Battles** — a physics auto-battler build-heavy roguelite. Navigate Minesweeper-like dungeons inspired by The Binding of Isaac, watch your balls collide and bounce in physics-based combat until one team dies..
-
-**Anchor** — the engine. Being rewritten from Lua/LÖVE to C/Lua with SDL2, software rendering, and Box2D.
+**Anchor** — a game engine being rewritten from Lua/LÖVE to C/Lua with SDL2, software rendering, and Box2D.
 
 ---
 

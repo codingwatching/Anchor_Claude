@@ -1637,7 +1637,6 @@ The tree stays in Lua. Only inner loops move to C based on profiling data.
 8. **Object system:** Tree with immediate kill propagation (YueScript)
 9. **Timer/Spring/Collider:** As child objects
 10. **Error handling:** Protected calls, error screen
-11. **Test game:** Build Emoji Ball Battles to validate
 
 Each step testable independently.
 
