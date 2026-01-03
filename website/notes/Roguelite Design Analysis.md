@@ -2673,3 +2673,151 @@ Identity is set at the betting house. "I'm doing a speed run" or "I'm doing a no
 
 **Skill vs Build Ratio: Balanced**
 Knowing your capabilities and betting accurately is 50%. Executing to fulfill those bets is 50%. Overconfident bets doom you; underconfident bets limit you.
+
+---
+
+## Experimental Games Frequency Analysis
+
+Based on 9 experimental game designs (excluding the 3 archetypal games).
+
+### 1. Choice Timing
+- Pre-run (5): Loadout, Expedition, Stance Dancer, Bloodline, Gambler's Dungeon
+- Distributed (3): Branching Path, Tide Caller, Bloodline
+- Milestone (3): Tide Runner, Expedition, Tide Caller
+- Reactive (1): Stance Dancer
+
+#### Pacing
+- Player-controlled (6): Loadout, Tide Runner, Branching Path, Expedition, Stance Dancer, Labyrinth
+- Event-triggered (3): Expedition, Tide Caller, Gambler's Dungeon
+- Milestone (2): Tide Runner, Bloodline
+- Performance-based (2): Branching Path, Bloodline
+- Resource-gated (1): Branching Path
+- Fixed interval (0): None
+
+### 2. Distribution Timing
+- Frontloaded (5): Loadout, Expedition, Stance Dancer, Bloodline, Gambler's Dungeon
+- Immediate (5): Tide Runner, Branching Path, Tide Caller, Labyrinth, Bloodline
+- Partitioned (1): Stance Dancer
+- Distributed (1): Expedition
+- Delayed-Random (0), Delayed-Sequential (0), Conditional (0): None
+
+### 3. Agency
+- Deterministic (7): Loadout, Branching Path, Expedition, Stance Dancer, Labyrinth, Bloodline, Gambler's Dungeon
+- Curated (2): Stance Dancer, Tide Caller
+- Serendipitous (2): Tide Runner, Labyrinth
+- Influenced (2): Tide Runner, Tide Caller
+- Predetermined (0): None
+
+### 4. Negative Acquisition
+- Traded (5): Loadout, Expedition, Stance Dancer, Bloodline, Gambler's Dungeon
+- None (2): Branching Path, Labyrinth
+- Coupled (2): Tide Runner, Tide Caller
+- Optional (0), Forced (0): None
+
+### 5. Scarcity
+- Moderate (5): Loadout, Branching Path, Expedition, Stance Dancer, Gambler's Dungeon
+- Drought/Feast (2): Tide Runner, Tide Caller
+- Abundant (1): Bloodline
+- Scarce (0), Competitive (0), Time-pressured (0): None
+
+### 6. Reversibility
+- Permanent (8): Loadout, Branching Path, Expedition, Stance Dancer, Tide Caller, Labyrinth, Bloodline, Gambler's Dungeon
+- Swappable (2): Tide Runner, Stance Dancer
+- Transformable (0), Removable (0), Sellable (0), Fluid (0): None
+
+#### Commitment Weight
+- Critical (4): Loadout, Expedition, Bloodline, Gambler's Dungeon
+- Heavy (2): Branching Path, Labyrinth
+- Medium (2): Tide Runner, Tide Caller
+- Light (0): None
+
+### 7. Capacity
+- Hard cap (4): Loadout, Tide Runner, Expedition, Stance Dancer
+- Dynamic (2): Bloodline, Gambler's Dungeon
+- Soft cap (1): Tide Caller
+- Contextual (1): Branching Path
+- Unlimited (1): Labyrinth
+
+### 8. Interaction
+- Synergistic (7): Loadout, Tide Runner, Expedition, Stance Dancer, Tide Caller, Labyrinth, Gambler's Dungeon
+- Hierarchical (3): Branching Path, Labyrinth, Bloodline
+- Exclusive (1): Branching Path
+- Independent (0), Competitive (0), Systemic (0): None
+
+### 9. Upgrade Depth
+- Flat (4): Loadout, Tide Runner, Expedition, Gambler's Dungeon
+- Linear (4): Loadout, Expedition, Stance Dancer, Tide Caller
+- Branching (2): Branching Path, Labyrinth
+- Evolutionary (1): Bloodline
+- Infinite (0): None
+
+### 10. Power Source Diversity
+- Single source (6): Tide Runner, Branching Path, Tide Caller, Labyrinth, Bloodline, Gambler's Dungeon
+- Multi-source (3): Loadout, Expedition, Stance Dancer
+- Dual source (0), Interconnected (0): None
+
+### 11. Visibility
+- Complete (7): Loadout, Branching Path, Expedition, Stance Dancer, Labyrinth, Bloodline, Gambler's Dungeon
+- Present (4): Tide Runner, Expedition, Stance Dancer, Tide Caller
+- Forecast (1): Tide Caller
+- Progressive (1): Labyrinth
+- Pool-visible (0), Obscured (0), Blind (0): None
+
+### 12. Comprehension
+- Transparent (9): All experimental games
+- Calculable (1): Tide Caller
+- Learnable (1): Bloodline
+- Opaque (0), Unknown (0): None
+
+### 13. Growth Pattern
+- Additive (4): Branching Path, Stance Dancer, Tide Caller, Bloodline
+- Plateau (2): Loadout, Gambler's Dungeon
+- Oscillating (2): Tide Runner, Stance Dancer
+- Multiplicative (2): Labyrinth, Bloodline
+- Subtractive (1): Expedition
+- Transformative (0): None
+
+### 14. Persistence
+- Unlocks (8): Loadout, Tide Runner, Branching Path, Expedition, Stance Dancer, Tide Caller, Labyrinth, Gambler's Dungeon
+- Resources (3): Loadout, Expedition, Gambler's Dungeon
+- Legacy (1): Bloodline
+- Nothing (0), Upgrades (0), Progress (0): None
+
+### 15. Starting Variance
+- Loadout-varied (5): Loadout, Tide Runner, Expedition, Stance Dancer, Gambler's Dungeon
+- Character-varied (2): Tide Runner, Tide Caller
+- Random-varied (1): Branching Path
+- Seeded (1): Labyrinth
+- Inherited (1): Bloodline
+- Identical (0): None
+
+### 16. Run Identity
+- Emergent (5): Tide Runner, Branching Path, Stance Dancer, Tide Caller, Labyrinth
+- Pre-determined (4): Loadout, Expedition, Bloodline, Gambler's Dungeon
+- Early-crystallizing (0), Fluid (0), Convergent (0): None
+
+### 17. Skill vs Build Ratio
+- Balanced (9): All experimental games
+- Execution-dominant (0), Build-dominant (0), Knowledge-dominant (0): None
+
+### Notable Patterns
+
+**Compared to the 22 real games:**
+
+- **Pre-run heavy**: 5/9 experimental games use Pre-run choice timing vs 4/22 real games. The experimental designs lean toward frontloaded decision-making.
+
+- **Deterministic dominant**: 7/9 use Deterministic agency vs 2/22 real games. Experimental designs favor player control over randomness.
+
+- **Traded negatives**: 5/9 use Traded negative acquisition vs 0/22 real games. This option was completely unused in real games but common in experimental designs exploring trade-off mechanics.
+
+- **Single source preference**: 6/9 use Single source power diversity vs 2/22 real games. Experimental designs tend toward unified systems rather than multiple interlocking systems.
+
+- **Complete visibility**: 7/9 use Complete visibility vs 7/22 real games. Proportionally much higher — experimental designs favor full information.
+
+- **Critical commitment**: 4/9 use Critical commitment weight vs 1/22 real games. Experimental designs explore high-stakes, defining choices.
+
+- **Plateau growth**: 2/9 use Plateau growth pattern vs 0/22 real games. This previously unused option appears in designs with frontloaded power.
+
+- **Drought/Feast scarcity**: 2/9 use Drought/Feast vs 0/22 real games. Another previously unused option explored in experimental designs.
+
+- **All Balanced**: Every experimental game uses Balanced skill/build ratio — no extreme designs in either direction.
