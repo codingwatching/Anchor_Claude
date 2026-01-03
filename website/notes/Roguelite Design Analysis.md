@@ -1,5 +1,7 @@
 # Roguelite Design Analysis
 
+*Analysis by Claude, direction by a327ex*
+
 ## Contents
 
 1. [The Framework](#the-framework) — 17 axes across 6 categories
@@ -2679,6 +2681,8 @@ Knowing your capabilities and betting accurately is 50%. Executing to fulfill th
 ---
 
 ## Experimental Games Frequency Analysis
+
+[Framework](#the-framework) | [Games](#game-classifications) | [Frequency](#frequency-analysis) | [Designs](#hypothetical-designs) | [Experimental](#experimental-games-frequency-analysis)
 
 Based on 9 experimental game designs (excluding the 3 archetypal games).
 
