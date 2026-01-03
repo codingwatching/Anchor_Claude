@@ -1,6 +1,6 @@
 # Roguelite Design Analysis
 
-*Analysis by Claude, direction by a327ex*
+*Analysis by Claude (Opus 4.5), direction by a327ex*
 
 ## Contents
 
