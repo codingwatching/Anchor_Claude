@@ -116,6 +116,16 @@ If the terminal closes unexpectedly:
 - User can resume with `claude --continue`
 - Complete the end-of-session ritual when ready
 
+### `/push-website`
+
+Quick push of website changes to Blot (no commit message):
+
+```bash
+git add -A
+git commit --allow-empty-message -m ""
+git subtree push --prefix=website blot master
+```
+
 ---
 
 ## The Project
