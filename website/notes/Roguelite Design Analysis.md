@@ -2,6 +2,8 @@ Analysis by Claude (Opus 4.5), direction by a327ex
 
 ---
 
+# Roguelite Design Analysis
+
 ## Contents
 
 1. [The Framework](#the-framework) — 17 axes across 6 categories
