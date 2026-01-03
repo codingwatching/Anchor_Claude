@@ -1,0 +1,192 @@
+-- Anchor Operator Examples
+--
+-- Single-letter aliases:
+--   E = object (Entity)
+--   U = early action (Under/underlying)
+--   L = late action (Late)
+--   X = named action (eXplicit)
+--   A = all() query (All)
+
+--------------------------------------------------------------------------------
+-- SIMPLE INLINE OBJECTS
+--------------------------------------------------------------------------------
+
+-- Anonymous particle
+E! ^ {x: 100, y: 100, v: 50}
+   / (dt) =>
+       @x += @v * dt
+       game\circle @x, @y, 5, colors.white
+   >> arena
+
+-- Named ball (arena.ball points to this)
+E 'ball' ^ {x: 240, y: 135, vx: 100, vy: 100}
+          / (dt) =>
+              @x += @vx * dt
+              @y += @vy * dt
+              game\circle @x, @y, 8, an.colors.white
+          >> arena
+
+
+--------------------------------------------------------------------------------
+-- ALL THREE PHASES
+--------------------------------------------------------------------------------
+
+-- Particle with early/main/late
+E 'particle' ^ {x: 100, y: 100, v: 50, r: 0}
+   / U (dt) =>
+       -- early: physics prep, input gathering
+       @r = math.atan2 @target.y - @y, @target.x - @x
+   / (dt) =>
+       -- main: logic
+       @x += @v * math.cos(@r) * dt
+       @y += @v * math.sin(@r) * dt
+   / L (dt) =>
+       -- late: drawing
+       game\circle @x, @y, 5, colors.white
+   >> arena
+
+
+--------------------------------------------------------------------------------
+-- CLASS-BASED OBJECTS
+--------------------------------------------------------------------------------
+
+class player extends object
+  new: (x, y) =>
+    super 'player'
+    @x, @y = x, y
+    @ + timer!
+    @ + collider 'player', 'dynamic', 'circle', 12
+    @ + spring 1, 200, 10
+
+    -- Early: gather input
+    @ / U (dt) =>
+      @input_x = 0
+      @input_x -= 1 if an\is_down 'left'
+      @input_x += 1 if an\is_down 'right'
+
+    -- Main: apply physics
+    @ / (dt) =>
+      @collider\set_velocity @input_x * @speed, 0
+      @x, @y = @collider\get_position!
+
+    -- Late: draw
+    @ / L (dt) =>
+      game\push @x, @y, 0, @spring.x, @spring.x
+      game\circle @x, @y, 12, colors.green
+      game\pop!
+
+
+class arena extends object
+  new: =>
+    super 'arena'
+    @ + timer!
+    @water_springs_count = 52
+
+    -- Named early action
+    @ / U 'water_sim', (dt) =>
+      for k = 1, 8
+        for i = 1, @water_springs_count
+          -- propagate spring velocities
+
+    -- Named main action
+    @ / X 'update', (dt) =>
+      -- game logic
+
+    -- Named late action
+    @ / L 'water_draw', (dt) =>
+      for spring in *@water_springs.children
+        -- build polyline
+
+  pause_water: =>
+    @water_sim\kill! if @water_sim
+    @water_draw\kill! if @water_draw
+
+
+--------------------------------------------------------------------------------
+-- HIERARCHY BUILDING
+--------------------------------------------------------------------------------
+
+-- Using + operator
+arena + player 240, 135
+      + paddle 'left', 30, 135
+      + paddle 'right', 450, 135
+      + { wall 'top', wall 'bottom' }
+
+-- Inline object in hierarchy (needs parens)
+arena + paddle 'left', 30, 135
+      + paddle 'right', 450, 135
+      + (E 'ball' ^ {x: 240, y: 135}
+                  / (dt) =>
+                      @x += @vx * dt
+                      game\circle @x, @y, 8, colors.white)
+
+
+--------------------------------------------------------------------------------
+-- SPAWNING PATTERNS
+--------------------------------------------------------------------------------
+
+class arena extends object
+  spawn_ball: =>
+    E 'ball' ^ {x: 240, y: 135, vx: 100, vy: 100}
+             / (dt) =>
+                 @x += @vx * dt
+                 @y += @vy * dt
+                 game\circle @x, @y, 8, an.colors.white
+             >> @
+    -- @ball now exists, old ball auto-killed if existed
+
+  spawn_particle: (x, y) =>
+    E! ^ {x: x, y: y, v: an\random_float 50, 100, r: an\random_angle!, duration: 0.5}
+       / (dt) =>
+           @x += @v * math.cos(@r) * dt
+           @y += @v * math.sin(@r) * dt
+           @duration -= dt
+           return true if @duration <= 0
+           effects\circle @x, @y, 3, colors.white
+       >> @
+
+
+--------------------------------------------------------------------------------
+-- QUERYING (A alias preserved)
+--------------------------------------------------------------------------------
+
+-- A remains the alias for all()
+for enemy in *arena\A 'enemy'
+  enemy\explode!
+
+if #arena\A 'enemy' == 0
+  arena\next_wave!
+
+
+--------------------------------------------------------------------------------
+-- SIDE BY SIDE COMPARISON
+--------------------------------------------------------------------------------
+
+-- Minimal anonymous object
+E! ^ {x: 100} / (dt) => game\circle @x, @y, 5, colors.white >> arena
+
+-- Named object
+E 'ball' ^ {x: 100} / (dt) => game\circle @x, @y, 5, colors.white >> arena
+
+-- All three phases, anonymous
+E! ^ {x: 100}
+   / U (dt) => -- early
+   / (dt) =>   -- main
+   / L (dt) => -- late
+   >> arena
+
+-- Named actions
+@ / U 'physics', (dt) => -- named early, creates @physics
+@ / X 'update', (dt) =>  -- named main, creates @update
+@ / L 'draw', (dt) =>    -- named late, creates @draw
+
+
+--------------------------------------------------------------------------------
+-- THE FULL ALIAS SET
+--------------------------------------------------------------------------------
+
+-- E = object (mnemonic: Entity)
+-- U = early action (mnemonic: Under/underlying)
+-- L = late action (mnemonic: Late)
+-- X = named action (mnemonic: eXplicit)
+-- A = all() query (mnemonic: All)

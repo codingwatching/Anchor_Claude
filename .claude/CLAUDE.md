@@ -7,10 +7,10 @@ Guidelines for Claude Code instances working on Anchor and games built with it.
 ## Read First
 
 Read `docs/ANCHOR.md` before doing anything. It covers:
-- The mental model (engine services vs object tree)
+- The object tree model (tree-based ownership, automatic cleanup)
 - How objects, timers, springs, and colliders work
 - The action-based vs rules-based spectrum
-- Technical implementation details
+- Technical implementation details (OpenGL rendering, Box2D physics)
 
 **For the reasoning behind these decisions** — why the engine works the way it does, how to evaluate new features, the developer's working style — see the [Anchor Context Brief](#anchor-context-brief) at the end of this document.
 
@@ -24,7 +24,7 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 - Work normally on requested tasks
 - Update `docs/ANCHOR.md` when APIs or architecture changes
-- Update `docs/IMPLEMENTATION_PLAN.md` when tasks are completed
+- Update `docs/ANCHOR_IMPLEMENTATION_PLAN.md` when tasks are completed
 - Update this file (`CLAUDE.md`) when new patterns or conventions are established
 
 ### End of Session
@@ -67,14 +67,16 @@ When running the full workflow, complete all steps before committing (one commit
    git add -A
    git commit -m "Title
 
-   Full summary here...
+   Full summary here (EXACT same text as in the log file)...
 
    🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
    Co-Authored-By: Claude <noreply@anthropic.com>"
    ```
 
-   **Important:** Always include the robot line and `Co-Authored-By` so commits show as authored by both of us.
+   **Important:**
+   - The commit body must be the EXACT same full summary written to the log file — do not condense or abbreviate
+   - Always include the robot line and `Co-Authored-By` so commits show as authored by both of us
 
 10. **Push to GitHub**:
     ```bash
@@ -130,7 +132,7 @@ git subtree push --prefix=website blot master
 
 ## The Project
 
-**Anchor** — a game engine being rewritten from Lua/LÖVE to C/Lua with SDL2, software rendering, and Box2D.
+**Anchor** — a game engine being rewritten from Lua/LÖVE to C/Lua with SDL2, OpenGL, and Box2D.
 
 ---
 
@@ -167,17 +169,21 @@ When implementing something that needs juice:
 
 ### Single-Letter Aliases
 
-Anchor provides three single-letter aliases that look like runes:
+Anchor provides single-letter aliases that look like runes:
 
 ```lua
-E = object                                       -- Entity/object
-X = function(name, fn) return {[name] = fn} end  -- eXplicit/named
+E = object                                        -- Entity/object
+U = function(name_or_fn, fn) ... end              -- U(fn) or U('name', fn)
+L = function(name_or_fn, fn) ... end              -- L(fn) or L('name', fn)
+X = function(name, fn) return {[name] = fn} end   -- eXplicit/named
 -- A is a method alias: self:A('tag') == self:all('tag')
 ```
 
 In YueScript:
 ```yuescript
 E = object
+U = (name_or_fn, fn) -> ...  -- U(fn) or U('name', fn)
+L = (name_or_fn, fn) -> ...  -- L(fn) or L('name', fn)
 X = (name, fn) -> {[name]: fn}
 ```
 
@@ -197,13 +203,13 @@ function thing:new(x, y, args)
     
     -- Add children
     self + collider('thing', 'dynamic', 'circle', 10)
-    self + spring('main', 1, 200, 10)
+    self + spring(1, 200, 10)
 end
 
 function thing:update(dt)
     self.x, self.y = self.collider:get_position()
-    
-    game:push(self.x, self.y, 0, self.main.x, self.main.x)
+
+    game:push(self.x, self.y, 0, self.spring.x, self.spring.x)
         game:circle(self.x, self.y, 10, self.color)
     game:pop()
 end
@@ -244,7 +250,7 @@ function arena:update(dt)
     -- High-speed impacts (for sounds/particles)
     for _, c in ipairs(an:physics_get_contact_hit('ball', 'wall')) do
         local speed = c.approach_speed
-        an:sound_play(bounce_sound, speed / 100)
+        an:sound_play(bounce_sound, {volume = speed / 100})
     end
 end
 ```
@@ -252,19 +258,22 @@ end
 ### Timers and Springs
 
 ```lua
--- Timers: after(duration, [name], callback)
-self:after(0.5, function() self:explode() end)                    -- Anonymous
-self:after(0.15, 'flash', function() self.flashing = false end)   -- Named
+-- Timer is a child object
+self + timer()
+
+-- Timer methods: after(duration, [name], callback)
+self.timer:after(0.5, function() self:explode() end)                    -- Anonymous
+self.timer:after(0.15, 'flash', function() self.flashing = false end)   -- Named
 
 -- Tween (provided by timer)
-self:tween(0.3, self, {x = 100}, math.cubic_out)
+self.timer:tween(0.3, self, {x = 100}, math.cubic_out)
 
 -- Springs are child objects (each spring object IS one spring)
-self + spring('main', 1, 200, 10)   -- name, initial, stiffness, damping
-self.main:pull(0.5)
+self + spring(1, 200, 10)   -- initial, stiffness, damping (defaults to name 'spring')
+self.spring:pull(0.5)
 
 -- Use spring in drawing
-game:push(self.x, self.y, 0, self.main.x, self.main.x)
+game:push(self.x, self.y, 0, self.spring.x, self.spring.x)
 ```
 
 ### Death
@@ -317,13 +326,19 @@ self:kill()
 
 ### Timers, Springs, Colliders
 
-These are **child objects**, not mixins. They die when their parent dies. No manual cleanup tracking.
+These are **engine objects** — child objects that wrap C-side resources. They die when their parent dies. No manual cleanup tracking.
+
+Engine objects are named after themselves by default, so `@ + timer()` creates a child named `'timer'`, accessible via `@timer`. This pattern applies to all engine objects (timers, springs, colliders, and any future ones).
 
 ```lua
--- Child object style
-self:after(0.5, callback)               -- Timer as action
-self + spring('main', 1, 200, 10)       -- Spring as child object
-self + collider('tag', 'dynamic', ...)  -- Collider as child object
+-- Engine objects as children (default names)
+self + timer()                          -- Creates self.timer
+self + spring(1, 200, 10)               -- Creates self.spring
+self + collider('player', 'dynamic', 'circle', 10)  -- Creates self.collider
+
+-- Multiple of same type (explicit names)
+self + spring('attack', 1, 200, 10)     -- Creates self.attack
+self + spring('hit', 1, 300, 15)        -- Creates self.hit
 ```
 
 ### Layers
@@ -446,7 +461,7 @@ The operator chain reads left-to-right: create → configure → add behavior �
 E('ball') ^ {x = 240, y = 135, vx = 100, vy = 100}
           / function(self, dt)
                 self.x = self.x + self.vx * dt
-                game:circle(self.x, self.y, 8, an.colors.white[0])
+                game:circle(self.x, self.y, 8, an.colors.white)
             end
           >> arena
 
@@ -458,7 +473,7 @@ E('ball') ^ {x = 240, y = 135, vx = 100, vy = 100}
 ```lua
 E() ^ function(self)
           self.x, self.y = 100, 200
-          self:timer()
+          self + timer()
       end
     / function(self, dt)
           game:circle(self.x, self.y, 10, color)
@@ -469,15 +484,15 @@ E() ^ function(self)
 **With multiple action phases:**
 ```lua
 E() ^ {x = 100, y = 200}
-   % function(self, dt)
+   / U(function(self, dt)
          -- early: before main updates
-     end
+     end)
    / function(self, dt)
          -- main update
      end
-   // function(self, dt)
+   / L(function(self, dt)
           -- late: after main updates, good for drawing
-      end
+      end)
    >> arena
 ```
 
@@ -485,14 +500,14 @@ E() ^ {x = 100, y = 200}
 ```lua
 -- Good: all init together, then actions
 E() ^ {x = 100, y = 200}
-   ^ function(self) self:timer() end
+   ^ function(self) self + timer() end
    / function(self, dt) ... end
    >> arena
 
 -- Bad: init split across the chain
 E() ^ {x = 100}
    / function(self, dt) ... end
-   ^ function(self) self:timer() end -- init after action, harder to follow
+   ^ function(self) self + timer() end -- init after action, harder to follow
    >> arena
 ```
 
@@ -509,30 +524,30 @@ E() ^ {x = 100} >> arena
 E('ball') ^ {x = 100} >> arena
 ```
 
-**Timers:**
+**Timer callbacks:**
 ```lua
 -- Anonymous
-self:after(0.5, function() self.can_shoot = true end)
+self.timer:after(0.5, function() self.can_shoot = true end)
 
--- Named (self.flash points to this, can be killed/replaced)
-self:after(0.15, 'flash', function() self.flashing = false end)
+-- Named (self.timer.flash points to this, can be killed/replaced)
+self.timer:after(0.15, 'flash', function() self.flashing = false end)
 
 -- Cancel
-if self.flash then self.flash:kill() end
+if self.timer.flash then self.timer.flash:kill() end
 
 -- Replace (old 'flash' killed automatically)
-self:after(0.15, 'flash', function() self.flashing = false end)
+self.timer:after(0.15, 'flash', function() self.flashing = false end)
 ```
 
 **Actions:**
 ```lua
--- Anonymous (operators without X)
-E() % early_fn / update_fn // late_fn >> arena
+-- Anonymous actions with phase helpers
+E() / U(early_fn) / update_fn / L(late_fn) >> arena
 
--- Named with X helper (enables cancellation)
-self / X('seek', fn)
-self % X('water_sim', fn)
-self // X('draw', fn)
+-- Named actions with phase helpers
+self / U('water_sim', fn)   -- named early
+self / X('update', fn)      -- named main
+self / L('draw', fn)        -- named late
 
 -- Named with methods (alternative)
 self:action('update', fn)
@@ -551,9 +566,9 @@ Use the `+` operator to build object hierarchies declaratively (parent-centric s
 -- In constructor
 function arena:new(args)
     self:object('arena', args)
-    self:timer()
-    
-    self + paddle('left', 30, 135)
+
+    self + timer()
+         + paddle('left', 30, 135)
          + paddle('right', 450, 135)
          + ball()
          + { wall('top', 240, 5),
@@ -605,7 +620,7 @@ arena + paddle('left', 30, 135)
       + paddle('right', 450, 135)
       + (E('ball') ^ {x = 240, y = 135}
                    / function(self, dt)
-                         game:circle(self.x, self.y, 8, an.colors.white[0])
+                         game:circle(self.x, self.y, 8, an.colors.white)
                      end)
 ```
 
@@ -634,25 +649,25 @@ end
 
 ### Named Timers Pattern
 
-Use named timers when you need to cancel or replace an ongoing timer:
+Use named timer callbacks when you need to cancel or replace an ongoing timer:
 
 ```lua
 function enemy:flash()
     self.flashing = true
-    self:after(0.15, 'flash', function()
+    self.timer:after(0.15, 'flash', function()
         self.flashing = false
     end)
 end
 
--- Calling flash() again replaces the old timer
+-- Calling flash() again replaces the old callback
 -- So rapid hits extend the flash rather than stacking callbacks
 
 function enemy:stun(duration)
     -- Cancel any existing stun
-    if self.stun_timer then self.stun_timer:kill() end
-    
+    if self.timer.stun then self.timer.stun:kill() end
+
     self.stunned = true
-    self:after(duration, 'stun_timer', function()
+    self.timer:after(duration, 'stun', function()
         self.stunned = false
     end)
 end
@@ -660,18 +675,19 @@ end
 
 ### Named Actions Pattern
 
-Use named actions with the `X` helper when you need to cancel or replace ongoing behavior:
+Use named actions with the `U`, `L`, and `X` helpers when you need to cancel or replace ongoing behavior:
 
 ```lua
 function arena:new()
     self:object('arena')
-    
-    -- Named actions with X helper (preferred)
-    self % X('water_sim', function(self, dt)
+
+    -- Named early action
+    self / U('water_sim', function(self, dt)
         -- propagate spring velocities
     end)
-    
-    self // X('water_draw', function(self, dt)
+
+    -- Named late action
+    self / L('water_draw', function(self, dt)
         -- build water surface polyline
     end)
 end
@@ -682,10 +698,10 @@ function arena:pause_water()
 end
 
 function arena:resume_water()
-    self % X('water_sim', function(self, dt)
+    self / U('water_sim', function(self, dt)
         -- propagate spring velocities
     end)
-    self // X('water_draw', function(self, dt)
+    self / L('water_draw', function(self, dt)
         -- build water surface polyline
     end)
 end
@@ -696,13 +712,13 @@ end
 class arena extends object
   new: =>
     super 'arena'
-    
-    @ % X 'water_sim', (dt) =>
+
+    @ / U 'water_sim', (dt) =>
       -- propagate spring velocities
-    
-    @ // X 'water_draw', (dt) =>
+
+    @ / L 'water_draw', (dt) =>
       -- build water surface polyline
-  
+
   pause_water: =>
     @water_sim\kill! if @water_sim
     @water_draw\kill! if @water_draw
@@ -809,7 +825,7 @@ Compare to systems where you define a class in one file, register components els
 Imports, exports, dependency injection, configuration objects, registration systems — these are bureaucracy. They may be necessary in large teams, but for solo development they're friction.
 
 Anchor prefers:
-- Globals that are just available (`an`, `E`, `X`, `A`)
+- Globals that are just available (`an`, `E`, `U`, `L`, `X`, `A`)
 - Direct mutation over message passing
 - Explicit calls over implicit event systems
 - Things that work without setup
@@ -818,7 +834,7 @@ Anchor prefers:
 
 #### Alien But Right
 
-The operator syntax (`^`, `/`, `%`, `//`, `+`, `>>`) and single-letter aliases (`E`, `X`, `A`) are deliberately unusual. Inspired by Hoon's rune system — symbols that seem foreign at first but become natural with use.
+The operator syntax (`^`, `/`, `+`, `>>`) and single-letter aliases (`E`, `U`, `L`, `X`, `A`) are deliberately unusual. Inspired by Hoon's rune system — symbols that seem foreign at first but become natural with use.
 
 The goal isn't familiarity, it's terseness and visual distinctiveness. `E 'player'` is weirder than `Object.new('player')` but it's shorter and once learned, instantly recognizable.
 
