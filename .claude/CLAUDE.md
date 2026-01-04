@@ -55,7 +55,20 @@ When running the full workflow, complete all steps before committing (one commit
 
 6. **Show title + summary to user** and wait for approval. The user may want to change the title or edit details in the summary before proceeding.
 
-7. **Prepend title + summary** to the log file (replace the default header)
+7. **Prepend title + summary** to the log file (replace the default header). Use bash directly — the Edit tool fails repeatedly on Windows due to line ending conversion:
+   ```bash
+   cat > /tmp/header.md << 'EOF'
+   # Title Here
+
+   ## Summary
+
+   [Summary content here]
+
+   ---
+   EOF
+   tail -n +4 "website/logs/YYYY-MM-DD_HH-MM.md" > /tmp/body.md
+   cat /tmp/header.md /tmp/body.md > "website/logs/YYYY-MM-DD_HH-MM.md"
+   ```
 
 8. **Sync context files**:
    ```bash
