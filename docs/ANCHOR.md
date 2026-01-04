@@ -1258,7 +1258,7 @@ In YueScript:
 - **Audio:** TBD (miniaudio or SoLoud — needs pitch shifting support)
 - **Graphics:** OpenGL 3.3 Core Profile (WebGL 2.0 compatible)
 - **Physics:** Box2D 3.1
-- **Platforms:** Windows, Linux, Web (Emscripten)
+- **Platforms:** Windows, Web (Emscripten)
 
 ---
 
@@ -1379,8 +1379,7 @@ Fixed resolution per game (480×270 or 640×360), integer scaled with letterboxi
 
 Simple build scripts, no CMake:
 - **Windows:** `build.bat`
-- **Linux:** `build.sh`
-- **Web:** `build-web.sh` (Emscripten)
+- **Web:** `build-web.bat` (Emscripten)
 
 ### Distribution
 
@@ -1392,8 +1391,12 @@ Single executable with all assets embedded. No external files needed.
 
 ```
 anchor/
-├── src/
-│   └── anchor.c            # Single monolithic C file
+├── engine/
+│   ├── src/
+│   │   └── anchor.c        # Single monolithic C file
+│   ├── include/            # Vendored headers (SDL2, Lua, glad, stb)
+│   ├── lib/                # Vendored libraries
+│   └── build.bat           # Windows build
 ├── yue/                    # YueScript engine code
 │   ├── object.yue
 │   ├── timer.yue
@@ -1401,13 +1404,10 @@ anchor/
 │   ├── collider.yue
 │   └── init.yue
 ├── lua/                    # Compiled Lua output
-├── game/                   # Game YueScript
-│   └── main.yue
-├── game_lua/               # Compiled game Lua
+├── main.yue                # Test/game entry point
+├── main.lua                # Compiled Lua entry point
 ├── assets/
-├── build.bat               # Windows build
-├── build.sh                # Linux build
-└── build-web.sh            # Web build (Emscripten)
+└── build-web.bat           # Web build (Emscripten)
 ```
 
 ---

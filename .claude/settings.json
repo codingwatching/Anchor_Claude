@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date '+%Y-%m-%d %H:%M:%S')] Session started\" >> /home/adn/a327ex/Anchor/.claude/session-timestamps.log"
+            "command": "echo \"[$(date '+%Y-%m-%d %H:%M:%S')] Session started\" >> /e/a327ex/Anchor/.claude/session-timestamps.log"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[$(date '+%Y-%m-%d %H:%M:%S')] Session ended\" >> /home/adn/a327ex/Anchor/.claude/session-timestamps.log"
+            "command": "echo \"[$(date '+%Y-%m-%d %H:%M:%S')] Session ended\" >> /e/a327ex/Anchor/.claude/session-timestamps.log"
           }
         ]
       }

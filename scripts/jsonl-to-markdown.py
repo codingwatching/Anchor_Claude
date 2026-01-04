@@ -169,7 +169,7 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
     """Convert JSONL transcript to Markdown."""
 
     messages = []
-    with open(jsonl_path, 'r') as f:
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -272,7 +272,7 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                         pending_tools[tool_id] = (tool_name, formatted_input)
 
     if output_path:
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(output)
         print(f"Written to {output_path}")
     else:

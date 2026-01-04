@@ -1,6 +1,6 @@
 # Anchor Implementation Plan
 
-C engine with YueScript scripting, OpenGL rendering, targeting Windows, Linux, and Web.
+C engine with YueScript scripting, OpenGL rendering, targeting Windows and Web.
 
 ---
 
@@ -36,8 +36,12 @@ game.yue ──► yue -r ──► game.lua ──► embedded in executable
 
 ```
 anchor/
-├── src/
-│   └── anchor.c            # Single monolithic C file
+├── engine/
+│   ├── src/
+│   │   └── anchor.c        # Single monolithic C file
+│   ├── include/            # Vendored headers (SDL2, Lua, glad, stb)
+│   ├── lib/                # Vendored libraries
+│   └── build.bat           # Windows build
 ├── yue/                    # YueScript engine code
 │   ├── object.yue
 │   ├── timer.yue
@@ -45,13 +49,10 @@ anchor/
 │   ├── collider.yue
 │   └── init.yue
 ├── lua/                    # Compiled Lua output
-├── game/                   # Game YueScript
-│   └── main.yue
-├── game_lua/               # Compiled game Lua
+├── main.yue                # Test/game entry point
+├── main.lua                # Compiled Lua entry point
 ├── assets/
-├── build.bat               # Windows build
-├── build.sh                # Linux build
-└── build-web.sh            # Web build (Emscripten)
+└── build-web.bat           # Web build (Emscripten)
 ```
 
 ---
@@ -62,11 +63,11 @@ anchor/
 
 ### 1.1 Project Setup
 - [ ] Create directory structure
-- [ ] Set up build.bat for Windows (cl.exe or gcc + linking OpenGL)
+- [ ] Set up build.bat for Windows (cl.exe + linking OpenGL)
 - [ ] Download/configure dependencies:
   - SDL2 (window, input)
   - Lua 5.4
-  - glad or similar for OpenGL loading (Windows)
+  - glad (OpenGL loading)
   - stb_image (texture loading)
   - stb_truetype (font loading)
 
@@ -112,7 +113,7 @@ anchor/
 
 ### 2.1 Emscripten Setup
 - [ ] Install Emscripten SDK
-- [ ] Create build.sh with emcc flags
+- [ ] Create build-web.bat with emcc flags
 - [ ] Configure for WebGL 2.0 (OpenGL ES 3.0 subset)
 
 ### 2.2 Platform Abstraction
@@ -470,7 +471,7 @@ an:font_get_text_width('default', 'Hello')
 
 ### 10.1 YueScript Build Integration
 - [ ] Install YueScript compiler
-- [ ] Add compilation step to build.bat/build.sh
+- [ ] Add compilation step to build.bat
 - [ ] Use `-r` flag for line number preservation
 - [ ] Verify errors report correct .yue line numbers
 

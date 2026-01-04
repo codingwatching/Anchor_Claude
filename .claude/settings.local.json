@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git subtree push:*)",
+      "Bash(python3:*)",
+      "Bash(head:*)",
+      "Bash(mkdir:*)",
+      "Bash(cat:*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/cl.exe\")",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(python /e/a327ex/Anchor/scripts/jsonl-to-markdown.py:*)"
+    ]
+  }
+}

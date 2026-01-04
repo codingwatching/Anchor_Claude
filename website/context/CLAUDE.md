@@ -35,12 +35,12 @@ When running the full workflow, complete all steps before committing (one commit
 
 1. **Locate the session transcript** - Find the most recent JSONL file:
    ```bash
-   ls -t ~/.claude/projects/-home-adn-a327ex-Anchor/*.jsonl | grep -v agent | head -1
+   ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -1
    ```
 
 2. **Convert to Markdown** - Run the converter:
    ```bash
-   python3 scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/YYYY-MM-DD_HH-MM.md
+   python scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/YYYY-MM-DD_HH-MM.md
    ```
 
 3. **Read the converted log** to review the full session, especially if the conversation was compacted. This ensures the summary covers everything, not just what's in current context.
@@ -62,21 +62,24 @@ When running the full workflow, complete all steps before committing (one commit
    cp .claude/CLAUDE.md docs/* website/context/
    ```
 
-9. **Commit everything** with title as subject line, full summary as body, and co-authorship:
+9. **Commit everything** with title as subject line, full summary as body, and co-authorship.
+
+   **CRITICAL: Copy the summary text directly from the log file.** Do not retype or paraphrase it. The commit body must be character-for-character identical to what's in the log file (between `## Summary` and `---`). Read the log file and copy that exact text.
+
    ```bash
    git add -A
    git commit -m "Title
 
-   Full summary here (EXACT same text as in the log file)...
+   [COPY-PASTE the exact summary from the log file here]
 
    🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
    Co-Authored-By: Claude <noreply@anthropic.com>"
    ```
 
-   **Important:**
-   - The commit body must be the EXACT same full summary written to the log file — do not condense or abbreviate
-   - Always include the robot line and `Co-Authored-By` so commits show as authored by both of us
+   **Why this matters:** The log file is the source of truth. If you rewrite the summary for the commit, they'll diverge — different wording, missing details, inconsistent formatting. This has happened before. Don't let it happen again.
+
+   **Always include** the robot line and `Co-Authored-By` so commits show as authored by both of us.
 
 10. **Push to GitHub**:
     ```bash
@@ -96,20 +99,51 @@ When running the full workflow, complete all steps before committing (one commit
 # Short Title (Max 30 Chars)
 
 ## Summary
-Detailed description of what was accomplished.
-- Bullet point 1
-- Bullet point 2
+
+Opening paragraph: 1-2 sentences describing the session's main theme or focus.
+
+**Category 1:**
+- Bullet point with specific detail
+- Another bullet point
+  - Sub-bullet for related details
+
+**Category 2:**
+- Bullet point
+- Another bullet point
 
 ---
 
-## Transcript
-
-> User message here
-
-⏺ ToolName (arguments)
-   ⎿ Result:
-...
+[Transcript content follows]
 ```
+
+**Format rules:**
+
+1. **Title**: Short, descriptive (max 30 characters). Examples: "Windows Setup", "Anchor Interview", "Log Generator Script Fix"
+
+2. **Opening paragraph**: One or two sentences summarizing what the session was about. Sets context before the detailed breakdown.
+
+3. **Category headers**: Bold text with colon (`**Category Name:**`). Group related work together. Examples:
+   - System/environment work: "Windows Terminal Configuration", "NeoVim/Neovide Setup"
+   - Feature work: "The Crucible Design (Chosen)", "Operator Redesign"
+   - Bug fixes: "The Bug", "The Fix", "Linux-to-Windows Migration Fixes"
+   - Documentation: "Documentation Updates", "Engine Documentation Cleanup"
+
+4. **Bullet points**: Specific, detailed items under each category. Include:
+   - What was done
+   - Error messages encountered
+   - What was tried, what worked, what didn't work
+   - File names, function names, line numbers when relevant
+   - Sub-bullets for grouping related details
+
+5. **Chronological order**: Categories should roughly follow conversation flow. This helps future readers trace what happened and in what order.
+
+6. **Separator**: Single `---` between summary and transcript
+
+**Examples of good category headers:**
+- "Implementation Plan Interview" — for a specific activity
+- "Consistency Fixes (multiple rounds, including pre-compaction work)" — with clarifying context
+- "Continuation Session (Log Formatting Fixes)" — noting session boundaries
+- "The Crucible Design (Chosen)" — marking decisions made
 
 ### Accidental Closure
 
