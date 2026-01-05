@@ -38,10 +38,11 @@ When running the full workflow, complete all steps before committing (one commit
    ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -1
    ```
 
-2. **Convert to Markdown** - Run the converter:
+2. **Convert to Markdown** - Run the converter with a title-based filename:
    ```bash
-   python scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/YYYY-MM-DD_HH-MM.md
+   python scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/title-slug.md
    ```
+   Use a lowercase, hyphenated version of the title (e.g., `meta-session-1.md`, `engine-phase-1.md`). Date-based filenames don't work with Blot.
 
 3. **Read the converted log** to review the full session, especially if the conversation was compacted. This ensures the summary covers everything, not just what's in current context.
 
@@ -66,8 +67,8 @@ When running the full workflow, complete all steps before committing (one commit
 
    ---
    EOF
-   tail -n +4 "website/logs/YYYY-MM-DD_HH-MM.md" > /tmp/body.md
-   cat /tmp/header.md /tmp/body.md > "website/logs/YYYY-MM-DD_HH-MM.md"
+   tail -n +4 "website/logs/title-slug.md" > /tmp/body.md
+   cat /tmp/header.md /tmp/body.md > "website/logs/title-slug.md"
    ```
 
 8. **Sync context files**:

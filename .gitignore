@@ -22,3 +22,6 @@ lua/*.lua
 
 # Private game repos (nested git repos)
 games/
+
+# Private documents
+private/

@@ -13,7 +13,8 @@
       "Bash(\"/c/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/cl.exe\")",
       "Bash(grep:*)",
       "Bash(find:*)",
-      "Bash(python /e/a327ex/Anchor/scripts/jsonl-to-markdown.py:*)"
+      "Bash(python /e/a327ex/Anchor/scripts/jsonl-to-markdown.py:*)",
+      "Bash(wc:*)"
     ]
   }
 }
