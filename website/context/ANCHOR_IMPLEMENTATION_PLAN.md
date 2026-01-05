@@ -12,11 +12,12 @@ C engine with YueScript scripting, OpenGL rendering, targeting Windows and Web.
 | Audio | TBD (miniaudio or SoLoud) | Need pitch shifting; SDL_mixer insufficient |
 | Physics | Box2D 3.1 | Already used, true ball-to-ball collisions needed |
 | Scripting | Lua 5.4 + YueScript | Build-time compilation with `-r` flag for line numbers |
-| Timestep | Fixed 60fps | Determinism matters for potential replay support |
-| Resolution | Per-game configurable | 480×270, 640×360, or custom; integer scaling |
+| Timestep | Fixed 144 Hz | High simulation rate for responsive feel; determinism for replays |
+| Resolution | Per-game configurable | 480×270, 640×360, or custom; aspect-ratio scaling with letterboxing |
 | C Structure | Single anchor.c | Monolithic file, easier navigation |
 | Resources | Live forever | Games are small enough; no unloading needed |
-| Distribution | Single executable | Assets embedded |
+| Linking | Static | No DLLs; SDL2, Lua, audio all compiled in |
+| Distribution | Single executable | Zip-append for game content, extractable by modders |
 
 ---
 
@@ -62,48 +63,53 @@ anchor/
 **Goal:** Window opens, clears to a color, processes input, runs Lua. Works on Windows and Web.
 
 ### 1.1 Project Setup
-- [ ] Create directory structure
-- [ ] Set up build.bat for Windows (cl.exe + linking OpenGL)
-- [ ] Download/configure dependencies:
-  - SDL2 (window, input)
-  - Lua 5.4
-  - glad (OpenGL loading)
-  - stb_image (texture loading)
-  - stb_truetype (font loading)
+- [x] Create directory structure
+- [x] Set up build.bat for Windows (cl.exe + linking)
+- [x] Download/configure dependencies:
+  - [x] SDL2 (window, input)
+  - [x] Lua 5.4
+  - [x] glad (OpenGL loading)
+  - [x] stb_image (texture loading)
+  - [x] stb_truetype (font loading)
+- [x] Static linking (no DLLs):
+  - [x] Build SDL2 from source as static library (CMake)
+  - [x] Compile Lua to static lib
+  - [x] Link all Windows system dependencies
+  - [x] Verify standalone exe works without DLLs
 
 ### 1.2 OpenGL Initialization
-- [ ] SDL2 window with OpenGL context
-- [ ] OpenGL 3.3 Core Profile (widely supported, WebGL 2.0 compatible subset)
-- [ ] Basic shader compilation (vertex + fragment)
-- [ ] Clear screen to solid color
-- [ ] Verify OpenGL context on Windows
+- [x] SDL2 window with OpenGL context
+- [x] OpenGL 3.3 Core Profile (widely supported, WebGL 2.0 compatible subset)
+- [x] Basic shader compilation (vertex + fragment)
+- [x] Clear screen to solid color
+- [x] Verify OpenGL context on Windows
 
 ### 1.3 Main Loop
-- [ ] Fixed timestep game loop (60 FPS target)
-- [ ] Delta time accumulator pattern
-- [ ] Basic input polling (SDL_PollEvent)
-- [ ] Clean shutdown
+- [x] Fixed timestep game loop (144 Hz)
+- [x] Delta time accumulator pattern
+- [x] Basic input polling (SDL_PollEvent inside fixed loop)
+- [x] Clean shutdown
 
 ### 1.4 Lua Integration
-- [ ] Initialize Lua state
-- [ ] Load and run a test `.lua` file
-- [ ] Protected call wrapper with error handling
-- [ ] Error state: display error on screen, keep running
+- [x] Initialize Lua state
+- [x] Load and run external `.lua` file (command-line argument, like LÖVE)
+- [x] Protected call wrapper with stack trace (luaL_traceback)
+- [x] Error state: red screen, error message stored, window stays open
 
 ### 1.5 Windowing
-- [ ] Fullscreen toggle (Alt+Enter or F11)
-- [ ] Integer scaling with letterboxing
-- [ ] Handle window resize events
+- [x] Fullscreen toggle (Alt+Enter or F11)
+- [x] Aspect-ratio scaling with letterboxing (fills window, black bars when needed)
+- [x] Framebuffer at native game resolution (480×270)
+- [x] Handle window resize events
 
 ### 1.6 Verification
-```c
-// C calls Lua init, then update each frame
-// Lua can print to console
-// Errors display on screen
-// Fullscreen toggle works
-```
+- [x] C calls Lua init, then `update(dt)` each fixed step
+- [x] Lua can print to console
+- [x] Errors show red screen (error message stored for later text rendering)
+- [x] Fullscreen toggle works (F11 or Alt+Enter)
+- [x] Window resize maintains aspect ratio with letterboxing
 
-**Deliverable:** OpenGL window running Lua with error handling and fullscreen support.
+**Deliverable:** OpenGL window running Lua with error handling, fullscreen, and proper scaling. ✓ Complete
 
 ---
 
@@ -607,7 +613,7 @@ Resources (textures, sounds, fonts) live forever once loaded. No unloading mecha
 LÖVE-style: errors display stacktrace on screen, application continues in error state. No automatic restart.
 
 ### Resolution
-Per-game configurable base resolution. Integer scaling to window/screen with letterboxing. Nearest-neighbor filtering for crisp pixels.
+Per-game configurable base resolution (default 480×270). Aspect-ratio scaling to fill window with letterboxing when needed. Nearest-neighbor filtering preserves pixel look.
 
 ### Distribution
 Single executable with all assets embedded. No external files needed.

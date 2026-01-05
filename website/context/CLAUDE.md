@@ -20,6 +20,25 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 **Every Claude Code session follows this workflow.**
 
+### Start of Session
+
+Check the `todos/` folder for pending real-life tasks:
+
+```bash
+ls todos/ 2>/dev/null | grep -v "^DONE_"
+```
+
+If any files exist without the `DONE_` prefix, remind the user about them at the start of the session. Example:
+
+> **Pending real-life tasks:**
+> - `call-dentist.md` — Call dentist to schedule appointment
+> - `fix-bike.md` — Fix bike tire
+
+When the user says to mark a task as done, rename it with the `DONE_` prefix:
+```bash
+mv todos/call-dentist.md todos/DONE_call-dentist.md
+```
+
 ### During Session
 
 - Work normally on requested tasks
@@ -166,6 +185,16 @@ If the terminal closes unexpectedly:
 - User can resume with `claude --continue`
 - Complete the end-of-session ritual when ready
 
+### After Claude Code Updates
+
+Run the patch script to fix the "File has been unexpectedly modified" bug on Windows:
+
+```bash
+./scripts/patch-claude-code.sh
+```
+
+This patches cli.js to disable broken timestamp validation. Must be rerun after every Claude Code update.
+
 ### `/push-website`
 
 Quick push of website changes to Blot (no commit message):
@@ -210,6 +239,22 @@ When implementing something that needs juice:
 - Ask what the juice should be
 - Implement the mechanical version first, let the developer add juice
 - Follow explicit juice instructions if given
+
+### Long Responses with Code
+
+When providing answers that are:
+- Long enough to be awkward in terminal UI
+- Contain multiple code examples or detailed analysis
+
+Create a markdown file in `reference/` and open it in NeoVim with MarkdownPreview:
+
+```bash
+# Write the response to a descriptive filename
+# Then open with neovim and preview
+~/bin/neovim.exe reference/your-filename.md -c "MarkdownPreview"
+```
+
+This gives proper formatting for technical documentation. Use descriptive filenames like `anchor-loop-analysis.md`, `timer-system-notes.md`, etc.
 
 ---
 

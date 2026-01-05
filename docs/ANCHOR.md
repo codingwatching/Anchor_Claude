@@ -1264,7 +1264,7 @@ In YueScript:
 
 ## Rendering
 
-Anchor uses OpenGL 3.3 Core Profile (WebGL 2.0 compatible) for rendering, targeting 480×270 or 640×360 base resolution (per-game configurable). The low resolution is rendered to a framebuffer texture, then integer-scaled to the window with nearest-neighbor filtering for crisp pixels.
+Anchor uses OpenGL 3.3 Core Profile (WebGL 2.0 compatible) for rendering, targeting 480×270 or 640×360 base resolution (per-game configurable). The low resolution is rendered to a framebuffer texture, then scaled to fill the window while maintaining aspect ratio (letterboxing when needed), with nearest-neighbor filtering.
 
 ### Layers
 
@@ -1373,17 +1373,26 @@ No restart on keypress — user closes and reopens the application.
 
 ### Resolution
 
-Fixed resolution per game (480×270 or 640×360), integer scaled with letterboxing. Nearest-neighbor filtering for crisp pixels.
+Fixed resolution per game (480×270 or 640×360), scaled to fill window while maintaining aspect ratio with letterboxing. Nearest-neighbor filtering preserves pixel look.
 
 ### Build Scripts
 
-Simple build scripts, no CMake:
-- **Windows:** `build.bat`
+- **Windows:** `build.bat` — compiles anchor.c, links against static libraries
 - **Web:** `build-web.bat` (Emscripten)
+- **Dependencies:** CMake used to build SDL2 as a static library (one-time setup)
+
+### Static Linking
+
+All libraries are statically linked to produce a single executable with no DLL dependencies:
+- **SDL2** — built from source as static library
+- **Lua** — compiled directly into the engine
+- **Audio library** — (TBD) will also be static
 
 ### Distribution
 
-Single executable with all assets embedded. No external files needed.
+**Single executable** with all game content embedded. No external files, no DLLs.
+
+**Packaging method:** Zip-append. Game content (Lua files, assets) is packed into a zip archive and appended to the executable. The engine reads itself, finds the zip at the end, and loads content from there. Standard zip tools (7-Zip, WinRAR) can open the exe and extract content. During development, content loads from disk; release builds use the appended zip.
 
 ---
 

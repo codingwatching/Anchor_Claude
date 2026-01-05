@@ -25,3 +25,6 @@ games/
 
 # Private documents
 private/
+
+# Real-life todos (personal, not tracked)
+todos/
