@@ -32,6 +32,237 @@
 #define FIXED_RATE (1.0 / 144.0)  // 144 Hz fixed timestep
 #define MAX_UPDATES 10            // Cap on fixed steps per frame (prevents spiral of death)
 
+// Transform stack depth
+#define MAX_TRANSFORM_DEPTH 32
+
+// Initial command queue capacity
+#define INITIAL_COMMAND_CAPACITY 256
+
+// Shape types
+enum {
+    SHAPE_RECTANGLE = 0,
+    SHAPE_CIRCLE,
+    SHAPE_SPRITE,
+};
+
+// Blend modes
+enum {
+    BLEND_ALPHA = 0,
+    BLEND_ADDITIVE,
+    BLEND_MULTIPLY,
+};
+
+// DrawCommand — stores one deferred draw call
+typedef struct {
+    uint8_t type;           // SHAPE_RECTANGLE, SHAPE_CIRCLE, SHAPE_SPRITE
+    uint8_t blend_mode;     // BLEND_ALPHA, BLEND_ADDITIVE, BLEND_MULTIPLY
+    uint8_t _pad[2];
+
+    float transform[6];     // 2D affine matrix (2x3): [m00 m01 m02 m10 m11 m12]
+    uint32_t color;         // Packed RGBA
+
+    // Shape parameters (meaning depends on type)
+    // RECTANGLE: params[0]=x, [1]=y, [2]=w, [3]=h
+    // CIRCLE: params[0]=x, [1]=y, [2]=radius
+    // SPRITE: params[0]=x, [1]=y, [2]=w, [3]=h, [4]=ox, [5]=oy (+ texture_id)
+    float params[8];
+
+    GLuint texture_id;      // For SPRITE
+} DrawCommand;
+
+// Layer
+typedef struct {
+    GLuint fbo;
+    GLuint color_texture;
+    int width;
+    int height;
+
+    // Transform stack (mat3 stored as 9 floats: row-major)
+    // Each mat3: [m00 m01 m02 m10 m11 m12 m20 m21 m22]
+    // Represents 2D affine transform (2x3 used, bottom row is 0,0,1)
+    float transform_stack[MAX_TRANSFORM_DEPTH * 9];
+    int transform_depth;
+
+    // Command queue (deferred rendering)
+    DrawCommand* commands;
+    int command_count;
+    int command_capacity;
+
+    // Current state
+    uint8_t current_blend;
+} Layer;
+
+// Create a layer with FBO at specified resolution
+static Layer* layer_create(int width, int height) {
+    Layer* layer = (Layer*)calloc(1, sizeof(Layer));
+    if (!layer) return NULL;
+
+    layer->width = width;
+    layer->height = height;
+
+    // Initialize transform stack with identity matrix at depth 0
+    layer->transform_depth = 0;
+    float* m = layer->transform_stack;
+    m[0] = 1.0f; m[1] = 0.0f; m[2] = 0.0f;  // row 0
+    m[3] = 0.0f; m[4] = 1.0f; m[5] = 0.0f;  // row 1
+    m[6] = 0.0f; m[7] = 0.0f; m[8] = 1.0f;  // row 2
+
+    // Initialize command queue
+    layer->commands = (DrawCommand*)malloc(INITIAL_COMMAND_CAPACITY * sizeof(DrawCommand));
+    if (!layer->commands) {
+        free(layer);
+        return NULL;
+    }
+    layer->command_count = 0;
+    layer->command_capacity = INITIAL_COMMAND_CAPACITY;
+    layer->current_blend = BLEND_ALPHA;
+
+    // Create FBO
+    glGenFramebuffers(1, &layer->fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, layer->fbo);
+
+    // Create color texture
+    glGenTextures(1, &layer->color_texture);
+    glBindTexture(GL_TEXTURE_2D, layer->color_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    // Attach to FBO
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, layer->color_texture, 0);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "Layer FBO not complete\n");
+        glDeleteTextures(1, &layer->color_texture);
+        glDeleteFramebuffers(1, &layer->fbo);
+        free(layer);
+        return NULL;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return layer;
+}
+
+static void layer_destroy(Layer* layer) {
+    if (!layer) return;
+    if (layer->commands) free(layer->commands);
+    if (layer->color_texture) glDeleteTextures(1, &layer->color_texture);
+    if (layer->fbo) glDeleteFramebuffers(1, &layer->fbo);
+    free(layer);
+}
+
+// Get pointer to current transform (mat3 at current depth)
+static float* layer_get_transform(Layer* layer) {
+    return &layer->transform_stack[layer->transform_depth * 9];
+}
+
+// Copy current transform to a 2x3 array (for DrawCommand)
+static void layer_copy_transform(Layer* layer, float* dest) {
+    float* src = layer_get_transform(layer);
+    // Copy first two rows (6 floats) - third row is always [0, 0, 1]
+    dest[0] = src[0]; dest[1] = src[1]; dest[2] = src[2];
+    dest[3] = src[3]; dest[4] = src[4]; dest[5] = src[5];
+}
+
+// Add a command to the layer's queue (returns pointer to the new command)
+static DrawCommand* layer_add_command(Layer* layer) {
+    // Grow if needed
+    if (layer->command_count >= layer->command_capacity) {
+        int new_capacity = layer->command_capacity * 2;
+        DrawCommand* new_commands = (DrawCommand*)realloc(layer->commands,
+            new_capacity * sizeof(DrawCommand));
+        if (!new_commands) return NULL;
+        layer->commands = new_commands;
+        layer->command_capacity = new_capacity;
+    }
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->blend_mode = layer->current_blend;
+    layer_copy_transform(layer, cmd->transform);
+    return cmd;
+}
+
+// Clear all commands (call at frame end after rendering)
+static void layer_clear_commands(Layer* layer) {
+    layer->command_count = 0;
+}
+
+// Record a rectangle command
+static void layer_add_rectangle(Layer* layer, float x, float y, float w, float h, uint32_t color) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = SHAPE_RECTANGLE;
+    cmd->color = color;
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = w;
+    cmd->params[3] = h;
+}
+
+// Record a circle command
+static void layer_add_circle(Layer* layer, float x, float y, float radius, uint32_t color) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = SHAPE_CIRCLE;
+    cmd->color = color;
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = radius;
+}
+
+// Batch rendering
+#define MAX_BATCH_VERTICES 6000  // 1000 quads * 6 vertices
+#define VERTEX_FLOATS 6          // x, y, r, g, b, a
+
+static float batch_vertices[MAX_BATCH_VERTICES * VERTEX_FLOATS];
+static int batch_vertex_count = 0;
+
+// Transform a point by a 2x3 matrix: [m0 m1 m2] [x]   [m0*x + m1*y + m2]
+//                                    [m3 m4 m5] [y] = [m3*x + m4*y + m5]
+//                                               [1]
+static void transform_point(const float* m, float x, float y, float* out_x, float* out_y) {
+    *out_x = m[0] * x + m[1] * y + m[2];
+    *out_y = m[3] * x + m[4] * y + m[5];
+}
+
+// Unpack uint32 color to RGBA floats (0-1)
+static void unpack_color(uint32_t color, float* r, float* g, float* b, float* a) {
+    *r = ((color >> 24) & 0xFF) / 255.0f;
+    *g = ((color >> 16) & 0xFF) / 255.0f;
+    *b = ((color >> 8) & 0xFF) / 255.0f;
+    *a = (color & 0xFF) / 255.0f;
+}
+
+// Add a vertex to the batch
+static void batch_add_vertex(float x, float y, float r, float g, float b, float a) {
+    if (batch_vertex_count >= MAX_BATCH_VERTICES) return;
+    int i = batch_vertex_count * VERTEX_FLOATS;
+    batch_vertices[i + 0] = x;
+    batch_vertices[i + 1] = y;
+    batch_vertices[i + 2] = r;
+    batch_vertices[i + 3] = g;
+    batch_vertices[i + 4] = b;
+    batch_vertices[i + 5] = a;
+    batch_vertex_count++;
+}
+
+// Add a quad (two triangles, 6 vertices) to the batch
+static void batch_add_quad(float x0, float y0, float x1, float y1,
+                           float x2, float y2, float x3, float y3,
+                           float r, float g, float b, float a) {
+    // Triangle 1: 0, 1, 2
+    batch_add_vertex(x0, y0, r, g, b, a);
+    batch_add_vertex(x1, y1, r, g, b, a);
+    batch_add_vertex(x2, y2, r, g, b, a);
+    // Triangle 2: 0, 2, 3
+    batch_add_vertex(x0, y0, r, g, b, a);
+    batch_add_vertex(x2, y2, r, g, b, a);
+    batch_add_vertex(x3, y3, r, g, b, a);
+}
+
 static SDL_Window* window = NULL;
 static SDL_GLContext gl_context = NULL;
 static lua_State* L = NULL;
@@ -43,12 +274,127 @@ static GLuint shader_program = 0;
 static GLuint vao = 0;
 static GLuint vbo = 0;
 
-// Framebuffer for integer scaling
-static GLuint fbo = 0;
-static GLuint fbo_texture = 0;
+// Main game layer
+static Layer* game_layer = NULL;
+
+// Screen blit resources
 static GLuint screen_shader = 0;
 static GLuint screen_vao = 0;
 static GLuint screen_vbo = 0;
+
+// Flush batch to GPU
+static void batch_flush(void) {
+    if (batch_vertex_count == 0) return;
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0,
+                    batch_vertex_count * VERTEX_FLOATS * sizeof(float),
+                    batch_vertices);
+    glDrawArrays(GL_TRIANGLES, 0, batch_vertex_count);
+    glBindVertexArray(0);
+
+    batch_vertex_count = 0;
+}
+
+// Process a rectangle command
+static void process_rectangle(const DrawCommand* cmd) {
+    float x = cmd->params[0];
+    float y = cmd->params[1];
+    float w = cmd->params[2];
+    float h = cmd->params[3];
+
+    // Rectangle corners (local coordinates)
+    // 0---1
+    // |   |
+    // 3---2
+    float lx0 = x, ly0 = y;
+    float lx1 = x + w, ly1 = y;
+    float lx2 = x + w, ly2 = y + h;
+    float lx3 = x, ly3 = y + h;
+
+    // Transform to world coordinates
+    float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
+    transform_point(cmd->transform, lx0, ly0, &wx0, &wy0);
+    transform_point(cmd->transform, lx1, ly1, &wx1, &wy1);
+    transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
+    transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
+
+    // Unpack color
+    float r, g, b, a;
+    unpack_color(cmd->color, &r, &g, &b, &a);
+
+    // Add to batch
+    batch_add_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3, r, g, b, a);
+}
+
+// Render all commands on a layer
+static void layer_render(Layer* layer) {
+    batch_vertex_count = 0;
+
+    for (int i = 0; i < layer->command_count; i++) {
+        const DrawCommand* cmd = &layer->commands[i];
+
+        switch (cmd->type) {
+            case SHAPE_RECTANGLE:
+                process_rectangle(cmd);
+                break;
+            case SHAPE_CIRCLE:
+                // TODO: Step 5
+                break;
+            case SHAPE_SPRITE:
+                // TODO: Step 7
+                break;
+        }
+
+        // Flush if batch is getting full
+        if (batch_vertex_count >= MAX_BATCH_VERTICES - 6) {
+            batch_flush();
+        }
+    }
+
+    // Final flush
+    batch_flush();
+
+    // Clear commands for next frame
+    layer_clear_commands(layer);
+}
+
+// Lua bindings
+static int l_layer_create(lua_State* L) {
+    // For now, ignore name and return game_layer
+    // const char* name = luaL_checkstring(L, 1);
+    (void)L;  // unused parameter warning
+    lua_pushlightuserdata(L, game_layer);
+    return 1;
+}
+
+static int l_layer_rectangle(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    float w = (float)luaL_checknumber(L, 4);
+    float h = (float)luaL_checknumber(L, 5);
+    uint32_t color = (uint32_t)luaL_checkinteger(L, 6);
+    layer_add_rectangle(layer, x, y, w, h, color);
+    return 0;
+}
+
+static int l_rgba(lua_State* L) {
+    int r = (int)luaL_checkinteger(L, 1);
+    int g = (int)luaL_checkinteger(L, 2);
+    int b = (int)luaL_checkinteger(L, 3);
+    int a = (int)luaL_optinteger(L, 4, 255);
+    uint32_t color = ((r & 0xFF) << 24) | ((g & 0xFF) << 16) | ((b & 0xFF) << 8) | (a & 0xFF);
+    lua_pushinteger(L, color);
+    return 1;
+}
+
+static void register_lua_bindings(lua_State* L) {
+    lua_register(L, "layer_create", l_layer_create);
+    lua_register(L, "layer_rectangle", l_layer_rectangle);
+    lua_register(L, "rgba", l_rgba);
+}
 
 // Main loop state (needed for emscripten)
 static bool running = true;
@@ -177,12 +523,12 @@ static void shutdown(void) {
     if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
     if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
     if (shader_program) { glDeleteProgram(shader_program); shader_program = 0; }
-    // Framebuffer resources
+    // Layer
+    if (game_layer) { layer_destroy(game_layer); game_layer = NULL; }
+    // Screen blit resources
     if (screen_vbo) { glDeleteBuffers(1, &screen_vbo); screen_vbo = 0; }
     if (screen_vao) { glDeleteVertexArrays(1, &screen_vao); screen_vao = 0; }
     if (screen_shader) { glDeleteProgram(screen_shader); screen_shader = 0; }
-    if (fbo_texture) { glDeleteTextures(1, &fbo_texture); fbo_texture = 0; }
-    if (fbo) { glDeleteFramebuffers(1, &fbo); fbo = 0; }
     // Other resources
     if (L) { lua_close(L); L = NULL; }
     if (gl_context) { SDL_GL_DeleteContext(gl_context); gl_context = NULL; }
@@ -253,9 +599,9 @@ static void main_loop_iteration(void) {
     // Render (once per frame, not per fixed step)
     frame++;
 
-    // === PASS 1: Render game to framebuffer ===
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glViewport(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    // === PASS 1: Render game to layer ===
+    glBindFramebuffer(GL_FRAMEBUFFER, game_layer->fbo);
+    glViewport(0, 0, game_layer->width, game_layer->height);
 
     if (error_state) {
         glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
@@ -265,10 +611,10 @@ static void main_loop_iteration(void) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Set up orthographic projection (game coordinates)
-    // Maps (0,0) at top-left to (GAME_WIDTH, GAME_HEIGHT) at bottom-right
+    // Maps (0,0) at top-left to (width, height) at bottom-right
     float projection[16] = {
-        2.0f / GAME_WIDTH, 0.0f, 0.0f, 0.0f,
-        0.0f, -2.0f / GAME_HEIGHT, 0.0f, 0.0f,
+        2.0f / game_layer->width, 0.0f, 0.0f, 0.0f,
+        0.0f, -2.0f / game_layer->height, 0.0f, 0.0f,
         0.0f, 0.0f, -1.0f, 0.0f,
         -1.0f, 1.0f, 0.0f, 1.0f
     };
@@ -277,33 +623,10 @@ static void main_loop_iteration(void) {
     GLint proj_loc = glGetUniformLocation(shader_program, "projection");
     glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
 
-    // Draw a test quad in the center
-    float cx = GAME_WIDTH / 2.0f;
-    float cy = GAME_HEIGHT / 2.0f;
-    float size = 50.0f;
-    float r = 1.0f, g = 0.5f, b = 0.2f, a = 1.0f;  // Orange
+    // Render all commands (added by Lua during update)
+    layer_render(game_layer);
 
-    // Two triangles forming a quad (6 vertices)
-    float vertices[] = {
-        // Triangle 1
-        cx - size, cy - size, r, g, b, a,
-        cx + size, cy - size, r, g, b, a,
-        cx + size, cy + size, r, g, b, a,
-        // Triangle 2
-        cx - size, cy - size, r, g, b, a,
-        cx + size, cy + size, r, g, b, a,
-        cx - size, cy + size, r, g, b, a,
-    };
-
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindVertexArray(0);
-
-    // TODO: Layer system will draw here (error_message when in error_state)
-
-    // === PASS 2: Blit framebuffer to screen with aspect-ratio scaling ===
+    // === PASS 2: Blit layer to screen with aspect-ratio scaling ===
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Get current window size
@@ -312,13 +635,13 @@ static void main_loop_iteration(void) {
     glViewport(0, 0, window_w, window_h);
 
     // Calculate scale to fit window while maintaining aspect ratio
-    float scale_x = (float)window_w / GAME_WIDTH;
-    float scale_y = (float)window_h / GAME_HEIGHT;
+    float scale_x = (float)window_w / game_layer->width;
+    float scale_y = (float)window_h / game_layer->height;
     float scale = (scale_x < scale_y) ? scale_x : scale_y;
 
     // Calculate centered position with letterboxing
-    int scaled_w = (int)(GAME_WIDTH * scale);
-    int scaled_h = (int)(GAME_HEIGHT * scale);
+    int scaled_w = (int)(game_layer->width * scale);
+    int scaled_h = (int)(game_layer->height * scale);
     int offset_x = (window_w - scaled_w) / 2;
     int offset_y = (window_h - scaled_h) / 2;
 
@@ -326,12 +649,12 @@ static void main_loop_iteration(void) {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // Draw framebuffer texture (viewport handles positioning)
+    // Draw layer texture (viewport handles positioning)
     glViewport(offset_x, offset_y, scaled_w, scaled_h);
     glUseProgram(screen_shader);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, fbo_texture);
+    glBindTexture(GL_TEXTURE_2D, game_layer->color_texture);
 
     glBindVertexArray(screen_vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -426,8 +749,8 @@ int main(int argc, char* argv[]) {
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    // Allocate space for one quad (6 vertices * 6 floats)
-    glBufferData(GL_ARRAY_BUFFER, 6 * 6 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+    // Allocate space for batch rendering
+    glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * VERTEX_FLOATS * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
     // Position attribute (location 0): 2 floats
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
@@ -440,31 +763,16 @@ int main(int argc, char* argv[]) {
     glBindVertexArray(0);
     printf("Game VAO/VBO created\n");
 
-    // Create framebuffer for integer scaling
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
-    // Create texture to render to
-    glGenTextures(1, &fbo_texture);
-    glBindTexture(GL_TEXTURE_2D, fbo_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, GAME_WIDTH, GAME_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);  // Crisp pixels
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    // Attach texture to framebuffer
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fbo_texture, 0);
-
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        fprintf(stderr, "Framebuffer not complete\n");
+    // Create game layer
+    game_layer = layer_create(GAME_WIDTH, GAME_HEIGHT);
+    if (!game_layer) {
+        fprintf(stderr, "Failed to create game layer\n");
         shutdown();
         return 1;
     }
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    printf("Framebuffer created (%dx%d)\n", GAME_WIDTH, GAME_HEIGHT);
+    printf("Game layer created (%dx%d)\n", game_layer->width, game_layer->height);
 
-    // Create screen shader for blitting framebuffer
+    // Create screen shader for blitting layer
     screen_shader = create_shader_program(screen_vertex_source, screen_fragment_source);
     if (!screen_shader) {
         fprintf(stderr, "Failed to create screen shader\n");
@@ -511,6 +819,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     luaL_openlibs(L);
+    register_lua_bindings(L);
 
     // Load and run script with traceback
     lua_pushcfunction(L, traceback);

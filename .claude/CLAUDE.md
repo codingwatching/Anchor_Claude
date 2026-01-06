@@ -236,6 +236,20 @@ This gives proper formatting for technical documentation. Use descriptive filena
 
 ## Code Patterns
 
+### Comment Style
+
+Use minimal single-line comments. Avoid multi-line decorative banners:
+
+```c
+// Bad
+//----------------------------------------------------------
+// Layer
+//----------------------------------------------------------
+
+// Good
+// Layer
+```
+
 ### Single-Letter Aliases
 
 Anchor provides single-letter aliases that look like runes:
@@ -422,6 +436,29 @@ game:circle(x, y, r, color)    -- Use anywhere
 ### Draw Order
 
 Draw order within a layer is **submission order** (when Lua calls draw functions), not tree order. This keeps drawing flexible — an object can draw to multiple layers, in any order.
+
+### C/Lua Bindings
+
+C exposes **plain functions** that take and return simple values or raw pointers (lightuserdata). No metatables, no userdata with methods, no global tables on the C side.
+
+```lua
+-- Raw C bindings (dumb, minimal)
+local layer = layer_create('game')
+layer_rectangle(layer, 10, 10, 50, 50, 0xFF0000FF)
+layer_circle(layer, 100, 100, 25, rgba(255, 128, 0, 255))
+```
+
+The nice OOP API (`game:rectangle(...)`) is built later in YueScript on top of these primitives. This keeps the C side simple and puts the abstraction in YueScript where it belongs.
+
+```yuescript
+-- YueScript wrapper (built on raw bindings)
+class Layer
+  new: (name) => @_ptr = layer_create(name)
+  rectangle: (x, y, w, h, color) => layer_rectangle(@_ptr, x, y, w, h, color)
+
+game = Layer 'game'
+game\rectangle 10, 10, 50, 50, 0xFF0000FF
+```
 
 ---
 

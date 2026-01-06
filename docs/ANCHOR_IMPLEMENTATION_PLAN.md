@@ -171,65 +171,105 @@ anchor/
 
 ## Phase 3: Rendering
 
-**Goal:** Draw shapes and sprites with layers, transforms, blending modes.
+**Goal:** Core rendering infrastructure with deferred command queues, layers, transforms, basic shapes, and sprites.
 
-### 3.1 Framebuffer Setup
-- [ ] Create render target framebuffer (480×270 or configurable)
-- [ ] Framebuffer texture with nearest-neighbor filtering
-- [ ] Final blit to screen with integer scaling
+See `docs/SHAPES_PLAN.md` for full technical details on the shapes system (to be implemented incrementally in later phases).
 
-### 3.2 Batch Renderer
-- [ ] Vertex buffer for batched geometry
-- [ ] Single draw call per batch where possible
-- [ ] Vertex format: position, UV, color
+### Architecture Overview
 
-### 3.3 Shape Primitives
-- [ ] `circle(x, y, radius, color)` — filled circle via instanced quads or geometry
-- [ ] `rectangle(x, y, w, h, color)` — filled rectangle
-- [ ] `rounded_rectangle(x, y, w, h, rx, ry, color)` — filled rectangle with rounded corners
-- [ ] `line(x1, y1, x2, y2, color, width)` — line with thickness
+**Deferred rendering:** Draw calls during update store commands. GPU work happens at frame end.
 
-### 3.4 Sprite System
-- [ ] Texture loading via stb_image
-- [ ] `draw_image(img, x, y, r, sx, sy, ox, oy, color)`
-- [ ] Texture atlas support (optional, optimization)
-- [ ] Smooth rotation (just pass angle to shader)
+```
+During update:
+  game:circle(...)  → stores DrawCommand in game.commands[]
+  game:rectangle(...)  → stores DrawCommand in game.commands[]
 
-### 3.5 Blending Modes
-- [ ] Alpha blending (default): `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`
-- [ ] Additive blending: `glBlendFunc(GL_SRC_ALPHA, GL_ONE)`
-- [ ] Per-draw-call blend mode switching
+At frame end:
+  For each layer:
+    Process commands in order → build vertices → batch → flush
+  Composite layers to screen
+```
 
-### 3.6 Transform Stack
-- [ ] `push(x, y, r, sx, sy)` — push transform matrix
-- [ ] `pop()` — restore previous transform
-- [ ] Matrix multiplication on CPU, upload to shader
+---
 
-### 3.7 Layer System
-- [ ] Each layer is a framebuffer
-- [ ] Layers created at startup: `game = an:layer('game')`
-- [ ] Draw commands target a specific layer
-- [ ] Layer composition to screen in defined order
+### 3.1 Layer System & Command Queue
+- [ ] Layer struct: FBO, color texture, command array, transform stack
+- [ ] DrawCommand struct: type, blend_mode, color, transform, params
+- [ ] `an:layer(name)` creates layer with FBO at game resolution
+- [ ] Per-layer transform stack (mat3 array, depth 32)
+- [ ] Per-layer current blend mode
+- [ ] Command array with dynamic growth
+- [ ] Maximum 16 layers
+
+### 3.2 Frame-End Renderer
+- [ ] `render_frame()` — process all layers, then composite to screen
+- [ ] `render_layer()` — iterate commands, build vertices, batch, flush
+- [ ] Batch state tracking: current texture, current blend mode
+- [ ] Flush batch on: texture change, blend change, buffer full
+- [ ] Vertex building from DrawCommand (apply captured transform)
+- [ ] Reset command queue after rendering each layer
+- [ ] Composite layers to screen (fullscreen quads with layer textures)
+
+### 3.3 Transform Stack
+- [ ] `layer:push(x, y, r, sx, sy)` — push transform onto layer's stack
+- [ ] `layer:pop()` — pop transform
+- [ ] Current transform captured into DrawCommand at record time
+- [ ] Transform applied when building vertices at frame end
+
+### 3.4 Basic SDF Shader
+- [ ] Vertex format: position, UV, color, mode, params
+- [ ] Mode branching: CIRCLE, RECTANGLE, SPRITE
+- [ ] Circle SDF: `length(uv - 0.5) - radius`
+- [ ] Rectangle SDF: box distance function
+
+### 3.5 Basic Shapes
+- [ ] `layer:circle(x, y, radius, color)` — filled circle via SDF
+- [ ] `layer:rectangle(x, y, w, h, color)` — filled rectangle via SDF
+
+### 3.6 Sprite System
+- [ ] Texture loading via stb_image (`an:texture_load(path)`)
+- [ ] `layer:draw_image(img, x, y, r, sx, sy, ox, oy, color)`
+- [ ] Textured quads (mode = SPRITE, sample texture, multiply by color)
+- [ ] Smooth rotation via transformed quad vertices
+
+### 3.7 Blend Modes
+- [ ] Alpha: `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`
+- [ ] Additive: `glBlendFunc(GL_SRC_ALPHA, GL_ONE)`
+- [ ] `layer:set_blend_mode('alpha' | 'additive')`
+- [ ] Blend mode stored per-command, batch flush on change
 
 ### 3.8 Lua Bindings
 ```lua
+-- Layers
 game = an:layer('game')
 effects = an:layer('effects')
 
+-- Shapes
 game:circle(x, y, radius, color)
 game:rectangle(x, y, w, h, color)
-game:rounded_rectangle(x, y, w, h, rx, ry, color)
-game:line(x1, y1, x2, y2, color, width)
+
+-- Sprites
+local img = an:texture_load('player.png')
 game:draw_image(img, x, y, r, sx, sy, ox, oy, color)
 
+-- Transforms
 game:push(x, y, r, sx, sy)
 game:pop()
 
+-- Blend modes
 game:set_blend_mode('additive')
 game:set_blend_mode('alpha')
 ```
 
-**Deliverable:** Shape and sprite rendering with transforms, layers, and blend modes.
+### 3.9 Verification
+- [ ] Circle and rectangle render correctly
+- [ ] Sprites load and render with transforms
+- [ ] Transform stack works (rotation, scale, nesting)
+- [ ] Multiple layers composite correctly
+- [ ] Blend modes (alpha, additive)
+- [ ] Web build verification (WebGL 2.0)
+
+**Deliverable:** Working layer system with deferred rendering, basic shapes (circle, rectangle), sprites, transforms, and blend modes.
 
 ---
 
