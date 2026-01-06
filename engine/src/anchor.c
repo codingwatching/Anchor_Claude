@@ -1,14 +1,23 @@
 /*
  * Anchor Engine - Minimal skeleton
  * Phase 1: Window + OpenGL + Lua integration
+ * Phase 2: Web build (Emscripten/WebGL)
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include <SDL.h>
-#include <glad/gl.h>
+
+#ifdef __EMSCRIPTEN__
+    #include <emscripten.h>
+    #include <emscripten/html5.h>
+    #include <GLES3/gl3.h>
+#else
+    #include <glad/gl.h>
+#endif
 
 #include <lua.h>
 #include <lualib.h>
@@ -41,9 +50,26 @@ static GLuint screen_shader = 0;
 static GLuint screen_vao = 0;
 static GLuint screen_vbo = 0;
 
-// Basic vertex shader - transforms 2D positions
+// Main loop state (needed for emscripten)
+static bool running = true;
+static Uint64 perf_freq = 0;
+static Uint64 last_time = 0;
+static double lag = 0.0;
+static Uint64 step = 0;
+static double game_time = 0.0;
+static Uint64 frame = 0;
+
+// Shader headers - prepended to all shaders based on platform
+#ifdef __EMSCRIPTEN__
+    #define SHADER_HEADER_VERT "#version 300 es\n"
+    #define SHADER_HEADER_FRAG "#version 300 es\nprecision mediump float;\n"
+#else
+    #define SHADER_HEADER_VERT "#version 330 core\n"
+    #define SHADER_HEADER_FRAG "#version 330 core\n"
+#endif
+
+// Shader sources (no version line - header prepended at compile time)
 static const char* vertex_shader_source =
-    "#version 330 core\n"
     "layout (location = 0) in vec2 aPos;\n"
     "layout (location = 1) in vec4 aColor;\n"
     "out vec4 vertexColor;\n"
@@ -53,18 +79,14 @@ static const char* vertex_shader_source =
     "    vertexColor = aColor;\n"
     "}\n";
 
-// Basic fragment shader - outputs vertex color
 static const char* fragment_shader_source =
-    "#version 330 core\n"
     "in vec4 vertexColor;\n"
     "out vec4 FragColor;\n"
     "void main() {\n"
     "    FragColor = vertexColor;\n"
     "}\n";
 
-// Screen vertex shader - for blitting framebuffer to screen
 static const char* screen_vertex_source =
-    "#version 330 core\n"
     "layout (location = 0) in vec2 aPos;\n"
     "layout (location = 1) in vec2 aTexCoord;\n"
     "out vec2 TexCoord;\n"
@@ -73,9 +95,7 @@ static const char* screen_vertex_source =
     "    TexCoord = aTexCoord;\n"
     "}\n";
 
-// Screen fragment shader - samples framebuffer texture
 static const char* screen_fragment_source =
-    "#version 330 core\n"
     "in vec2 TexCoord;\n"
     "out vec4 FragColor;\n"
     "uniform sampler2D screenTexture;\n"
@@ -84,10 +104,22 @@ static const char* screen_fragment_source =
     "}\n";
 
 // Compile a shader and return its ID (0 on failure)
+// Automatically prepends platform-specific header
 static GLuint compile_shader(GLenum type, const char* source) {
+    const char* header = (type == GL_VERTEX_SHADER) ? SHADER_HEADER_VERT : SHADER_HEADER_FRAG;
+
+    // Concatenate header + source
+    size_t header_len = strlen(header);
+    size_t source_len = strlen(source);
+    char* full_source = (char*)malloc(header_len + source_len + 1);
+    memcpy(full_source, header, header_len);
+    memcpy(full_source + header_len, source, source_len + 1);
+
     GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, NULL);
+    glShaderSource(shader, 1, (const char**)&full_source, NULL);
     glCompileShader(shader);
+
+    free(full_source);
 
     GLint success;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
@@ -158,6 +190,163 @@ static void shutdown(void) {
     SDL_Quit();
 }
 
+// One frame of the main loop
+static void main_loop_iteration(void) {
+    Uint64 current_time = SDL_GetPerformanceCounter();
+    double dt = (double)(current_time - last_time) / (double)perf_freq;
+    last_time = current_time;
+
+    // Accumulate lag, capped to prevent spiral of death
+    lag += dt;
+    if (lag > FIXED_RATE * MAX_UPDATES) {
+        lag = FIXED_RATE * MAX_UPDATES;
+    }
+
+    // Fixed timestep loop
+    while (lag >= FIXED_RATE) {
+        // Process events inside fixed loop (input tied to simulation steps)
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = false;
+            }
+            if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    running = false;
+                }
+                #ifndef __EMSCRIPTEN__
+                // Fullscreen toggle only on desktop
+                if (event.key.keysym.sym == SDLK_F11 ||
+                    (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))) {
+                    Uint32 flags = SDL_GetWindowFlags(window);
+                    SDL_SetWindowFullscreen(window, (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                }
+                #endif
+            }
+        }
+
+        // Call Lua update (skip if in error state)
+        if (!error_state) {
+            lua_pushcfunction(L, traceback);
+            int err_handler = lua_gettop(L);
+            lua_getglobal(L, "update");
+            if (lua_isfunction(L, -1)) {
+                lua_pushnumber(L, FIXED_RATE);
+                if (lua_pcall(L, 1, 0, err_handler) != LUA_OK) {
+                    snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
+                    fprintf(stderr, "ERROR: %s\n", error_message);
+                    lua_pop(L, 2);  // error + traceback
+                    error_state = true;
+                } else {
+                    lua_pop(L, 1);  // traceback
+                }
+            } else {
+                lua_pop(L, 2);  // nil + traceback
+            }
+        }
+
+        step++;
+        game_time += FIXED_RATE;
+        lag -= FIXED_RATE;
+    }
+
+    // Render (once per frame, not per fixed step)
+    frame++;
+
+    // === PASS 1: Render game to framebuffer ===
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    if (error_state) {
+        glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
+    } else {
+        glClearColor(0.2f, 0.3f, 0.4f, 1.0f);
+    }
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Set up orthographic projection (game coordinates)
+    // Maps (0,0) at top-left to (GAME_WIDTH, GAME_HEIGHT) at bottom-right
+    float projection[16] = {
+        2.0f / GAME_WIDTH, 0.0f, 0.0f, 0.0f,
+        0.0f, -2.0f / GAME_HEIGHT, 0.0f, 0.0f,
+        0.0f, 0.0f, -1.0f, 0.0f,
+        -1.0f, 1.0f, 0.0f, 1.0f
+    };
+
+    glUseProgram(shader_program);
+    GLint proj_loc = glGetUniformLocation(shader_program, "projection");
+    glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
+
+    // Draw a test quad in the center
+    float cx = GAME_WIDTH / 2.0f;
+    float cy = GAME_HEIGHT / 2.0f;
+    float size = 50.0f;
+    float r = 1.0f, g = 0.5f, b = 0.2f, a = 1.0f;  // Orange
+
+    // Two triangles forming a quad (6 vertices)
+    float vertices[] = {
+        // Triangle 1
+        cx - size, cy - size, r, g, b, a,
+        cx + size, cy - size, r, g, b, a,
+        cx + size, cy + size, r, g, b, a,
+        // Triangle 2
+        cx - size, cy - size, r, g, b, a,
+        cx + size, cy + size, r, g, b, a,
+        cx - size, cy + size, r, g, b, a,
+    };
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    // TODO: Layer system will draw here (error_message when in error_state)
+
+    // === PASS 2: Blit framebuffer to screen with aspect-ratio scaling ===
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Get current window size
+    int window_w, window_h;
+    SDL_GetWindowSize(window, &window_w, &window_h);
+    glViewport(0, 0, window_w, window_h);
+
+    // Calculate scale to fit window while maintaining aspect ratio
+    float scale_x = (float)window_w / GAME_WIDTH;
+    float scale_y = (float)window_h / GAME_HEIGHT;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+
+    // Calculate centered position with letterboxing
+    int scaled_w = (int)(GAME_WIDTH * scale);
+    int scaled_h = (int)(GAME_HEIGHT * scale);
+    int offset_x = (window_w - scaled_w) / 2;
+    int offset_y = (window_h - scaled_h) / 2;
+
+    // Clear screen to black (letterbox color)
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Draw framebuffer texture (viewport handles positioning)
+    glViewport(offset_x, offset_y, scaled_w, scaled_h);
+    glUseProgram(screen_shader);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, fbo_texture);
+
+    glBindVertexArray(screen_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    SDL_GL_SwapWindow(window);
+
+    #ifdef __EMSCRIPTEN__
+    if (!running) {
+        emscripten_cancel_main_loop();
+        shutdown();
+    }
+    #endif
+}
+
 int main(int argc, char* argv[]) {
     const char* script_path = (argc > 1) ? argv[1] : "main.lua";
     printf("Anchor Engine starting...\n");
@@ -169,10 +358,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    #ifdef __EMSCRIPTEN__
+    // Request WebGL 2.0 (OpenGL ES 3.0)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    #else
     // Request OpenGL 3.3 Core Profile
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    #endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
 
@@ -197,7 +393,8 @@ int main(int argc, char* argv[]) {
 
     SDL_GL_SetSwapInterval(1);  // VSync
 
-    // Load OpenGL functions
+    #ifndef __EMSCRIPTEN__
+    // Load OpenGL functions (desktop only - Emscripten provides them)
     int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
     if (version == 0) {
         fprintf(stderr, "gladLoadGL failed\n");
@@ -205,6 +402,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     printf("OpenGL %d.%d loaded\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+    #else
+    printf("WebGL 2.0 (OpenGL ES 3.0) context created\n");
+    #endif
     printf("Renderer: %s\n", glGetString(GL_RENDERER));
 
     glEnable(GL_BLEND);
@@ -331,163 +531,23 @@ int main(int argc, char* argv[]) {
 
     printf("Initialization complete. Press ESC to exit, F11 for fullscreen.\n");
 
-    // Timing state
-    Uint64 perf_freq = SDL_GetPerformanceFrequency();
-    Uint64 last_time = SDL_GetPerformanceCounter();
-    double lag = 0.0;
-    Uint64 step = 0;
-    double game_time = 0.0;
-    Uint64 frame = 0;
+    // Initialize timing state
+    perf_freq = SDL_GetPerformanceFrequency();
+    last_time = SDL_GetPerformanceCounter();
 
-    // Main loop
-    bool running = true;
+    #ifdef __EMSCRIPTEN__
+    // Use browser's requestAnimationFrame
+    // 0 = use RAF, 1 = simulate infinite loop (blocking)
+    emscripten_set_main_loop(main_loop_iteration, 0, 1);
+    #else
+    // Desktop: traditional blocking loop
     while (running) {
-        Uint64 current_time = SDL_GetPerformanceCounter();
-        double dt = (double)(current_time - last_time) / (double)perf_freq;
-        last_time = current_time;
-
-        // Accumulate lag, capped to prevent spiral of death
-        lag += dt;
-        if (lag > FIXED_RATE * MAX_UPDATES) {
-            lag = FIXED_RATE * MAX_UPDATES;
-        }
-
-        // Fixed timestep loop
-        while (lag >= FIXED_RATE) {
-            // Process events inside fixed loop (input tied to simulation steps)
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_QUIT) {
-                    running = false;
-                }
-                if (event.type == SDL_KEYDOWN) {
-                    if (event.key.keysym.sym == SDLK_ESCAPE) {
-                        running = false;
-                    }
-                    if (event.key.keysym.sym == SDLK_F11 ||
-                        (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))) {
-                        Uint32 flags = SDL_GetWindowFlags(window);
-                        SDL_SetWindowFullscreen(window, (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-                    }
-                }
-            }
-
-            // Call Lua update (skip if in error state)
-            if (!error_state) {
-                lua_pushcfunction(L, traceback);
-                int err_handler = lua_gettop(L);
-                lua_getglobal(L, "update");
-                if (lua_isfunction(L, -1)) {
-                    lua_pushnumber(L, FIXED_RATE);
-                    if (lua_pcall(L, 1, 0, err_handler) != LUA_OK) {
-                        snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
-                        fprintf(stderr, "ERROR: %s\n", error_message);
-                        lua_pop(L, 2);  // error + traceback
-                        error_state = true;
-                    } else {
-                        lua_pop(L, 1);  // traceback
-                    }
-                } else {
-                    lua_pop(L, 2);  // nil + traceback
-                }
-            }
-
-            step++;
-            game_time += FIXED_RATE;
-            lag -= FIXED_RATE;
-        }
-
-        // Render (once per frame, not per fixed step)
-        frame++;
-
-        // === PASS 1: Render game to framebuffer ===
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glViewport(0, 0, GAME_WIDTH, GAME_HEIGHT);
-
-        if (error_state) {
-            glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
-        } else {
-            glClearColor(0.2f, 0.3f, 0.4f, 1.0f);
-        }
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        // Set up orthographic projection (game coordinates)
-        // Maps (0,0) at top-left to (GAME_WIDTH, GAME_HEIGHT) at bottom-right
-        float projection[16] = {
-            2.0f / GAME_WIDTH, 0.0f, 0.0f, 0.0f,
-            0.0f, -2.0f / GAME_HEIGHT, 0.0f, 0.0f,
-            0.0f, 0.0f, -1.0f, 0.0f,
-            -1.0f, 1.0f, 0.0f, 1.0f
-        };
-
-        glUseProgram(shader_program);
-        GLint proj_loc = glGetUniformLocation(shader_program, "projection");
-        glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
-
-        // Draw a test quad in the center
-        float cx = GAME_WIDTH / 2.0f;
-        float cy = GAME_HEIGHT / 2.0f;
-        float size = 50.0f;
-        float r = 1.0f, g = 0.5f, b = 0.2f, a = 1.0f;  // Orange
-
-        // Two triangles forming a quad (6 vertices)
-        float vertices[] = {
-            // Triangle 1
-            cx - size, cy - size, r, g, b, a,
-            cx + size, cy - size, r, g, b, a,
-            cx + size, cy + size, r, g, b, a,
-            // Triangle 2
-            cx - size, cy - size, r, g, b, a,
-            cx + size, cy + size, r, g, b, a,
-            cx - size, cy + size, r, g, b, a,
-        };
-
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
-
-        // TODO: Layer system will draw here (error_message when in error_state)
-
-        // === PASS 2: Blit framebuffer to screen with integer scaling ===
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        // Get current window size
-        int window_w, window_h;
-        SDL_GetWindowSize(window, &window_w, &window_h);
-        glViewport(0, 0, window_w, window_h);
-
-        // Calculate scale to fit window while maintaining aspect ratio
-        float scale_x = (float)window_w / GAME_WIDTH;
-        float scale_y = (float)window_h / GAME_HEIGHT;
-        float scale = (scale_x < scale_y) ? scale_x : scale_y;
-
-        // Calculate centered position with letterboxing
-        int scaled_w = (int)(GAME_WIDTH * scale);
-        int scaled_h = (int)(GAME_HEIGHT * scale);
-        int offset_x = (window_w - scaled_w) / 2;
-        int offset_y = (window_h - scaled_h) / 2;
-
-        // Clear screen to black (letterbox color)
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        // Draw framebuffer texture (viewport handles positioning)
-        glViewport(offset_x, offset_y, scaled_w, scaled_h);
-        glUseProgram(screen_shader);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, fbo_texture);
-
-        glBindVertexArray(screen_vao);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
-
-        SDL_GL_SwapWindow(window);
+        main_loop_iteration();
     }
 
     printf("Shutting down...\n");
     shutdown();
+    #endif
+
     return 0;
 }

@@ -20,25 +20,6 @@ Read `docs/ANCHOR.md` before doing anything. It covers:
 
 **Every Claude Code session follows this workflow.**
 
-### Start of Session
-
-Check the `todos/` folder for pending real-life tasks:
-
-```bash
-ls todos/ 2>/dev/null | grep -v "^DONE_"
-```
-
-If any files exist without the `DONE_` prefix, remind the user about them at the start of the session. Example:
-
-> **Pending real-life tasks:**
-> - `call-dentist.md` — Call dentist to schedule appointment
-> - `fix-bike.md` — Fix bike tire
-
-When the user says to mark a task as done, rename it with the `DONE_` prefix:
-```bash
-mv todos/call-dentist.md todos/DONE_call-dentist.md
-```
-
 ### During Session
 
 - Work normally on requested tasks
@@ -61,7 +42,7 @@ When running the full workflow, complete all steps before committing (one commit
    ```bash
    python scripts/jsonl-to-markdown.py [transcript.jsonl] website/logs/title-slug.md
    ```
-   Use a lowercase, hyphenated version of the title (e.g., `meta-session-1.md`, `engine-phase-1.md`). Date-based filenames don't work with Blot.
+   Use a lowercase, hyphenated version of the title (e.g., `engine-phase-1.md`, `windows-setup.md`). Date-based filenames don't work with Blot.
 
 3. **Read the converted log** to review the full session, especially if the conversation was compacted. This ensures the summary covers everything, not just what's in current context.
 
@@ -75,9 +56,8 @@ When running the full workflow, complete all steps before committing (one commit
 
 6. **Show title + summary to user** and wait for approval. The user may want to change the title or edit details in the summary before proceeding.
 
-7. **Prepend title + summary** to the log file (replace the default header). Use bash directly — the Edit tool fails repeatedly on Windows due to line ending conversion:
-   ```bash
-   cat > /tmp/header.md << 'EOF'
+7. **Prepend title + summary** to the log file (replace the default header). Format:
+
    # Title Here
 
    ## Summary
@@ -85,10 +65,6 @@ When running the full workflow, complete all steps before committing (one commit
    [Summary content here]
 
    ---
-   EOF
-   tail -n +4 "website/logs/title-slug.md" > /tmp/body.md
-   cat /tmp/header.md /tmp/body.md > "website/logs/title-slug.md"
-   ```
 
 8. **Sync context files**:
    ```bash
@@ -251,7 +227,7 @@ Create a markdown file in `reference/` and open it in NeoVim with MarkdownPrevie
 ```bash
 # Write the response to a descriptive filename
 # Then open with neovim and preview
-~/bin/neovim.exe reference/your-filename.md -c "MarkdownPreview"
+~/bin/neovim.exe reference/your-filename.md -- -c "MarkdownPreview"
 ```
 
 This gives proper formatting for technical documentation. Use descriptive filenames like `anchor-loop-analysis.md`, `timer-system-notes.md`, etc.

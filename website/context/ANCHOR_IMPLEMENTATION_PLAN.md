@@ -118,34 +118,52 @@ anchor/
 **Goal:** Same code compiles and runs in browser via WebGL.
 
 ### 2.1 Emscripten Setup
-- [ ] Install Emscripten SDK
-- [ ] Create build-web.bat with emcc flags
-- [ ] Configure for WebGL 2.0 (OpenGL ES 3.0 subset)
+- [x] Install Emscripten SDK to `C:\emsdk`
+- [x] Configure Git Bash environment (`~/.bashrc`):
+  - `source /c/emsdk/emsdk_env.sh` for PATH
+  - Aliases for `emcc` → `emcc.bat` (Git Bash doesn't auto-execute .bat)
+- [x] Create `build-web.sh` with emcc flags
+- [x] Configure for WebGL 2.0 (OpenGL ES 3.0 subset)
 
 ### 2.2 Platform Abstraction
-- [ ] Conditional compilation for web-specific code
-- [ ] `emscripten_set_main_loop` integration
-- [ ] Handle requestAnimationFrame timing
+- [x] Conditional compilation with `#ifdef __EMSCRIPTEN__`
+- [x] Refactor main loop into `main_loop_iteration()` function
+- [x] `emscripten_set_main_loop` integration (yields to browser each frame)
+- [x] OpenGL ES context request (`SDL_GL_CONTEXT_PROFILE_ES`)
+- [x] Use `<GLES3/gl3.h>` instead of glad on web
 
-### 2.3 Asset Embedding
-- [ ] Preload all assets into virtual filesystem
-- [ ] `--preload-file assets/` flag
-- [ ] Verify asset loading works identically to desktop
+### 2.3 Unified Shader System
+- [x] Platform-specific headers via preprocessor defines:
+  - Desktop: `#version 330 core`
+  - Web: `#version 300 es` + `precision mediump float;`
+- [x] Shader sources written without version line
+- [x] `compile_shader()` auto-prepends correct header based on shader type
+- [x] Same approach will work for user-authored shaders loaded at runtime
 
-### 2.4 HTML Shell
-- [ ] Create HTML template with canvas
-- [ ] Handle canvas sizing/scaling
-- [ ] Keyboard/mouse event capture
+### 2.4 Asset Embedding
+- [x] Preload Lua scripts into virtual filesystem
+- [x] `--preload-file main.lua` flag
+- [x] Asset loading works identically to desktop
 
-### 2.5 Verification
-```
-// Same Lua code runs in browser
-// Input works (keyboard, mouse)
-// Fullscreen toggle works
-// No visible differences from Windows build
-```
+### 2.5 HTML Shell
+- [x] Create `shell.html` template with canvas
+- [x] CSS for letterboxing and pixel-perfect rendering
+- [x] Keyboard event capture (prevent default for arrow keys, space)
+- [x] Canvas focus for input on load
 
-**Deliverable:** Web build that matches Windows behavior.
+### 2.6 Development Workflow
+- [x] `--emrun` flag for console output piping
+- [x] `run-web.bat` launcher script (opens browser + shows printf in terminal)
+- [x] Launchy integration for quick testing
+
+### 2.7 Verification
+- [x] Same Lua code runs in browser
+- [x] Orange test quad renders correctly
+- [x] Aspect-ratio scaling with letterboxing works
+- [x] No visible differences from Windows build
+- [x] Console output visible in terminal via emrun
+
+**Deliverable:** Web build that matches Windows behavior. ✓ Complete
 
 **Critical:** Every subsequent phase must be verified on both Windows and Web before proceeding.
 

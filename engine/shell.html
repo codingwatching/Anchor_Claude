@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anchor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+        #canvas {
+            display: block;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            border: none;
+            outline: none;
+            background: #000;
+        }
+        #status {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Loading...</div>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+    <script>
+        var Module = {
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+                canvas.addEventListener('webglcontextlost', function(e) {
+                    alert('WebGL context lost. Please reload the page.');
+                    e.preventDefault();
+                }, false);
+                return canvas;
+            })(),
+
+            setStatus: function(text) {
+                var status = document.getElementById('status');
+                if (text) {
+                    status.style.display = 'block';
+                    status.textContent = text;
+                } else {
+                    status.style.display = 'none';
+                }
+            },
+
+            totalDependencies: 0,
+
+            monitorRunDependencies: function(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                if (left) {
+                    Module.setStatus('Loading... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')');
+                } else {
+                    Module.setStatus('');
+                }
+            },
+
+            onRuntimeInitialized: function() {
+                // Focus canvas for keyboard input
+                document.getElementById('canvas').focus();
+            }
+        };
+
+        // Handle window resize
+        function resizeCanvas() {
+            var canvas = document.getElementById('canvas');
+            var gameWidth = 480;
+            var gameHeight = 270;
+
+            var windowWidth = window.innerWidth;
+            var windowHeight = window.innerHeight;
+
+            var scaleX = windowWidth / gameWidth;
+            var scaleY = windowHeight / gameHeight;
+            var scale = Math.min(scaleX, scaleY);
+
+            canvas.style.width = Math.floor(gameWidth * scale) + 'px';
+            canvas.style.height = Math.floor(gameHeight * scale) + 'px';
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Prevent default behavior for game keys
+        window.addEventListener('keydown', function(e) {
+            if ([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) {
+                e.preventDefault();
+            }
+        });
+    </script>
+
+    {{{ SCRIPT }}}
+</body>
+</html>
