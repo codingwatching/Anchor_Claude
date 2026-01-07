@@ -194,8 +194,8 @@ end
 function graphics.push_trs(x, y, r, sx, sy)
   love.graphics.push()
   if x and y then love.graphics.translate(x, y) end
-  if sx then love.graphics.scale(sx, sy or sx or 1) end
   if r then love.graphics.rotate(r) end
+  if sx then love.graphics.scale(sx, sy or sx or 1) end
 end
 
 function graphics.polygon(vertices, color, line_width)

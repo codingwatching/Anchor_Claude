@@ -8,6 +8,13 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
+
+#ifdef _WIN32
+#include <direct.h>  // _chdir
+#else
+#include <unistd.h>  // chdir
+#endif
 
 #include <SDL.h>
 
@@ -23,14 +30,18 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #define WINDOW_TITLE "Anchor"
 #define GAME_WIDTH 480
 #define GAME_HEIGHT 270
 #define INITIAL_SCALE 3
 
 // Timing configuration (matching reference Anchor)
-#define FIXED_RATE (1.0 / 144.0)  // 144 Hz fixed timestep
-#define MAX_UPDATES 10            // Cap on fixed steps per frame (prevents spiral of death)
+#define PHYSICS_RATE (1.0 / 144.0)  // 144 Hz physics/input timestep
+#define RENDER_RATE  (1.0 / 60.0)   // 60 Hz render rate (for pixel-perfect visuals)
+#define MAX_UPDATES 10              // Cap on fixed steps per frame (prevents spiral of death)
 
 // Transform stack depth
 #define MAX_TRANSFORM_DEPTH 32
@@ -91,6 +102,52 @@ typedef struct {
     // Current state
     uint8_t current_blend;
 } Layer;
+
+// Texture
+typedef struct {
+    GLuint id;
+    int width;
+    int height;
+} Texture;
+
+// Load a texture from file using stb_image
+static Texture* texture_load(const char* path) {
+    int width, height, channels;
+    stbi_set_flip_vertically_on_load(0);  // Don't flip - we handle Y in our coordinate system
+    unsigned char* data = stbi_load(path, &width, &height, &channels, 4);  // Force RGBA
+    if (!data) {
+        fprintf(stderr, "Failed to load texture: %s\n", path);
+        return NULL;
+    }
+
+    Texture* tex = (Texture*)malloc(sizeof(Texture));
+    if (!tex) {
+        stbi_image_free(data);
+        return NULL;
+    }
+
+    tex->width = width;
+    tex->height = height;
+
+    glGenTextures(1, &tex->id);
+    glBindTexture(GL_TEXTURE_2D, tex->id);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    stbi_image_free(data);
+    printf("Loaded texture: %s (%dx%d)\n", path, width, height);
+    return tex;
+}
+
+static void texture_destroy(Texture* tex) {
+    if (!tex) return;
+    if (tex->id) glDeleteTextures(1, &tex->id);
+    free(tex);
+}
 
 // Create a layer with FBO at specified resolution
 static Layer* layer_create(int width, int height) {
@@ -213,6 +270,19 @@ static void layer_add_circle(Layer* layer, float x, float y, float radius, uint3
     cmd->params[2] = radius;
 }
 
+// Record a sprite/image command (centered at x, y)
+static void layer_add_image(Layer* layer, Texture* tex, float x, float y, uint32_t color) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = SHAPE_SPRITE;
+    cmd->color = color;
+    cmd->texture_id = tex->id;
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = (float)tex->width;
+    cmd->params[3] = (float)tex->height;
+}
+
 // Batch rendering
 #define MAX_BATCH_VERTICES 6000  // 1000 quads * 6 vertices
 #define VERTEX_FLOATS 13         // x, y, u, v, r, g, b, a, type, shape[4]
@@ -231,6 +301,7 @@ static int shape_filter_mode = FILTER_SMOOTH;
 
 static float batch_vertices[MAX_BATCH_VERTICES * VERTEX_FLOATS];
 static int batch_vertex_count = 0;
+static GLuint current_batch_texture = 0;  // Currently bound texture for batching
 
 // Transform a point by a 2x3 matrix: [m0 m1 m2] [x]   [m0*x + m1*y + m2]
 //                                    [m3 m4 m5] [y] = [m3*x + m4*y + m5]
@@ -238,6 +309,65 @@ static int batch_vertex_count = 0;
 static void transform_point(const float* m, float x, float y, float* out_x, float* out_y) {
     *out_x = m[0] * x + m[1] * y + m[2];
     *out_y = m[3] * x + m[4] * y + m[5];
+}
+
+// Multiply two 3x3 matrices: C = A * B (row-major order)
+// For 2D affine transforms, bottom row is always [0, 0, 1]
+static void mat3_multiply(const float* A, const float* B, float* C) {
+    // Row 0
+    C[0] = A[0]*B[0] + A[1]*B[3];  // + A[2]*0
+    C[1] = A[0]*B[1] + A[1]*B[4];  // + A[2]*0
+    C[2] = A[0]*B[2] + A[1]*B[5] + A[2];  // *1
+    // Row 1
+    C[3] = A[3]*B[0] + A[4]*B[3];
+    C[4] = A[3]*B[1] + A[4]*B[4];
+    C[5] = A[3]*B[2] + A[4]*B[5] + A[5];
+    // Row 2 - always [0, 0, 1]
+    C[6] = 0.0f;
+    C[7] = 0.0f;
+    C[8] = 1.0f;
+}
+
+// Push a transform onto the layer's stack
+// Builds TRS matrix (Translate * Rotate * Scale) and multiplies with current
+static void layer_push(Layer* layer, float x, float y, float r, float sx, float sy) {
+    if (layer->transform_depth >= MAX_TRANSFORM_DEPTH - 1) {
+        fprintf(stderr, "Warning: transform stack overflow\n");
+        return;
+    }
+
+    // Build TRS matrix: result of Translate(x,y) * Rotate(r) * Scale(sx,sy)
+    // [sx*cos  -sy*sin  x]
+    // [sx*sin   sy*cos  y]
+    // [   0        0    1]
+    float c = cosf(r);
+    float s = sinf(r);
+    float m[9] = {
+        sx * c, -sy * s, x,
+        sx * s,  sy * c, y,
+        0.0f,    0.0f,   1.0f
+    };
+
+    // Get parent transform
+    float* parent = layer_get_transform(layer);
+
+    // Increment depth
+    layer->transform_depth++;
+
+    // Get new current transform slot
+    float* current = layer_get_transform(layer);
+
+    // Multiply: current = parent * m
+    mat3_multiply(parent, m, current);
+}
+
+// Pop a transform from the layer's stack
+static void layer_pop(Layer* layer) {
+    if (layer->transform_depth > 0) {
+        layer->transform_depth--;
+    } else {
+        fprintf(stderr, "Warning: transform stack underflow\n");
+    }
 }
 
 // Unpack uint32 color to RGBA floats (0-1)
@@ -315,6 +445,12 @@ static GLuint screen_vbo = 0;
 static void batch_flush(void) {
     if (batch_vertex_count == 0) return;
 
+    // Bind texture if we have one (for sprites)
+    if (current_batch_texture != 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, current_batch_texture);
+    }
+
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferSubData(GL_ARRAY_BUFFER, 0,
@@ -326,7 +462,10 @@ static void batch_flush(void) {
     batch_vertex_count = 0;
 }
 
-// Process a rectangle command (SDF-based)
+// Process a rectangle command (SDF-based, UV-space approach)
+// The SDF is computed in local quad space using UV coordinates.
+// This handles rotation correctly because UV interpolation implicitly
+// provides the inverse rotation.
 static void process_rectangle(const DrawCommand* cmd) {
     float x = cmd->params[0];
     float y = cmd->params[1];
@@ -335,6 +474,10 @@ static void process_rectangle(const DrawCommand* cmd) {
 
     // Add padding for anti-aliasing (1-2 pixels)
     float pad = 2.0f;
+
+    // Quad size in local space (including padding)
+    float quad_w = w + 2.0f * pad;
+    float quad_h = h + 2.0f * pad;
 
     // Rectangle corners with padding (local coordinates)
     // 0---1
@@ -352,10 +495,7 @@ static void process_rectangle(const DrawCommand* cmd) {
     transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
     transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
 
-    // Compute center and half-size in world space (for SDF)
-    // Note: This assumes no rotation in transform for now
-    float cx, cy;
-    transform_point(cmd->transform, x + w * 0.5f, y + h * 0.5f, &cx, &cy);
+    // Rectangle half-size in local space
     float half_w = w * 0.5f;
     float half_h = h * 0.5f;
 
@@ -363,13 +503,15 @@ static void process_rectangle(const DrawCommand* cmd) {
     float r, g, b, a;
     unpack_color(cmd->color, &r, &g, &b, &a);
 
-    // Add SDF quad: shape = (center.x, center.y, half_w, half_h)
+    // Add SDF quad: shape = (quad_w, quad_h, half_w, half_h)
+    // Shader computes local_p = vUV * quad_size, center = quad_size * 0.5
     batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
                        r, g, b, a,
-                       SHAPE_TYPE_RECT, cx, cy, half_w, half_h);
+                       SHAPE_TYPE_RECT, quad_w, quad_h, half_w, half_h);
 }
 
-// Process a circle command (SDF-based)
+// Process a circle command (SDF-based, UV-space approach)
+// Same UV-space approach as rectangles for rotation support.
 static void process_circle(const DrawCommand* cmd) {
     float x = cmd->params[0];
     float y = cmd->params[1];
@@ -377,6 +519,9 @@ static void process_circle(const DrawCommand* cmd) {
 
     // Add padding for anti-aliasing
     float pad = 2.0f;
+
+    // Quad size in local space (square, including padding)
+    float quad_size = (radius + pad) * 2.0f;
 
     // Circle bounding box with padding (local coordinates)
     float lx0 = x - radius - pad, ly0 = y - radius - pad;
@@ -391,36 +536,89 @@ static void process_circle(const DrawCommand* cmd) {
     transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
     transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
 
-    // Transform center to world space
-    float cx, cy;
-    transform_point(cmd->transform, x, y, &cx, &cy);
-
     // Unpack color
     float r, g, b, a;
     unpack_color(cmd->color, &r, &g, &b, &a);
 
-    // Add SDF quad: shape = (center.x, center.y, radius, unused)
+    // Add SDF quad: shape = (quad_size, quad_size, radius, unused)
+    // Shader computes local_p = vUV * quad_size, center = quad_size * 0.5
     batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
                        r, g, b, a,
-                       SHAPE_TYPE_CIRCLE, cx, cy, radius, 0.0f);
+                       SHAPE_TYPE_CIRCLE, quad_size, quad_size, radius, 0.0f);
+}
+
+// Forward declaration of batch_flush (needed for process_sprite)
+static void batch_flush(void);
+
+// Process a sprite command (texture sampling)
+// Image is centered at (x, y) in local coordinates
+static void process_sprite(const DrawCommand* cmd) {
+    float x = cmd->params[0];
+    float y = cmd->params[1];
+    float w = cmd->params[2];
+    float h = cmd->params[3];
+
+    // Flush batch if texture changes
+    if (current_batch_texture != cmd->texture_id && batch_vertex_count > 0) {
+        batch_flush();
+    }
+    current_batch_texture = cmd->texture_id;
+
+    // Image is centered at (x, y), so compute corners
+    float half_w = w * 0.5f;
+    float half_h = h * 0.5f;
+
+    // Local corners (centered at x, y)
+    float lx0 = x - half_w, ly0 = y - half_h;
+    float lx1 = x + half_w, ly1 = y - half_h;
+    float lx2 = x + half_w, ly2 = y + half_h;
+    float lx3 = x - half_w, ly3 = y + half_h;
+
+    // Transform to world coordinates
+    float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
+    transform_point(cmd->transform, lx0, ly0, &wx0, &wy0);
+    transform_point(cmd->transform, lx1, ly1, &wx1, &wy1);
+    transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
+    transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
+
+    // Unpack color (used for tinting)
+    float r, g, b, a;
+    unpack_color(cmd->color, &r, &g, &b, &a);
+
+    // Add sprite quad with UVs (0,0) to (1,1)
+    // shape params unused for sprites, but we still use the same vertex format
+    batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
+                       r, g, b, a,
+                       SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 // Render all commands on a layer
 static void layer_render(Layer* layer) {
     batch_vertex_count = 0;
+    current_batch_texture = 0;
 
     for (int i = 0; i < layer->command_count; i++) {
         const DrawCommand* cmd = &layer->commands[i];
 
         switch (cmd->type) {
             case SHAPE_RECTANGLE:
+                // SDF shapes use no texture - flush if we were drawing sprites
+                if (current_batch_texture != 0 && batch_vertex_count > 0) {
+                    batch_flush();
+                    current_batch_texture = 0;
+                }
                 process_rectangle(cmd);
                 break;
             case SHAPE_CIRCLE:
+                // SDF shapes use no texture - flush if we were drawing sprites
+                if (current_batch_texture != 0 && batch_vertex_count > 0) {
+                    batch_flush();
+                    current_batch_texture = 0;
+                }
                 process_circle(cmd);
                 break;
             case SHAPE_SPRITE:
-                // TODO: Step 7
+                process_sprite(cmd);
                 break;
         }
 
@@ -486,10 +684,65 @@ static int l_set_shape_filter(lua_State* L) {
     return 0;
 }
 
+static int l_layer_push(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    float x = (float)luaL_optnumber(L, 2, 0.0);
+    float y = (float)luaL_optnumber(L, 3, 0.0);
+    float r = (float)luaL_optnumber(L, 4, 0.0);
+    float sx = (float)luaL_optnumber(L, 5, 1.0);
+    float sy = (float)luaL_optnumber(L, 6, 1.0);
+    layer_push(layer, x, y, r, sx, sy);
+    return 0;
+}
+
+static int l_layer_pop(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    layer_pop(layer);
+    return 0;
+}
+
+static int l_texture_load(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    Texture* tex = texture_load(path);
+    if (!tex) {
+        return luaL_error(L, "Failed to load texture: %s", path);
+    }
+    lua_pushlightuserdata(L, tex);
+    return 1;
+}
+
+static int l_texture_get_width(lua_State* L) {
+    Texture* tex = (Texture*)lua_touserdata(L, 1);
+    lua_pushinteger(L, tex->width);
+    return 1;
+}
+
+static int l_texture_get_height(lua_State* L) {
+    Texture* tex = (Texture*)lua_touserdata(L, 1);
+    lua_pushinteger(L, tex->height);
+    return 1;
+}
+
+static int l_layer_draw_texture(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    Texture* tex = (Texture*)lua_touserdata(L, 2);
+    float x = (float)luaL_checknumber(L, 3);
+    float y = (float)luaL_checknumber(L, 4);
+    uint32_t color = (uint32_t)luaL_optinteger(L, 5, 0xFFFFFFFF);  // Default white (no tint)
+    layer_add_image(layer, tex, x, y, color);
+    return 0;
+}
+
 static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_create", l_layer_create);
     lua_register(L, "layer_rectangle", l_layer_rectangle);
     lua_register(L, "layer_circle", l_layer_circle);
+    lua_register(L, "layer_push", l_layer_push);
+    lua_register(L, "layer_pop", l_layer_pop);
+    lua_register(L, "layer_draw_texture", l_layer_draw_texture);
+    lua_register(L, "texture_load", l_texture_load);
+    lua_register(L, "texture_get_width", l_texture_get_width);
+    lua_register(L, "texture_get_height", l_texture_get_height);
     lua_register(L, "rgba", l_rgba);
     lua_register(L, "set_shape_filter", l_set_shape_filter);
 }
@@ -498,7 +751,8 @@ static void register_lua_bindings(lua_State* L) {
 static bool running = true;
 static Uint64 perf_freq = 0;
 static Uint64 last_time = 0;
-static double lag = 0.0;
+static double physics_lag = 0.0;
+static double render_lag = 0.0;
 static Uint64 step = 0;
 static double game_time = 0.0;
 static Uint64 frame = 0;
@@ -547,14 +801,15 @@ static const char* fragment_shader_source =
     "out vec4 FragColor;\n"
     "\n"
     "uniform float u_aa_width;\n"
+    "uniform sampler2D u_texture;\n"
     "\n"
-    "// SDF for rectangle: shape = (center.x, center.y, half_w, half_h)\n"
+    "// SDF for rectangle in local space\n"
     "float sdf_rect(vec2 p, vec2 center, vec2 half_size) {\n"
     "    vec2 d = abs(p - center) - half_size;\n"
     "    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);\n"
     "}\n"
     "\n"
-    "// SDF for circle: shape = (center.x, center.y, radius, unused)\n"
+    "// SDF for circle in local space\n"
     "float sdf_circle(vec2 p, vec2 center, float radius) {\n"
     "    return length(p - center) - radius;\n"
     "}\n"
@@ -570,29 +825,43 @@ static const char* fragment_shader_source =
     "void main() {\n"
     "    float d;\n"
     "    \n"
-    "    // In rough mode, snap position to pixel centers for chunky look\n"
-    "    vec2 p = (u_aa_width > 0.0) ? vPos : floor(vPos) + 0.5;\n"
+    "    // UV-space SDF approach:\n"
+    "    // vShape.xy = quad size in local space\n"
+    "    // vUV * quad_size = position in local quad space\n"
+    "    // center = quad_size * 0.5 (shape is always centered in quad)\n"
+    "    // This handles rotation correctly because UV interpolation\n"
+    "    // implicitly provides the inverse rotation.\n"
     "    \n"
     "    if (vType < 0.5) {\n"
-    "        // Rectangle\n"
-    "        vec2 center = vShape.xy;\n"
+    "        // Rectangle: shape = (quad_w, quad_h, half_w, half_h)\n"
+    "        vec2 quad_size = vShape.xy;\n"
+    "        vec2 local_p = vUV * quad_size;\n"
+    "        vec2 center = quad_size * 0.5;\n"
     "        vec2 half_size = vShape.zw;\n"
-    "        d = sdf_rect(p, center, half_size);\n"
-    "    } else if (vType < 1.5) {\n"
-    "        // Circle\n"
-    "        vec2 center = vShape.xy;\n"
-    "        float radius = vShape.z;\n"
+    "        \n"
+    "        // In rough mode, snap to local pixel grid\n"
     "        if (u_aa_width == 0.0) {\n"
-    "            // Rough mode: snap center and radius to pixel grid\n"
-    "            center = floor(center) + 0.5;\n"
-    "            radius = floor(radius + 0.5);\n"
-    "            d = sdf_circle_pixel(p, center, radius);\n"
-    "        } else {\n"
-    "            d = sdf_circle(p, center, radius);\n"
+    "            local_p = floor(local_p) + 0.5;\n"
     "        }\n"
+    "        \n"
+    "        d = sdf_rect(local_p, center, half_size);\n"
+    "    } else if (vType < 1.5) {\n"
+    "        // Circle: shape = (quad_size, quad_size, radius, unused)\n"
+    "        float quad_size = vShape.x;\n"
+    "        vec2 local_p = vUV * quad_size;\n"
+    "        vec2 center = vec2(quad_size * 0.5);\n"
+    "        float radius = vShape.z;\n"
+    "        // Snap radius for consistent shape\n"
+    "        if (u_aa_width == 0.0) {\n"
+    "            radius = floor(radius + 0.5);\n"
+    "        }\n"
+    "        d = sdf_circle(local_p, center, radius);\n"
     "    } else {\n"
-    "        // Sprite (future) - for now just solid color\n"
-    "        FragColor = vColor;\n"
+    "        // Sprite: sample texture at texel centers for pixel-perfect rendering\n"
+    "        ivec2 texSize = textureSize(u_texture, 0);\n"
+    "        vec2 snappedUV = (floor(vUV * vec2(texSize)) + 0.5) / vec2(texSize);\n"
+    "        vec4 texColor = texture(u_texture, snappedUV);\n"
+    "        FragColor = texColor * vColor;\n"
     "        return;\n"
     "    }\n"
     "    \n"
@@ -716,11 +985,14 @@ static void main_loop_iteration(void) {
     double dt = (double)(current_time - last_time) / (double)perf_freq;
     last_time = current_time;
 
-    // Accumulate lag, capped to prevent spiral of death
-    lag += dt;
-    if (lag > FIXED_RATE * MAX_UPDATES) {
-        lag = FIXED_RATE * MAX_UPDATES;
+    // Accumulate physics lag, capped to prevent spiral of death
+    physics_lag += dt;
+    if (physics_lag > PHYSICS_RATE * MAX_UPDATES) {
+        physics_lag = PHYSICS_RATE * MAX_UPDATES;
     }
+
+    // Accumulate render lag
+    render_lag += dt;
 
     // Process events every frame (not tied to fixed timestep)
     SDL_Event event;
@@ -743,11 +1015,8 @@ static void main_loop_iteration(void) {
         }
     }
 
-    // Fixed timestep loop
-    bool did_update = false;
-    while (lag >= FIXED_RATE) {
-        did_update = true;
-
+    // Fixed timestep physics/input loop (144Hz)
+    while (physics_lag >= PHYSICS_RATE) {
         // Clear commands at start of update (so they persist if no update runs)
         layer_clear_commands(game_layer);
 
@@ -757,7 +1026,7 @@ static void main_loop_iteration(void) {
             int err_handler = lua_gettop(L);
             lua_getglobal(L, "update");
             if (lua_isfunction(L, -1)) {
-                lua_pushnumber(L, FIXED_RATE);
+                lua_pushnumber(L, PHYSICS_RATE);
                 if (lua_pcall(L, 1, 0, err_handler) != LUA_OK) {
                     snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
                     fprintf(stderr, "ERROR: %s\n", error_message);
@@ -772,83 +1041,86 @@ static void main_loop_iteration(void) {
         }
 
         step++;
-        game_time += FIXED_RATE;
-        lag -= FIXED_RATE;
+        game_time += PHYSICS_RATE;
+        physics_lag -= PHYSICS_RATE;
     }
 
-    // Render (once per frame, not per fixed step)
-    frame++;
+    // Render at 60Hz (decoupled from physics for pixel-perfect visuals)
+    if (render_lag >= RENDER_RATE) {
+        render_lag -= RENDER_RATE;
+        frame++;
 
-    // === PASS 1: Render game to layer ===
-    glBindFramebuffer(GL_FRAMEBUFFER, game_layer->fbo);
-    glViewport(0, 0, game_layer->width, game_layer->height);
+        // === PASS 1: Render game to layer ===
+        glBindFramebuffer(GL_FRAMEBUFFER, game_layer->fbo);
+        glViewport(0, 0, game_layer->width, game_layer->height);
 
-    if (error_state) {
-        glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
-    } else {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Black
+        if (error_state) {
+            glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
+        } else {
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Black
+        }
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Set up orthographic projection (game coordinates)
+        // Maps (0,0) at top-left to (width, height) at bottom-right
+        float projection[16] = {
+            2.0f / game_layer->width, 0.0f, 0.0f, 0.0f,
+            0.0f, -2.0f / game_layer->height, 0.0f, 0.0f,
+            0.0f, 0.0f, -1.0f, 0.0f,
+            -1.0f, 1.0f, 0.0f, 1.0f
+        };
+
+        glUseProgram(shader_program);
+        GLint proj_loc = glGetUniformLocation(shader_program, "projection");
+        glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
+
+        // Set AA width based on filter mode (0 = rough/hard edges, 1 = smooth)
+        GLint aa_loc = glGetUniformLocation(shader_program, "u_aa_width");
+        float aa_width = (shape_filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
+        glUniform1f(aa_loc, aa_width);
+
+        // Render all commands (added by Lua during update)
+        layer_render(game_layer);
+
+        // === PASS 2: Blit layer to screen with aspect-ratio scaling ===
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // Get current window size
+        int window_w, window_h;
+        SDL_GetWindowSize(window, &window_w, &window_h);
+        glViewport(0, 0, window_w, window_h);
+
+        // Calculate scale to fit window while maintaining aspect ratio
+        // Use integer scaling for pixel-perfect rendering
+        float scale_x = (float)window_w / game_layer->width;
+        float scale_y = (float)window_h / game_layer->height;
+        float scale = (scale_x < scale_y) ? scale_x : scale_y;
+        int int_scale = (int)scale;
+        if (int_scale < 1) int_scale = 1;
+
+        // Calculate centered position with letterboxing
+        int scaled_w = game_layer->width * int_scale;
+        int scaled_h = game_layer->height * int_scale;
+        int offset_x = (window_w - scaled_w) / 2;
+        int offset_y = (window_h - scaled_h) / 2;
+
+        // Clear screen to black (letterbox color)
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Draw layer texture (viewport handles positioning)
+        glViewport(offset_x, offset_y, scaled_w, scaled_h);
+        glUseProgram(screen_shader);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, game_layer->color_texture);
+
+        glBindVertexArray(screen_vao);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+
+        SDL_GL_SwapWindow(window);
     }
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    // Set up orthographic projection (game coordinates)
-    // Maps (0,0) at top-left to (width, height) at bottom-right
-    float projection[16] = {
-        2.0f / game_layer->width, 0.0f, 0.0f, 0.0f,
-        0.0f, -2.0f / game_layer->height, 0.0f, 0.0f,
-        0.0f, 0.0f, -1.0f, 0.0f,
-        -1.0f, 1.0f, 0.0f, 1.0f
-    };
-
-    glUseProgram(shader_program);
-    GLint proj_loc = glGetUniformLocation(shader_program, "projection");
-    glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
-
-    // Set AA width based on filter mode (0 = rough/hard edges, 1 = smooth)
-    GLint aa_loc = glGetUniformLocation(shader_program, "u_aa_width");
-    float aa_width = (shape_filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
-    glUniform1f(aa_loc, aa_width);
-
-    // Render all commands (added by Lua during update)
-    layer_render(game_layer);
-
-    // === PASS 2: Blit layer to screen with aspect-ratio scaling ===
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    // Get current window size
-    int window_w, window_h;
-    SDL_GetWindowSize(window, &window_w, &window_h);
-    glViewport(0, 0, window_w, window_h);
-
-    // Calculate scale to fit window while maintaining aspect ratio
-    // Use integer scaling for pixel-perfect rendering
-    float scale_x = (float)window_w / game_layer->width;
-    float scale_y = (float)window_h / game_layer->height;
-    float scale = (scale_x < scale_y) ? scale_x : scale_y;
-    int int_scale = (int)scale;
-    if (int_scale < 1) int_scale = 1;
-
-    // Calculate centered position with letterboxing
-    int scaled_w = game_layer->width * int_scale;
-    int scaled_h = game_layer->height * int_scale;
-    int offset_x = (window_w - scaled_w) / 2;
-    int offset_y = (window_h - scaled_h) / 2;
-
-    // Clear screen to black (letterbox color)
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    // Draw layer texture (viewport handles positioning)
-    glViewport(offset_x, offset_y, scaled_w, scaled_h);
-    glUseProgram(screen_shader);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, game_layer->color_texture);
-
-    glBindVertexArray(screen_vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindVertexArray(0);
-
-    SDL_GL_SwapWindow(window);
 
     #ifdef __EMSCRIPTEN__
     if (!running) {
@@ -862,6 +1134,28 @@ int main(int argc, char* argv[]) {
     const char* script_path = (argc > 1) ? argv[1] : "main.lua";
     printf("Anchor Engine starting...\n");
     printf("Loading: %s\n", script_path);
+
+    // Change working directory to script's directory (so relative paths work)
+    char script_dir[4096];
+    strncpy(script_dir, script_path, sizeof(script_dir) - 1);
+    script_dir[sizeof(script_dir) - 1] = '\0';
+
+    // Find last path separator (handle both / and \)
+    char* last_sep = NULL;
+    for (char* p = script_dir; *p; p++) {
+        if (*p == '/' || *p == '\\') last_sep = p;
+    }
+    if (last_sep) {
+        *last_sep = '\0';
+        #ifdef _WIN32
+        _chdir(script_dir);
+        #else
+        chdir(script_dir);
+        #endif
+        printf("Working directory: %s\n", script_dir);
+        // Update script_path to just the filename
+        script_path = last_sep + 1;
+    }
 
     // Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {

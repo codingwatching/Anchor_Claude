@@ -12,7 +12,7 @@ C engine with YueScript scripting, OpenGL rendering, targeting Windows and Web.
 | Audio | TBD (miniaudio or SoLoud) | Need pitch shifting; SDL_mixer insufficient |
 | Physics | Box2D 3.1 | Already used, true ball-to-ball collisions needed |
 | Scripting | Lua 5.4 + YueScript | Build-time compilation with `-r` flag for line numbers |
-| Timestep | Fixed 144 Hz | High simulation rate for responsive feel; determinism for replays |
+| Timestep | Fixed 144Hz physics, 60Hz render | Decoupled for pixel-perfect visuals with responsive input |
 | Resolution | Per-game configurable | 480×270, 640×360, or custom; aspect-ratio scaling with letterboxing |
 | C Structure | Single anchor.c | Monolithic file, easier navigation |
 | Resources | Live forever | Games are small enough; no unloading needed |
@@ -85,9 +85,9 @@ anchor/
 - [x] Verify OpenGL context on Windows
 
 ### 1.3 Main Loop
-- [x] Fixed timestep game loop (144 Hz)
-- [x] Delta time accumulator pattern
-- [x] Basic input polling (SDL_PollEvent inside fixed loop)
+- [x] Decoupled timestep: 144Hz physics/input, 60Hz rendering
+- [x] Delta time accumulator pattern (separate accumulators for physics and rendering)
+- [x] Event polling once per frame iteration (before physics loop)
 - [x] Clean shutdown
 
 ### 1.4 Lua Integration
@@ -244,16 +244,31 @@ At frame end:
 - [x] Command queue cleared at START of update, not end of render
 - [x] Fixes flickering when no fixed update runs in a frame (previous commands persist)
 
-**Step 6: Transform stack (push/pop)**
-- [ ] `layer_push(layer, x, y, r, sx, sy)` — build TRS matrix, multiply with current
-- [ ] `layer_pop(layer)` — decrement depth
-- [ ] Lua bindings: `layer_push()`, `layer_pop()`
+**Step 6: Transform stack (push/pop)** ✓
+- [x] `mat3_multiply()` — 3x3 matrix multiplication for composing transforms
+- [x] `layer_push(layer, x, y, r, sx, sy)` — build TRS matrix, multiply with current
+  - Order is Scale → Rotate → Translate when applied to points (standard non-shearing order)
+  - All parameters optional with defaults (x=0, y=0, r=0, sx=1, sy=1)
+- [x] `layer_pop(layer)` — decrement depth with underflow warning
+- [x] Lua bindings: `layer_push()`, `layer_pop()`
+- [x] UV-space SDF approach for rotation support:
+  - Instead of world-space center, pass quad size to shader
+  - Compute local position from UV: `local_p = vUV * quad_size`
+  - Center always at `quad_size * 0.5` (shape centered in quad)
+  - Rotation handled implicitly by UV interpolation (no extra vertex data needed)
+- [x] Verified with comprehensive test (nested transforms, orbits, non-uniform scale, corner pivots)
+- [x] Matching LÖVE test created for visual comparison
+- [x] Fixed LÖVE `push_trs` to use same transform order (TRS, not TSR)
 
-**Step 7: Sprites (texture loading, draw_image)**
-- [ ] Texture loading via stb_image: `texture_load(path)`
-- [ ] `layer_draw_image(layer, img, x, y, r, sx, sy, ox, oy, color)`
-- [ ] SPRITE mode in shader (sample texture, multiply by color)
-- [ ] Batch flush on texture change
+**Step 7: Sprites (texture loading, draw_image)** ✓
+- [x] Texture loading via stb_image: `texture_load(path)`
+- [x] `texture_get_width(tex)`, `texture_get_height(tex)` — query texture dimensions
+- [x] `layer_draw_texture(layer, tex, x, y)` — draws sprite centered at position
+- [x] SPRITE mode in shader (sample texture at texel centers, multiply by color)
+- [x] Texel center snapping for pixel-perfect sprite rendering
+- [x] Batch flush on texture change
+- [x] Verified with bouncing emoji + orbiting stars test (transforms work with sprites)
+- [x] Matching LÖVE comparison test created
 
 **Step 8: Blend modes**
 - [ ] `layer_set_blend_mode(layer, mode)` — 'alpha' or 'additive'
@@ -296,11 +311,11 @@ local red = rgba(255, 0, 0, 255)
 ### Verification
 - [x] Rectangle renders correctly (Step 4)
 - [x] Circle renders correctly with SDF (Step 5)
-- [ ] Transform stack works (rotation, scale, nesting) (Step 6)
-- [ ] Sprites load and render with transforms (Step 7)
+- [x] Transform stack works (rotation, scale, nesting) (Step 6)
+- [x] Sprites load and render (Step 7)
 - [ ] Blend modes work (alpha, additive) (Step 8)
 - [ ] Multiple layers composite correctly (Step 9)
-- [x] Steps 1-5 verified on both Windows and Web
+- [x] Steps 1-7 verified on Windows (Web verification pending for Steps 6-7)
 
 **Deliverable:** Working layer system with deferred rendering, basic shapes (circle, rectangle), sprites, transforms, and blend modes.
 
@@ -693,6 +708,23 @@ Not implementing now, add later if needed:
 ---
 
 ## Technical Notes
+
+### Decoupled Timestep (Pixel-Perfect Rendering)
+
+The engine uses decoupled physics and rendering rates to achieve pixel-perfect visuals with responsive input:
+
+- **Physics/input**: 144Hz (PHYSICS_RATE) — responsive feel, precise collision
+- **Rendering**: 60Hz (RENDER_RATE) — objects move ~1.67 pixels between rendered frames
+
+**Why this works:** At 60Hz, objects naturally land on integer pixel positions more frequently. At 144Hz physics with 60Hz rendering, we get the best of both: responsive input with chunky pixel-art movement.
+
+**Shader-level snapping** (still in use):
+- Sprites: texel center snapping for crisp pixels
+- Circles: radius snapping in rough mode for consistent shapes
+
+**C-level position snapping**: Not needed with decoupled rates. Was tried but caused jagged diagonal movement.
+
+See `reference/pixel-perfect-research.md` for full investigation details.
 
 ### Threading
 Single-threaded game loop. Audio runs on its own thread (handled by audio library). No explicit threading in game code.

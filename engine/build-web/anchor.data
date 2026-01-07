@@ -95,6 +95,7 @@ end
 --}}}
 
 --{{{ Bouncing DVD circle test
+--[[
 local ball = {
     x = screen_w / 2,
     y = screen_h / 2,
@@ -147,5 +148,109 @@ function update(dt)
     -- Draw
     local r, g, b = hsv_to_rgb(ball.hue, 1, 1)
     layer_circle(game, ball.x, ball.y, ball.radius, rgba(r, g, b, 255))
+end
+--]]
+--}}}
+
+--{{{ Transform stack test
+local game_time = 0
+
+function update(dt)
+    game_time = game_time + dt
+
+    -- Test 1: Simple rotation at screen center
+    -- Red rectangle rotating at center
+    layer_push(game, 240, 135, game_time, 1, 1)
+        layer_rectangle(game, -40, -20, 80, 40, rgba(255, 80, 80, 255))
+    layer_pop(game)
+
+    -- Test 2: Circle orbiting around center
+    -- Green circle orbiting at distance 80
+    layer_push(game, 240, 135, game_time * 2, 1, 1)
+        layer_push(game, 80, 0, 0, 1, 1)
+            layer_circle(game, 0, 0, 15, rgba(80, 255, 80, 255))
+        layer_pop(game)
+    layer_pop(game)
+
+    -- Test 3: Scaled and rotated rectangle
+    -- Blue rectangle at top-left, scaled 1.5x, rotating slowly
+    layer_push(game, 80, 60, game_time * 0.5, 1.5, 1.5)
+        layer_rectangle(game, -20, -15, 40, 30, rgba(80, 80, 255, 255))
+    layer_pop(game)
+
+    -- Test 4: Nested transforms - rectangle with orbiting circle
+    -- Yellow rectangle at bottom-right with cyan circle orbiting it
+    layer_push(game, 400, 200, -game_time * 0.3, 1, 1)
+        layer_rectangle(game, -25, -25, 50, 50, rgba(255, 255, 80, 255))
+
+        -- Circle orbiting the rectangle
+        layer_push(game, 0, 0, game_time * 3, 1, 1)
+            layer_push(game, 50, 0, 0, 1, 1)
+                layer_circle(game, 0, 0, 10, rgba(80, 255, 255, 255))
+            layer_pop(game)
+        layer_pop(game)
+    layer_pop(game)
+
+    -- Test 5: Non-uniform scale (rectangle becomes stretched)
+    -- White rectangle stretched horizontally, rotating
+    layer_push(game, 400, 60, game_time * 0.7, 2, 0.5)
+        layer_rectangle(game, -20, -20, 40, 40, rgba(255, 255, 255, 200))
+    layer_pop(game)
+
+    -- Test 6: Rainbow circles with individual rotations
+    -- Row of circles that each rotate independently
+    for i = 0, 5 do
+        local x = 40 + i * 50
+        local hue = (i / 6) * 360 + game_time * 30
+        local r, g, b = hsv_to_rgb(hue % 360, 1, 1)
+        layer_push(game, x, 230, game_time * (i + 1) * 0.5, 1, 1)
+            layer_rectangle(game, -8, -8, 16, 16, rgba(r, g, b, 255))
+        layer_pop(game)
+    end
+
+    -- Test 7: Static reference shapes (no transform)
+    -- Small white dots at corners for reference
+    layer_circle(game, 10, 10, 5, rgba(255, 255, 255, 128))
+    layer_circle(game, 470, 10, 5, rgba(255, 255, 255, 128))
+    layer_circle(game, 10, 260, 5, rgba(255, 255, 255, 128))
+    layer_circle(game, 470, 260, 5, rgba(255, 255, 255, 128))
+
+    -- Test 8: Complex nested rotations (top center of screen)
+    -- Center rectangle (orange) - rotates in place
+    layer_push(game, 240, 60, game_time * 0.5, 1, 1)
+        layer_rectangle(game, -20, -12, 40, 24, rgba(255, 150, 50, 255))
+
+        -- Rectangle A (pink) - orbits around center rect AND spins
+        layer_push(game, 50, 0, game_time * 2, 1, 1)  -- orbit offset + spin
+            layer_rectangle(game, -10, -6, 20, 12, rgba(255, 100, 200, 255))
+        layer_pop(game)
+
+        -- Rectangle B (lime) - orbits around orange rect's TOP-RIGHT CORNER
+        -- Orange rect is (-20, -12, 40, 24), so top-right corner is at (20, -12)
+        layer_circle(game, 20, -12, 2, rgba(255, 255, 255, 255))  -- mark the corner
+        layer_push(game, 20, -12, 0, 1, 1)  -- move to corner
+            layer_push(game, 0, 0, game_time * 1.5, 1, 1)  -- rotate around that point
+                layer_push(game, 25, 0, 0, 1, 1)  -- offset from orbit center
+                    layer_rectangle(game, -8, -5, 16, 10, rgba(150, 255, 50, 255))
+                layer_pop(game)
+            layer_pop(game)
+        layer_pop(game)
+
+        -- Rectangle C (purple) - orbits center rect's center, but rotates around its OWN CORNER
+        -- Orbit around parent center, then offset to orbit radius, then rotate around corner
+        layer_push(game, 0, 0, -game_time * 1.2, 1, 1)  -- orbit rotation
+            layer_push(game, 0, 40, 0, 1, 1)  -- offset to orbit radius (below center)
+                layer_push(game, 0, 0, game_time * 3, 1, 1)  -- spin around...
+                    -- Draw rect with corner at origin (not centered)
+                    -- This makes it rotate around its top-left corner
+                    layer_rectangle(game, 0, 0, 14, 10, rgba(180, 80, 255, 255))
+                layer_pop(game)
+            layer_pop(game)
+        layer_pop(game)
+
+    layer_pop(game)
+
+    -- Draw a small marker at the test center for reference
+    layer_circle(game, 240, 60, 2, rgba(255, 255, 255, 255))
 end
 --}}}

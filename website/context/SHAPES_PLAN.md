@@ -184,13 +184,15 @@ Following Cute Framework's approach, we use a unified vertex format with shape d
 // location 4: vec4 aShape    (shape params, meaning depends on type)
 ```
 
-**Shape data encoding:**
+**Shape data encoding (UV-space approach):**
 
 | Type | shape.x | shape.y | shape.z | shape.w |
 |------|---------|---------|---------|---------|
-| RECT (0) | center.x | center.y | half_width | half_height |
-| CIRCLE (1) | center.x | center.y | radius | (unused) |
-| SPRITE (2) | (future) | (future) | (future) | (future) |
+| RECT (0) | quad_width | quad_height | half_width | half_height |
+| CIRCLE (1) | quad_size | quad_size | radius | (unused) |
+| SPRITE (2) | (unused) | (unused) | (unused) | (unused) |
+
+**Note:** We use a UV-space SDF approach for rotation support. Instead of passing world-space center, we pass the quad size to the shader. The shader computes local position from UV: `local_p = vUV * quad_size`, and the center is always at `quad_size * 0.5`. This handles rotation implicitly through UV interpolation without needing extra vertex data.
 
 **Note:** Current shape[4] (vec4) limits us to simple shapes. For polygons (8 vertices = 16 floats), the vertex format will need expansion to shape[8] like Cute Framework.
 
@@ -1275,7 +1277,7 @@ game:set_blend_mode('alpha')    -- back to normal
    - Batch and flush with state change detection
    - Track current shader/texture/blend mode
 
-### Phase 3B: SDF Shapes (Partial - Circle/Box Done)
+### Phase 3B: SDF Shapes (Circle/Box/Sprite Done)
 
 Following Cute Framework, implement these SDFs in the uber-shader:
 
@@ -1285,6 +1287,7 @@ Following Cute Framework, implement these SDFs in the uber-shader:
        return length(p - center) - radius;
    }
    // Also: sdf_circle_pixel() using superellipse (n=1.95) for pixel-art style
+   // Radius snapping in rough mode for consistent pixel shapes
    ```
 
 2. **Box (Rectangle)** ✓
@@ -1295,7 +1298,12 @@ Following Cute Framework, implement these SDFs in the uber-shader:
    }
    ```
 
-3. **Segment (Line/Capsule)**
+3. **Sprite** ✓
+   - Texture sampling with texel center snapping for pixel-perfect rendering
+   - Batch flush on texture change
+   - Works with transform stack (rotation, scale)
+
+4. **Segment (Line/Capsule)**
    ```glsl
    float sdf_segment(vec2 p, vec2 a, vec2 b) {
        vec2 pa = p - a, ba = b - a;

@@ -110,6 +110,7 @@ function init()
   --}}}
 
   --{{{ Bouncing DVD circle test
+  --[[
   local ball = {
     x = screen_w / 2,
     y = screen_h / 2,
@@ -162,6 +163,330 @@ function init()
     -- Draw
     local cr, cg, cb = hsv_to_rgb(ball.hue, 1, 1)
     game:circle(ball.x, ball.y, ball.radius, {r=cr, g=cg, b=cb, a=1})
+  end)
+  --]]
+  --}}}
+
+  --{{{ Transform stack test
+  --[[
+  local game_time = 0
+
+  an:action(function(self, dt)
+    game_time = game_time + dt
+
+    -- Test 1: Simple rotation at screen center
+    -- Red rectangle rotating at center
+    game:push_trs(240, 135, game_time, 1, 1)
+        game:rectangle(0, 0, 80, 40, 0, 0, {r=1, g=0.31, b=0.31, a=1})
+    game:pop()
+
+    -- Test 2: Circle orbiting around center
+    -- Green circle orbiting at distance 80
+    game:push_trs(240, 135, game_time * 2, 1, 1)
+        game:push_trs(80, 0, 0, 1, 1)
+            game:circle(0, 0, 15, {r=0.31, g=1, b=0.31, a=1})
+        game:pop()
+    game:pop()
+
+    -- Test 3: Scaled and rotated rectangle
+    -- Blue rectangle at top-left, scaled 1.5x, rotating slowly
+    game:push_trs(80, 60, game_time * 0.5, 1.5, 1.5)
+        game:rectangle(0, 0, 40, 30, 0, 0, {r=0.31, g=0.31, b=1, a=1})
+    game:pop()
+
+    -- Test 4: Nested transforms - rectangle with orbiting circle
+    -- Yellow rectangle at bottom-right with cyan circle orbiting it
+    game:push_trs(400, 200, -game_time * 0.3, 1, 1)
+        game:rectangle(0, 0, 50, 50, 0, 0, {r=1, g=1, b=0.31, a=1})
+
+        -- Circle orbiting the rectangle
+        game:push_trs(0, 0, game_time * 3, 1, 1)
+            game:push_trs(50, 0, 0, 1, 1)
+                game:circle(0, 0, 10, {r=0.31, g=1, b=1, a=1})
+            game:pop()
+        game:pop()
+    game:pop()
+
+    -- Test 5: Non-uniform scale (rectangle becomes stretched)
+    -- White rectangle stretched horizontally, rotating
+    game:push_trs(400, 60, game_time * 0.7, 2, 0.5)
+        game:rectangle(0, 0, 40, 40, 0, 0, {r=1, g=1, b=1, a=0.78})
+    game:pop()
+
+    -- Test 6: Rainbow circles with individual rotations
+    -- Row of circles that each rotate independently
+    for i = 0, 5 do
+        local x = 40 + i * 50
+        local hue = (i / 6) * 360 + game_time * 30
+        local cr, cg, cb = hsv_to_rgb(hue % 360, 1, 1)
+        game:push_trs(x, 230, game_time * (i + 1) * 0.5, 1, 1)
+            game:rectangle(0, 0, 16, 16, 0, 0, {r=cr, g=cg, b=cb, a=1})
+        game:pop()
+    end
+
+    -- Test 7: Static reference shapes (no transform)
+    -- Small white dots at corners for reference
+    game:circle(10, 10, 5, {r=1, g=1, b=1, a=0.5})
+    game:circle(470, 10, 5, {r=1, g=1, b=1, a=0.5})
+    game:circle(10, 260, 5, {r=1, g=1, b=1, a=0.5})
+    game:circle(470, 260, 5, {r=1, g=1, b=1, a=0.5})
+
+    -- Test 8: Complex nested rotations (top center of screen)
+    -- Center rectangle (orange) - rotates in place
+    game:push_trs(240, 60, game_time * 0.5, 1, 1)
+        game:rectangle(0, 0, 40, 24, 0, 0, {r=1, g=0.59, b=0.2, a=1})
+
+        -- Rectangle A (pink) - orbits around center rect AND spins
+        game:push_trs(50, 0, game_time * 2, 1, 1)
+            game:rectangle(0, 0, 20, 12, 0, 0, {r=1, g=0.39, b=0.78, a=1})
+        game:pop()
+
+        -- Rectangle B (lime) - orbits around orange rect's TOP-RIGHT CORNER
+        -- Orange rect is 40x24 centered, so top-right corner is at (20, -12)
+        game:circle(20, -12, 2, {r=1, g=1, b=1, a=1})  -- mark the corner
+        game:push_trs(20, -12, 0, 1, 1)  -- move to corner
+            game:push_trs(0, 0, game_time * 1.5, 1, 1)  -- rotate around that point
+                game:push_trs(25, 0, 0, 1, 1)  -- offset from orbit center
+                    game:rectangle(0, 0, 16, 10, 0, 0, {r=0.59, g=1, b=0.2, a=1})
+                game:pop()
+            game:pop()
+        game:pop()
+
+        -- Rectangle C (purple) - orbits center rect's center, but rotates around its OWN CORNER
+        -- Orbit around parent center, then offset to orbit radius, then rotate around corner
+        game:push_trs(0, 0, -game_time * 1.2, 1, 1)  -- orbit rotation
+            game:push_trs(0, 40, 0, 1, 1)  -- offset to orbit radius (below center)
+                game:push_trs(0, 0, game_time * 3, 1, 1)  -- spin around...
+                    -- Draw rect with corner at origin (not centered)
+                    -- rectangle_lt draws from top-left, so (0, 0, 14, 10) has corner at origin
+                    game:rectangle_lt(0, 0, 14, 10, 0, 0, {r=0.71, g=0.31, b=1, a=1})
+                game:pop()
+            game:pop()
+        game:pop()
+
+    game:pop()
+
+    -- Draw a small marker at the test center for reference
+    game:circle(240, 60, 2, {r=1, g=1, b=1, a=1})
+  end)
+  --]]
+  --}}}
+
+  --{{{ Bouncing emoji with orbiting stars test
+  --[[
+  an:image('smile', 'assets/slight_smile.png')
+  an:image('star', 'assets/star.png')
+
+  -- Target display sizes
+  local smile_size = 36
+  local star_size = 14
+
+  -- Calculate scale factors (textures are 512x512)
+  local smile_scale = smile_size / an.images.smile.w
+  local star_scale = star_size / an.images.star.w
+
+  local ball = {
+    x = screen_w / 2,
+    y = screen_h / 2,
+    vx = 80,
+    vy = 60,
+    rotation = 0,
+    rotation_speed = 1.5,
+  }
+
+  -- Stars orbiting the smile
+  local num_stars = 5
+  local orbit_radius = 35
+  local orbit_speed = 2.0
+  local star_spin_speed = 3.0
+
+  local game_time = 0
+
+  an:action(function(self, dt)
+    game_time = game_time + dt
+
+    -- Update ball position
+    ball.x = ball.x + ball.vx * dt
+    ball.y = ball.y + ball.vy * dt
+
+    -- Update ball rotation
+    ball.rotation = ball.rotation + ball.rotation_speed * dt
+
+    -- Bounce off walls (using display size as bounds)
+    local half_w = smile_size / 2 + orbit_radius + star_size / 2
+    local half_h = smile_size / 2 + orbit_radius + star_size / 2
+
+    if ball.x - half_w < 0 then
+      ball.x = half_w
+      ball.vx = -ball.vx
+    elseif ball.x + half_w > screen_w then
+      ball.x = screen_w - half_w
+      ball.vx = -ball.vx
+    end
+
+    if ball.y - half_h < 0 then
+      ball.y = half_h
+      ball.vy = -ball.vy
+    elseif ball.y + half_h > screen_h then
+      ball.y = screen_h - half_h
+      ball.vy = -ball.vy
+    end
+
+    -- Draw the smile emoji rotating around its center
+    game:push_trs(ball.x, ball.y, ball.rotation, smile_scale, smile_scale)
+        game:draw_image('smile', 0, 0)
+    game:pop()
+
+    -- Draw orbiting stars
+    for i = 0, num_stars - 1 do
+      local angle_offset = (i / num_stars) * math.pi * 2
+      local orbit_angle = game_time * orbit_speed + angle_offset
+      local star_spin = game_time * star_spin_speed * (i % 2 == 0 and 1 or -1)
+
+      -- Stars orbit the smile and spin around themselves
+      game:push_trs(ball.x, ball.y, orbit_angle, 1, 1)
+          game:push_trs(orbit_radius, 0, star_spin, star_scale, star_scale)
+              game:draw_image('star', 0, 0)
+          game:pop()
+      game:pop()
+    end
+  end)
+  --]]
+  --}}}
+
+  --{{{ Combined bouncing circle and emoji test
+  an:image('smile', 'assets/slight_smile.png')
+  an:image('star', 'assets/star.png')
+
+  -- Target display sizes
+  local smile_size = 36
+  local star_size = 14
+
+  -- Calculate scale factors (textures are 512x512)
+  local smile_scale = smile_size / an.images.smile.w
+  local star_scale = star_size / an.images.star.w
+
+  -- DVD circle (starts top-left)
+  local circle = {
+    x = screen_w / 4,
+    y = screen_h / 4,
+    vx = 100,
+    vy = 80,
+    radius = 20,
+    min_radius = 1,
+    max_radius = 40,
+    radius_speed = 15,
+    radius_dir = 1,
+    hue = 0,
+    hue_speed = 60,
+  }
+
+  -- Emoji with stars (starts bottom-right)
+  local emoji = {
+    x = screen_w * 3 / 4,
+    y = screen_h * 3 / 4,
+    vx = 80,
+    vy = 60,
+    rotation = 0,
+    rotation_speed = 1.5,
+  }
+
+  -- Stars orbiting the smile
+  local num_stars = 5
+  local orbit_radius = 35
+  local orbit_speed = 2.0
+  local star_spin_speed = 3.0
+
+  local game_time = 0
+
+  an:action(function(self, dt)
+    game_time = game_time + dt
+
+    -- === DVD Circle ===
+    -- Update position
+    circle.x = circle.x + circle.vx * dt
+    circle.y = circle.y + circle.vy * dt
+
+    -- Update radius
+    circle.radius = circle.radius + circle.radius_speed * circle.radius_dir * dt
+    if circle.radius >= circle.max_radius then
+      circle.radius = circle.max_radius
+      circle.radius_dir = -1
+    elseif circle.radius <= circle.min_radius then
+      circle.radius = circle.min_radius
+      circle.radius_dir = 1
+    end
+
+    -- Update color
+    circle.hue = (circle.hue + circle.hue_speed * dt) % 360
+
+    -- Bounce off walls
+    if circle.x - circle.radius < 0 then
+      circle.x = circle.radius
+      circle.vx = -circle.vx
+    elseif circle.x + circle.radius > screen_w then
+      circle.x = screen_w - circle.radius
+      circle.vx = -circle.vx
+    end
+
+    if circle.y - circle.radius < 0 then
+      circle.y = circle.radius
+      circle.vy = -circle.vy
+    elseif circle.y + circle.radius > screen_h then
+      circle.y = screen_h - circle.radius
+      circle.vy = -circle.vy
+    end
+
+    -- Draw circle
+    local cr, cg, cb = hsv_to_rgb(circle.hue, 1, 1)
+    game:circle(circle.x, circle.y, circle.radius, {r=cr, g=cg, b=cb, a=1})
+
+    -- === Emoji with orbiting stars ===
+    -- Update position
+    emoji.x = emoji.x + emoji.vx * dt
+    emoji.y = emoji.y + emoji.vy * dt
+
+    -- Update rotation
+    emoji.rotation = emoji.rotation + emoji.rotation_speed * dt
+
+    -- Bounce off walls (using display size as bounds)
+    local half_w = smile_size / 2 + orbit_radius + star_size / 2
+    local half_h = smile_size / 2 + orbit_radius + star_size / 2
+
+    if emoji.x - half_w < 0 then
+      emoji.x = half_w
+      emoji.vx = -emoji.vx
+    elseif emoji.x + half_w > screen_w then
+      emoji.x = screen_w - half_w
+      emoji.vx = -emoji.vx
+    end
+
+    if emoji.y - half_h < 0 then
+      emoji.y = half_h
+      emoji.vy = -emoji.vy
+    elseif emoji.y + half_h > screen_h then
+      emoji.y = screen_h - half_h
+      emoji.vy = -emoji.vy
+    end
+
+    -- Draw the smile emoji rotating around its center
+    game:push_trs(emoji.x, emoji.y, emoji.rotation, smile_scale, smile_scale)
+        game:draw_image('smile', 0, 0)
+    game:pop()
+
+    -- Draw orbiting stars
+    for i = 0, num_stars - 1 do
+      local angle_offset = (i / num_stars) * math.pi * 2
+      local orbit_angle = game_time * orbit_speed + angle_offset
+      local star_spin = game_time * star_spin_speed * (i % 2 == 0 and 1 or -1)
+
+      -- Stars orbit the smile and spin around themselves
+      game:push_trs(emoji.x, emoji.y, orbit_angle, 1, 1)
+          game:push_trs(orbit_radius, 0, star_spin, star_scale, star_scale)
+              game:draw_image('star', 0, 0)
+          game:pop()
+      game:pop()
+    end
   end)
   --}}}
 end
