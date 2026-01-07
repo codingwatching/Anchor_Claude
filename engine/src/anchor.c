@@ -1,7 +1,8 @@
 /*
- * Anchor Engine - Minimal skeleton
+ * Anchor Engine
  * Phase 1: Window + OpenGL + Lua integration
  * Phase 2: Web build (Emscripten/WebGL)
+ * Phase 3: Rendering (layers, shapes, sprites, transforms, blend modes)
  */
 
 #include <stdio.h>
@@ -38,10 +39,14 @@
 #define GAME_HEIGHT 270
 #define INITIAL_SCALE 3
 
-// Timing configuration (matching reference Anchor)
-#define PHYSICS_RATE (1.0 / 144.0)  // 144 Hz physics/input timestep
-#define RENDER_RATE  (1.0 / 60.0)   // 60 Hz render rate (for pixel-perfect visuals)
+// Timing configuration
+#define PHYSICS_RATE (1.0 / 120.0)  // 120 Hz physics/input timestep
+#define RENDER_RATE  (1.0 / 60.0)   // 60 Hz render cap (for chunky pixel movement)
 #define MAX_UPDATES 10              // Cap on fixed steps per frame (prevents spiral of death)
+
+// VSync snapping - snap delta times within 0.2ms of common refresh rates
+// This prevents accumulator drift from timer jitter
+#define VSYNC_SNAP_TOLERANCE 0.0002
 
 // Transform stack depth
 #define MAX_TRANSFORM_DEPTH 32
@@ -60,7 +65,6 @@ enum {
 enum {
     BLEND_ALPHA = 0,
     BLEND_ADDITIVE,
-    BLEND_MULTIPLY,
 };
 
 // DrawCommand — stores one deferred draw call
@@ -283,6 +287,11 @@ static void layer_add_image(Layer* layer, Texture* tex, float x, float y, uint32
     cmd->params[3] = (float)tex->height;
 }
 
+// Set the current blend mode for subsequent commands
+static void layer_set_blend_mode(Layer* layer, uint8_t mode) {
+    layer->current_blend = mode;
+}
+
 // Batch rendering
 #define MAX_BATCH_VERTICES 6000  // 1000 quads * 6 vertices
 #define VERTEX_FLOATS 13         // x, y, u, v, r, g, b, a, type, shape[4]
@@ -433,8 +442,11 @@ static GLuint shader_program = 0;
 static GLuint vao = 0;
 static GLuint vbo = 0;
 
-// Main game layer
-static Layer* game_layer = NULL;
+// Layer registry
+#define MAX_LAYERS 16
+static Layer* layer_registry[MAX_LAYERS];
+static char* layer_names[MAX_LAYERS];
+static int layer_count = 0;
 
 // Screen blit resources
 static GLuint screen_shader = 0;
@@ -592,13 +604,39 @@ static void process_sprite(const DrawCommand* cmd) {
                        SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
+// Apply GL blend state based on blend mode
+static void apply_blend_mode(uint8_t mode) {
+    switch (mode) {
+        case BLEND_ALPHA:
+            // Standard alpha blending: result = src * src.a + dst * (1 - src.a)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            break;
+        case BLEND_ADDITIVE:
+            // Additive blending: result = src * src.a + dst (good for glows, particles)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            break;
+    }
+}
+
 // Render all commands on a layer
 static void layer_render(Layer* layer) {
     batch_vertex_count = 0;
     current_batch_texture = 0;
+    uint8_t current_blend = BLEND_ALPHA;  // Start with default
+    apply_blend_mode(current_blend);
 
     for (int i = 0; i < layer->command_count; i++) {
         const DrawCommand* cmd = &layer->commands[i];
+
+        // Check for blend mode change
+        if (cmd->blend_mode != current_blend && batch_vertex_count > 0) {
+            batch_flush();
+            current_blend = cmd->blend_mode;
+            apply_blend_mode(current_blend);
+        } else if (cmd->blend_mode != current_blend) {
+            current_blend = cmd->blend_mode;
+            apply_blend_mode(current_blend);
+        }
 
         switch (cmd->type) {
             case SHAPE_RECTANGLE:
@@ -630,14 +668,49 @@ static void layer_render(Layer* layer) {
 
     // Final flush
     batch_flush();
+
+    // Reset to default blend mode for screen blit
+    apply_blend_mode(BLEND_ALPHA);
+}
+
+// Find or create a named layer
+static Layer* layer_get_or_create(const char* name) {
+    // Check if layer already exists
+    for (int i = 0; i < layer_count; i++) {
+        if (strcmp(layer_names[i], name) == 0) {
+            return layer_registry[i];
+        }
+    }
+
+    // Create new layer
+    if (layer_count >= MAX_LAYERS) {
+        fprintf(stderr, "Error: Maximum number of layers (%d) reached\n", MAX_LAYERS);
+        return NULL;
+    }
+
+    Layer* layer = layer_create(GAME_WIDTH, GAME_HEIGHT);
+    if (!layer) {
+        fprintf(stderr, "Error: Failed to create layer '%s'\n", name);
+        return NULL;
+    }
+
+    // Store in registry
+    layer_registry[layer_count] = layer;
+    layer_names[layer_count] = strdup(name);
+    layer_count++;
+
+    printf("Created layer: %s\n", name);
+    return layer;
 }
 
 // Lua bindings
 static int l_layer_create(lua_State* L) {
-    // For now, ignore name and return game_layer
-    // const char* name = luaL_checkstring(L, 1);
-    (void)L;  // unused parameter warning
-    lua_pushlightuserdata(L, game_layer);
+    const char* name = luaL_checkstring(L, 1);
+    Layer* layer = layer_get_or_create(name);
+    if (!layer) {
+        return luaL_error(L, "Failed to create layer: %s", name);
+    }
+    lua_pushlightuserdata(L, layer);
     return 1;
 }
 
@@ -733,6 +806,19 @@ static int l_layer_draw_texture(lua_State* L) {
     return 0;
 }
 
+static int l_layer_set_blend_mode(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    const char* mode = luaL_checkstring(L, 2);
+    if (strcmp(mode, "alpha") == 0) {
+        layer_set_blend_mode(layer, BLEND_ALPHA);
+    } else if (strcmp(mode, "additive") == 0) {
+        layer_set_blend_mode(layer, BLEND_ADDITIVE);
+    } else {
+        return luaL_error(L, "Invalid blend mode: %s (use 'alpha' or 'additive')", mode);
+    }
+    return 0;
+}
+
 static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_create", l_layer_create);
     lua_register(L, "layer_rectangle", l_layer_rectangle);
@@ -740,6 +826,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_push", l_layer_push);
     lua_register(L, "layer_pop", l_layer_pop);
     lua_register(L, "layer_draw_texture", l_layer_draw_texture);
+    lua_register(L, "layer_set_blend_mode", l_layer_set_blend_mode);
     lua_register(L, "texture_load", l_texture_load);
     lua_register(L, "texture_get_width", l_texture_get_width);
     lua_register(L, "texture_get_height", l_texture_get_height);
@@ -756,6 +843,10 @@ static double render_lag = 0.0;
 static Uint64 step = 0;
 static double game_time = 0.0;
 static Uint64 frame = 0;
+
+// VSync snap frequencies (computed at init based on display refresh rate)
+static double snap_frequencies[8];
+static int snap_frequency_count = 0;
 
 // Shader headers - prepended to all shaders based on platform
 #ifdef __EMSCRIPTEN__
@@ -966,8 +1057,14 @@ static void shutdown(void) {
     if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
     if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
     if (shader_program) { glDeleteProgram(shader_program); shader_program = 0; }
-    // Layer
-    if (game_layer) { layer_destroy(game_layer); game_layer = NULL; }
+    // Layers
+    for (int i = 0; i < layer_count; i++) {
+        layer_destroy(layer_registry[i]);
+        free(layer_names[i]);
+        layer_registry[i] = NULL;
+        layer_names[i] = NULL;
+    }
+    layer_count = 0;
     // Screen blit resources
     if (screen_vbo) { glDeleteBuffers(1, &screen_vbo); screen_vbo = 0; }
     if (screen_vao) { glDeleteVertexArrays(1, &screen_vao); screen_vao = 0; }
@@ -985,14 +1082,36 @@ static void main_loop_iteration(void) {
     double dt = (double)(current_time - last_time) / (double)perf_freq;
     last_time = current_time;
 
+    // Clamp delta time to handle anomalies (pauses, debugger, sleep resume)
+    if (dt > PHYSICS_RATE * MAX_UPDATES) {
+        dt = PHYSICS_RATE;
+    }
+    if (dt < 0) {
+        dt = 0;
+    }
+
+    // VSync snapping: if dt is close to a known refresh rate, snap to it exactly
+    // This prevents accumulator drift from timer jitter
+    for (int i = 0; i < snap_frequency_count; i++) {
+        double diff = dt - snap_frequencies[i];
+        if (diff < 0) diff = -diff;
+        if (diff < VSYNC_SNAP_TOLERANCE) {
+            dt = snap_frequencies[i];
+            break;
+        }
+    }
+
     // Accumulate physics lag, capped to prevent spiral of death
     physics_lag += dt;
     if (physics_lag > PHYSICS_RATE * MAX_UPDATES) {
         physics_lag = PHYSICS_RATE * MAX_UPDATES;
     }
 
-    // Accumulate render lag
+    // Accumulate render lag, capped to prevent unbounded growth
     render_lag += dt;
+    if (render_lag > RENDER_RATE * 2) {
+        render_lag = RENDER_RATE * 2;
+    }
 
     // Process events every frame (not tied to fixed timestep)
     SDL_Event event;
@@ -1015,10 +1134,12 @@ static void main_loop_iteration(void) {
         }
     }
 
-    // Fixed timestep physics/input loop (144Hz)
+    // Fixed timestep physics/input loop (120Hz)
     while (physics_lag >= PHYSICS_RATE) {
-        // Clear commands at start of update (so they persist if no update runs)
-        layer_clear_commands(game_layer);
+        // Clear commands on all layers at start of update
+        for (int i = 0; i < layer_count; i++) {
+            layer_clear_commands(layer_registry[i]);
+        }
 
         // Call Lua update (skip if in error state)
         if (!error_state) {
@@ -1045,27 +1166,16 @@ static void main_loop_iteration(void) {
         physics_lag -= PHYSICS_RATE;
     }
 
-    // Render at 60Hz (decoupled from physics for pixel-perfect visuals)
+    // Render at 60Hz (for chunky pixel movement on high-refresh monitors)
     if (render_lag >= RENDER_RATE) {
         render_lag -= RENDER_RATE;
         frame++;
 
-        // === PASS 1: Render game to layer ===
-        glBindFramebuffer(GL_FRAMEBUFFER, game_layer->fbo);
-        glViewport(0, 0, game_layer->width, game_layer->height);
-
-        if (error_state) {
-            glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
-        } else {
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Black
-        }
-        glClear(GL_COLOR_BUFFER_BIT);
-
         // Set up orthographic projection (game coordinates)
         // Maps (0,0) at top-left to (width, height) at bottom-right
         float projection[16] = {
-            2.0f / game_layer->width, 0.0f, 0.0f, 0.0f,
-            0.0f, -2.0f / game_layer->height, 0.0f, 0.0f,
+            2.0f / GAME_WIDTH, 0.0f, 0.0f, 0.0f,
+            0.0f, -2.0f / GAME_HEIGHT, 0.0f, 0.0f,
             0.0f, 0.0f, -1.0f, 0.0f,
             -1.0f, 1.0f, 0.0f, 1.0f
         };
@@ -1079,45 +1189,64 @@ static void main_loop_iteration(void) {
         float aa_width = (shape_filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
         glUniform1f(aa_loc, aa_width);
 
-        // Render all commands (added by Lua during update)
-        layer_render(game_layer);
+        // === PASS 1: Render each layer to its FBO ===
+        glBindTexture(GL_TEXTURE_2D, 0);  // Unbind to avoid feedback loop
 
-        // === PASS 2: Blit layer to screen with aspect-ratio scaling ===
+        for (int i = 0; i < layer_count; i++) {
+            Layer* layer = layer_registry[i];
+            glBindFramebuffer(GL_FRAMEBUFFER, layer->fbo);
+            glViewport(0, 0, layer->width, layer->height);
+
+            if (error_state) {
+                glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
+            } else {
+                glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
+            }
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            layer_render(layer);
+        }
+
+        // === PASS 2: Composite all layers to screen ===
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // Get current window size
         int window_w, window_h;
         SDL_GetWindowSize(window, &window_w, &window_h);
-        glViewport(0, 0, window_w, window_h);
 
         // Calculate scale to fit window while maintaining aspect ratio
         // Use integer scaling for pixel-perfect rendering
-        float scale_x = (float)window_w / game_layer->width;
-        float scale_y = (float)window_h / game_layer->height;
+        float scale_x = (float)window_w / GAME_WIDTH;
+        float scale_y = (float)window_h / GAME_HEIGHT;
         float scale = (scale_x < scale_y) ? scale_x : scale_y;
         int int_scale = (int)scale;
         if (int_scale < 1) int_scale = 1;
 
         // Calculate centered position with letterboxing
-        int scaled_w = game_layer->width * int_scale;
-        int scaled_h = game_layer->height * int_scale;
+        int scaled_w = GAME_WIDTH * int_scale;
+        int scaled_h = GAME_HEIGHT * int_scale;
         int offset_x = (window_w - scaled_w) / 2;
         int offset_y = (window_h - scaled_h) / 2;
 
         // Clear screen to black (letterbox color)
+        glViewport(0, 0, window_w, window_h);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Draw layer texture (viewport handles positioning)
+        // Set viewport for game area
         glViewport(offset_x, offset_y, scaled_w, scaled_h);
         glUseProgram(screen_shader);
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, game_layer->color_texture);
+        // Blit each layer in order (first created = bottom)
+        for (int i = 0; i < layer_count; i++) {
+            Layer* layer = layer_registry[i];
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, layer->color_texture);
 
-        glBindVertexArray(screen_vao);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
+            glBindVertexArray(screen_vao);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+        }
 
         SDL_GL_SwapWindow(window);
     }
@@ -1131,31 +1260,20 @@ static void main_loop_iteration(void) {
 }
 
 int main(int argc, char* argv[]) {
-    const char* script_path = (argc > 1) ? argv[1] : "main.lua";
     printf("Anchor Engine starting...\n");
-    printf("Loading: %s\n", script_path);
 
-    // Change working directory to script's directory (so relative paths work)
-    char script_dir[4096];
-    strncpy(script_dir, script_path, sizeof(script_dir) - 1);
-    script_dir[sizeof(script_dir) - 1] = '\0';
-
-    // Find last path separator (handle both / and \)
-    char* last_sep = NULL;
-    for (char* p = script_dir; *p; p++) {
-        if (*p == '/' || *p == '\\') last_sep = p;
-    }
-    if (last_sep) {
-        *last_sep = '\0';
+    // Change working directory to game folder (passed as argument, like LÖVE)
+    if (argc > 1) {
+        const char* game_folder = argv[1];
         #ifdef _WIN32
-        _chdir(script_dir);
+        _chdir(game_folder);
         #else
-        chdir(script_dir);
+        chdir(game_folder);
         #endif
-        printf("Working directory: %s\n", script_dir);
-        // Update script_path to just the filename
-        script_path = last_sep + 1;
+        printf("Game folder: %s\n", game_folder);
     }
+
+    printf("Loading: main.lua\n");
 
     // Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
@@ -1260,16 +1378,7 @@ int main(int argc, char* argv[]) {
     glBindVertexArray(0);
     printf("Game VAO/VBO created (stride=%d bytes)\n", stride);
 
-    // Create game layer
-    game_layer = layer_create(GAME_WIDTH, GAME_HEIGHT);
-    if (!game_layer) {
-        fprintf(stderr, "Failed to create game layer\n");
-        shutdown();
-        return 1;
-    }
-    printf("Game layer created (%dx%d)\n", game_layer->width, game_layer->height);
-
-    // Create screen shader for blitting layer
+    // Create screen shader for blitting layers
     screen_shader = create_shader_program(screen_vertex_source, screen_fragment_source);
     if (!screen_shader) {
         fprintf(stderr, "Failed to create screen shader\n");
@@ -1321,7 +1430,7 @@ int main(int argc, char* argv[]) {
     // Load and run script with traceback
     lua_pushcfunction(L, traceback);
     int err_handler = lua_gettop(L);
-    if (luaL_loadfile(L, script_path) != LUA_OK) {
+    if (luaL_loadfile(L, "main.lua") != LUA_OK) {
         snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
         fprintf(stderr, "ERROR: %s\n", error_message);
         lua_pop(L, 2);  // error + traceback
@@ -1340,6 +1449,24 @@ int main(int argc, char* argv[]) {
     // Initialize timing state
     perf_freq = SDL_GetPerformanceFrequency();
     last_time = SDL_GetPerformanceCounter();
+
+    // Initialize vsync snap frequencies based on display refresh rate
+    {
+        int display_hz = 60;  // Default fallback
+        SDL_DisplayMode mode;
+        if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.refresh_rate > 0) {
+            display_hz = mode.refresh_rate;
+        }
+        printf("Display refresh rate: %dHz\n", display_hz);
+
+        // Compute snap frequencies for this refresh rate and its multiples
+        // (handles 1x, 2x, 3x... of the base frame time for missed frames)
+        double base_frametime = 1.0 / (double)display_hz;
+        snap_frequency_count = 0;
+        for (int i = 1; i <= 8 && snap_frequency_count < 8; i++) {
+            snap_frequencies[snap_frequency_count++] = base_frametime * i;
+        }
+    }
 
     #ifdef __EMSCRIPTEN__
     // Use browser's requestAnimationFrame

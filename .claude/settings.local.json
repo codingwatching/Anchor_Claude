@@ -20,7 +20,8 @@
       "Bash(export PATH=\"/c/emsdk:/c/emsdk/upstream/emscripten:$PATH\")",
       "Bash(/c/emsdk/upstream/emscripten/emcc.bat --version)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:randygaul.github.io)"
+      "WebFetch(domain:randygaul.github.io)",
+      "Bash(./monitor_sim.exe:*)"
     ]
   }
 }

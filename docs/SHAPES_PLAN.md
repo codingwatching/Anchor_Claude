@@ -1073,7 +1073,7 @@ local effects = an:layer('effects')
 local ui = an:layer('ui')
 
 -- Layer settings
-game:set_blend_mode('alpha')  -- 'alpha', 'additive', 'multiply'
+game:set_blend_mode('alpha')  -- 'alpha' or 'additive'
 game:set_opacity(1.0)         -- 0.0 to 1.0
 ```
 

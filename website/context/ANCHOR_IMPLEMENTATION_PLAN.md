@@ -12,7 +12,7 @@ C engine with YueScript scripting, OpenGL rendering, targeting Windows and Web.
 | Audio | TBD (miniaudio or SoLoud) | Need pitch shifting; SDL_mixer insufficient |
 | Physics | Box2D 3.1 | Already used, true ball-to-ball collisions needed |
 | Scripting | Lua 5.4 + YueScript | Build-time compilation with `-r` flag for line numbers |
-| Timestep | Fixed 144Hz physics, 60Hz render | Decoupled for pixel-perfect visuals with responsive input |
+| Timestep | Fixed 120Hz physics, 60Hz render | Decoupled for pixel-perfect visuals with responsive input |
 | Resolution | Per-game configurable | 480×270, 640×360, or custom; aspect-ratio scaling with letterboxing |
 | C Structure | Single anchor.c | Monolithic file, easier navigation |
 | Resources | Live forever | Games are small enough; no unloading needed |
@@ -36,25 +36,33 @@ game.yue ──► yue -r ──► game.lua ──► embedded in executable
 ### Directory Structure
 
 ```
-anchor/
-├── engine/
+Anchor/
+├── .claude/                # Claude Code config
+├── docs/                   # Documentation (ANCHOR.md, etc.)
+├── engine/                 # Engine code + builds
 │   ├── src/
 │   │   └── anchor.c        # Single monolithic C file
 │   ├── include/            # Vendored headers (SDL2, Lua, glad, stb)
-│   ├── lib/                # Vendored libraries
-│   └── build.bat           # Windows build
-├── yue/                    # YueScript engine code
-│   ├── object.yue
-│   ├── timer.yue
-│   ├── spring.yue
-│   ├── collider.yue
-│   └── init.yue
-├── lua/                    # Compiled Lua output
-├── main.yue                # Test/game entry point
-├── main.lua                # Compiled Lua entry point
-├── assets/
-└── build-web.bat           # Web build (Emscripten)
+│   ├── lib/                # Vendored libraries (SDL2.lib)
+│   ├── build/              # Windows build output (anchor.exe)
+│   ├── build-web/          # Web build output (anchor.html, etc.)
+│   ├── build.bat           # Windows build script
+│   ├── build-web.sh        # Web build script (takes game folder arg)
+│   ├── run-web.bat         # Run web build locally
+│   └── shell.html          # Emscripten HTML template
+├── test/                   # Test game folder
+│   ├── main.lua            # Test entry point
+│   └── assets/             # Test assets (images, sounds)
+├── reference/              # Reference materials
+│   ├── love-compare/       # LÖVE comparison project
+│   └── *.md, *.yue         # Notes and examples
+├── scripts/                # Utility scripts
+└── website/                # Blog/website (pushed to Blot)
 ```
+
+The engine takes a game folder as argument (like LÖVE):
+- Windows: `./engine/build/anchor.exe test`
+- Web: `./engine/build-web.sh ../test` (bundles at build time)
 
 ---
 
@@ -85,7 +93,7 @@ anchor/
 - [x] Verify OpenGL context on Windows
 
 ### 1.3 Main Loop
-- [x] Decoupled timestep: 144Hz physics/input, 60Hz rendering
+- [x] Decoupled timestep: 120Hz physics/input, 60Hz rendering
 - [x] Delta time accumulator pattern (separate accumulators for physics and rendering)
 - [x] Event polling once per frame iteration (before physics loop)
 - [x] Clean shutdown
@@ -270,17 +278,30 @@ At frame end:
 - [x] Verified with bouncing emoji + orbiting stars test (transforms work with sprites)
 - [x] Matching LÖVE comparison test created
 
-**Step 8: Blend modes**
-- [ ] `layer_set_blend_mode(layer, mode)` — 'alpha' or 'additive'
-- [ ] Blend mode stored per-command
-- [ ] Batch flush on blend mode change
-- [ ] Apply blend state before drawing batch
+**Step 8: Blend modes** ✓
+- [x] `layer_set_blend_mode(layer, mode)` — 'alpha' or 'additive'
+- [x] Blend mode stored per-command (via layer's current_blend)
+- [x] Batch flush on blend mode change
+- [x] Apply blend state before drawing batch
+- [x] `apply_blend_mode()` helper function for GL state management
+- [x] Verified on Windows and Web
 
-**Step 9: Multiple layers + composition**
-- [ ] Layer registry (max 16 layers)
-- [ ] `layer_create(name)` creates/retrieves named layer
-- [ ] Layer ordering for composition
-- [ ] Composite all layers to screen at frame end
+**Step 9: Multiple layers + composition** ✓
+- [x] Layer registry (max 16 layers, stored with names for lookup)
+- [x] `layer_create(name)` creates/retrieves named layer (idempotent)
+- [x] Layer ordering for composition (creation order: first = bottom, last = top)
+- [x] Composite all layers to screen at frame end (each layer rendered to FBO, then blitted with alpha)
+
+**Step 10: Frame timing improvements** ✓
+- [x] Analysis against Tyler Glaiel's "How to make your game run at 60fps" article
+- [x] Built monitor simulator tool (`tools/monitor_sim.c`) to test timing algorithms
+- [x] Changed physics rate from 144Hz to 120Hz (divides evenly into 60/120/240Hz monitors)
+- [x] Added VSync snapping (0.2ms tolerance) to eliminate timer jitter drift
+- [x] Added delta time clamping before accumulator (handles pause/resume, debugger)
+- [x] Added render_lag cap at 2× RENDER_RATE (prevents unbounded growth)
+- [x] Render rate limiting at 60Hz for consistent chunky pixel movement on all monitors
+- [x] Verified via simulator: consistent 2 physics updates per rendered frame on 60Hz, 59.94Hz, 144Hz, 240Hz monitors
+- [x] See `reference/frame-timing-analysis.md` for detailed analysis
 
 ### Lua API (C bindings)
 
@@ -300,7 +321,7 @@ layer_pop(game)
 local img = texture_load('player.png')
 layer_draw_image(game, img, x, y, r, sx, sy, ox, oy, color)
 
--- Blend modes
+-- Blend modes ('alpha' or 'additive')
 layer_set_blend_mode(game, 'additive')
 layer_set_blend_mode(game, 'alpha')
 
@@ -313,11 +334,12 @@ local red = rgba(255, 0, 0, 255)
 - [x] Circle renders correctly with SDF (Step 5)
 - [x] Transform stack works (rotation, scale, nesting) (Step 6)
 - [x] Sprites load and render (Step 7)
-- [ ] Blend modes work (alpha, additive) (Step 8)
-- [ ] Multiple layers composite correctly (Step 9)
-- [x] Steps 1-7 verified on Windows (Web verification pending for Steps 6-7)
+- [x] Blend modes work (alpha, additive) (Step 8)
+- [x] Multiple layers composite correctly (Step 9)
+- [x] Frame timing produces consistent updates across monitor refresh rates (Step 10)
+- [x] Steps 1-10 verified on Windows and Web
 
-**Deliverable:** Working layer system with deferred rendering, basic shapes (circle, rectangle), sprites, transforms, and blend modes.
+**Deliverable:** Working layer system with deferred rendering, basic shapes (circle, rectangle), sprites, transforms, blend modes, and rock-solid frame timing. ✓ Complete
 
 ---
 
@@ -713,10 +735,10 @@ Not implementing now, add later if needed:
 
 The engine uses decoupled physics and rendering rates to achieve pixel-perfect visuals with responsive input:
 
-- **Physics/input**: 144Hz (PHYSICS_RATE) — responsive feel, precise collision
-- **Rendering**: 60Hz (RENDER_RATE) — objects move ~1.67 pixels between rendered frames
+- **Physics/input**: 120Hz (PHYSICS_RATE) — responsive feel, precise collision
+- **Rendering**: 60Hz (RENDER_RATE) — exactly 2 physics updates per rendered frame
 
-**Why this works:** At 60Hz, objects naturally land on integer pixel positions more frequently. At 144Hz physics with 60Hz rendering, we get the best of both: responsive input with chunky pixel-art movement.
+**Why 120Hz:** It divides evenly into 60Hz (2:1), 120Hz (1:1), and 240Hz (1:2). This avoids the 2-2-3 stutter pattern that 144Hz would cause on 60Hz monitors. The render rate cap ensures consistent chunky pixel-art movement regardless of monitor refresh rate.
 
 **Shader-level snapping** (still in use):
 - Sprites: texel center snapping for crisp pixels

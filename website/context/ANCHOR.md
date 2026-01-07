@@ -1399,25 +1399,43 @@ All libraries are statically linked to produce a single executable with no DLL d
 ## File Structure
 
 ```
-anchor/
-├── engine/
+Anchor/
+├── .claude/                # Claude Code config
+├── docs/                   # Documentation (ANCHOR.md, etc.)
+├── engine/                 # Engine code + builds
 │   ├── src/
 │   │   └── anchor.c        # Single monolithic C file
 │   ├── include/            # Vendored headers (SDL2, Lua, glad, stb)
-│   ├── lib/                # Vendored libraries
-│   └── build.bat           # Windows build
-├── yue/                    # YueScript engine code
-│   ├── object.yue
-│   ├── timer.yue
-│   ├── spring.yue
-│   ├── collider.yue
-│   └── init.yue
-├── lua/                    # Compiled Lua output
-├── main.yue                # Test/game entry point
-├── main.lua                # Compiled Lua entry point
-├── assets/
-└── build-web.bat           # Web build (Emscripten)
+│   ├── lib/                # Vendored libraries (SDL2.lib)
+│   ├── build/              # Windows build output (anchor.exe)
+│   ├── build-web/          # Web build output (anchor.html, etc.)
+│   ├── build.bat           # Windows build script
+│   ├── build-web.sh        # Web build script (takes game folder arg)
+│   ├── run-web.bat         # Run web build locally
+│   └── shell.html          # Emscripten HTML template
+├── test/                   # Test game folder
+│   ├── main.lua            # Test entry point
+│   └── assets/             # Test assets (images, sounds)
+├── reference/              # Reference materials
+│   ├── love-compare/       # LÖVE comparison project
+│   └── *.md, *.yue         # Notes and examples
+├── scripts/                # Utility scripts
+└── website/                # Blog/website (pushed to Blot)
 ```
+
+### Running Games
+
+The engine takes a game folder as argument (like LÖVE):
+
+```bash
+# Windows
+./engine/build/anchor.exe test
+
+# Web (bundles game folder at build time)
+./engine/build-web.sh ../test
+```
+
+Game folders contain `main.lua` at root, with assets in subdirectories.
 
 ---
 

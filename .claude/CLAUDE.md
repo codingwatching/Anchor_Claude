@@ -201,6 +201,14 @@ Don't build large systems autonomously. Instead:
 
 Once trust is established, this shifts to larger tasks.
 
+### Wait for User Before Next Task
+
+After completing a task, **always give the user a turn** before starting the next one. Don't chain tasks together autonomously — the user may want to test, adjust, or redirect.
+
+### Build Only, Don't Run
+
+**Only build things, never run them.** The user will run builds and tests themselves. Don't execute `build.bat`, `run-web.bat`, or similar commands unless explicitly asked.
+
 ### Build Order
 
 1. Get moment-to-moment gameplay working first (physics, core mechanics)

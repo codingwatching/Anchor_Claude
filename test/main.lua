@@ -3,7 +3,6 @@ print("main.lua loaded")
 -- Set to "rough" for hard pixel edges, "smooth" for anti-aliased
 set_shape_filter("rough")
 
-local game = layer_create('game')
 local screen_w, screen_h = 480, 270
 
 -- HSV to RGB (h: 0-360, s: 0-1, v: 0-1)
@@ -259,8 +258,8 @@ end
 
 --{{{ Bouncing emoji with orbiting stars test
 --[[
-local smile_tex = texture_load("slight_smile.png")
-local star_tex = texture_load("star.png")
+local smile_tex = texture_load("assets/slight_smile.png")
+local star_tex = texture_load("assets/star.png")
 
 -- Target display sizes
 local smile_size = 36
@@ -339,9 +338,76 @@ end
 --]]
 --}}}
 
---{{{ Combined bouncing circle and emoji test
-local smile_tex = texture_load("slight_smile.png")
-local star_tex = texture_load("star.png")
+--{{{ Blend mode test
+--[[
+local game = layer_create('game')
+local game_time = 0
+
+function update(dt)
+    game_time = game_time + dt
+
+    -- === ALPHA BLENDING (left side) ===
+    -- Background rect
+    layer_set_blend_mode(game, "alpha")
+    layer_rectangle(game, 20, 30, 200, 100, rgba(40, 40, 60, 255))
+
+    -- Overlapping circles with alpha blending (normal transparency)
+    layer_circle(game, 70, 80, 35, rgba(255, 50, 50, 200))   -- Red
+    layer_circle(game, 120, 80, 35, rgba(50, 255, 50, 200))  -- Green
+    layer_circle(game, 95, 45, 35, rgba(50, 50, 255, 200))   -- Blue
+
+    -- === ADDITIVE BLENDING (right side) ===
+    -- Dark background to show glow effect
+    layer_rectangle(game, 260, 30, 200, 100, rgba(15, 15, 25, 255))
+
+    -- Overlapping circles with additive blending - colors ADD together
+    layer_set_blend_mode(game, "additive")
+    layer_circle(game, 310, 80, 35, rgba(200, 50, 50, 255))  -- Red
+    layer_circle(game, 360, 80, 35, rgba(50, 200, 50, 255))  -- Green
+    layer_circle(game, 335, 45, 35, rgba(50, 50, 200, 255))  -- Blue
+    -- Where circles overlap, colors get BRIGHTER!
+
+    -- === ADDITIVE GLOW ANIMATION (bottom) ===
+    layer_set_blend_mode(game, "alpha")
+    layer_rectangle(game, 20, 150, 440, 100, rgba(10, 10, 20, 255))
+
+    -- Animated glowing circles
+    layer_set_blend_mode(game, "additive")
+    for i = 0, 7 do
+        local x = 50 + i * 55
+        local y = 200 + math.sin(game_time * 2 + i * 0.6) * 30
+        local pulse = 0.5 + 0.5 * math.sin(game_time * 3 + i * 0.8)
+        local r = 12 + pulse * 8
+
+        -- Rainbow colors
+        local hue = (i / 8) * 360 + game_time * 40
+        local hr, hg, hb = hsv_to_rgb(hue % 360, 1, 1)
+        -- Dim for additive (will brighten where overlapping)
+        local dim = 0.4 + pulse * 0.3
+        hr = math.floor(hr * dim)
+        hg = math.floor(hg * dim)
+        hb = math.floor(hb * dim)
+
+        -- Outer glow (larger, dimmer)
+        layer_circle(game, x, y, r + 10, rgba(math.floor(hr/3), math.floor(hg/3), math.floor(hb/3), 150))
+        -- Inner bright core
+        layer_circle(game, x, y, r, rgba(hr, hg, hb, 200))
+    end
+
+    -- Reset for next frame
+    layer_set_blend_mode(game, "alpha")
+end
+--]]
+--}}}
+
+--{{{ Combined bouncing circle and emoji test (multi-layer)
+-- Create three layers (bottom to top: emoji, circle, stars)
+local emoji_layer = layer_create('emoji')
+local circle_layer = layer_create('circle')
+local stars_layer = layer_create('stars')
+
+local smile_tex = texture_load("assets/slight_smile.png")
+local star_tex = texture_load("assets/star.png")
 
 -- Target display sizes
 local smile_size = 36
@@ -422,9 +488,9 @@ function update(dt)
         circle.vy = -circle.vy
     end
 
-    -- Draw circle
+    -- Draw circle (on circle_layer - bottom)
     local r, g, b = hsv_to_rgb(circle.hue, 1, 1)
-    layer_circle(game, circle.x, circle.y, circle.radius, rgba(r, g, b, 255))
+    layer_circle(circle_layer, circle.x, circle.y, circle.radius, rgba(r, g, b, 255))
 
     -- === Emoji with orbiting stars ===
     -- Update position
@@ -454,23 +520,23 @@ function update(dt)
         emoji.vy = -emoji.vy
     end
 
-    -- Draw the smile emoji rotating around its center
-    layer_push(game, emoji.x, emoji.y, emoji.rotation, smile_scale, smile_scale)
-        layer_draw_texture(game, smile_tex, 0, 0)
-    layer_pop(game)
+    -- Draw the smile emoji (on emoji_layer - middle)
+    layer_push(emoji_layer, emoji.x, emoji.y, emoji.rotation, smile_scale, smile_scale)
+        layer_draw_texture(emoji_layer, smile_tex, 0, 0)
+    layer_pop(emoji_layer)
 
-    -- Draw orbiting stars
+    -- Draw orbiting stars (on stars_layer - top)
     for i = 0, num_stars - 1 do
         local angle_offset = (i / num_stars) * math.pi * 2
         local orbit_angle = game_time * orbit_speed + angle_offset
         local star_spin = game_time * star_spin_speed * (i % 2 == 0 and 1 or -1)
 
         -- Stars orbit the smile and spin around themselves
-        layer_push(game, emoji.x, emoji.y, orbit_angle, 1, 1)
-            layer_push(game, orbit_radius, 0, star_spin, star_scale, star_scale)
-                layer_draw_texture(game, star_tex, 0, 0)
-            layer_pop(game)
-        layer_pop(game)
+        layer_push(stars_layer, emoji.x, emoji.y, orbit_angle, 1, 1)
+            layer_push(stars_layer, orbit_radius, 0, star_spin, star_scale, star_scale)
+                layer_draw_texture(stars_layer, star_tex, 0, 0)
+            layer_pop(stars_layer)
+        layer_pop(stars_layer)
     end
 end
 --}}}
