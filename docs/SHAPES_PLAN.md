@@ -14,26 +14,123 @@ A comprehensive 2D vector graphics system for Anchor, inspired by Freya Holmér'
 
 ---
 
+## Reference Implementation: Cute Framework
+
+Randy Gaul's [Cute Framework](https://github.com/RandyGaul/cute_framework) uses a similar SDF approach and serves as a practical reference for our implementation. Key insights:
+
+### Vertex Format
+
+Cute Framework's `CF_Vertex` stores shape data directly in vertices:
+
+```c
+struct CF_Vertex {
+    CF_V2 p;           // World space position
+    CF_V2 posH;        // Camera-transformed position
+    int n;             // Vertex count (for polygons)
+    CF_V2 shape[8];    // 8 control points (16 floats) for SDF shapes
+    CF_V2 uv;          // Texture coordinates
+    CF_Pixel color;    // Color
+    float radius;      // Circle radius, corner rounding
+    float stroke;      // Stroke/outline width
+    float aa;          // Anti-aliasing factor
+    uint8_t type;      // Shape type
+    uint8_t alpha;     // Alpha flags
+    uint8_t fill;      // Fill vs wireframe
+    CF_Color attributes; // User shader params (4 floats)
+};
+```
+
+**Key insight:** Rather than encoding shape params differently per type, Randy uses a large `shape[8]` array (8 vec2s = 16 floats) that can hold any shape's control points. The shader interprets these based on `type`.
+
+### Uber Shader Approach
+
+The fragment shader branches on `type` (encoded as normalized byte 0-255):
+
+```glsl
+bool is_sprite = v_type < (0.5/255.0);
+bool is_text   = v_type > (0.5/255.0) && v_type < (1.5/255.0);
+bool is_box    = v_type > (1.5/255.0) && v_type < (2.5/255.0);
+bool is_seg    = v_type > (2.5/255.0) && v_type < (3.5/255.0);
+bool is_tri    = v_type > (3.5/255.0) && v_type < (4.5/255.0);
+// else: polygon
+
+if (is_sprite || is_text) {
+    // Texture sampling
+} else if (is_box) {
+    d = distance_box(v_pos, v_ab, v_cd);
+} else if (is_seg) {
+    // Polyline corner: union of two segments
+    d = min(distance_segment(v_pos, v_ab.xy, v_ab.zw),
+            distance_segment(v_pos, v_ab.zw, v_cd.xy));
+} else if (is_tri) {
+    d = distance_triangle(v_pos, v_ab.xy, v_ab.zw, v_cd.xy);
+} else {
+    // Polygon with up to 8 vertices
+    d = distance_polygon(v_pos, shape_points, n);
+}
+```
+
+### SDF Application
+
+Final color computed via smoothstep AA:
+
+```glsl
+vec4 sdf(vec4 fill_color, vec4 stroke_color, float d) {
+    float wire_d = abs(d) - v_stroke;  // Stroke distance
+    vec4 stroke_aa = mix(stroke_color, vec4(0), smoothstep(0.0, v_aa, wire_d));
+    vec4 fill_aa = mix(fill_color, vec4(0), smoothstep(0.0, v_aa, d));
+    return mix(stroke_aa, fill_aa, v_fill);
+}
+```
+
+### Polyline Corners
+
+Each polyline corner is rendered as **3 control points** forming the union of two capsule/segment SDFs. The geometry is built on CPU with careful shared-edge computation to avoid pixel flickering at triangle borders.
+
+```
+Point A -----> Point B -----> Point C
+         seg1          seg2
+
+Corner at B = min(distance_segment(p, A, B), distance_segment(p, B, C))
+```
+
+### Polygon Fallback
+
+For polygons with **more than 8 vertices**, Cute Framework falls back to CPU ear-clipping triangulation without SDF. This means no per-pixel AA or corner rounding, but works for any vertex count.
+
+### Implications for Anchor
+
+1. **Simplify vertex format:** Use a large params array rather than complex per-type encoding
+2. **Single uber-shader:** All shapes in one shader with type branching
+3. **Polyline via segment unions:** Not geometry-based joins, but SDF corner unions
+4. **Practical polygon limit:** SDF polygon up to 8 vertices, ear-clipping beyond that
+
+---
+
 ## Architecture Overview
 
-### Two-Shader System
+### Unified Uber-Shader System
 
-**SDF Uber-Shader** — For shapes with clean mathematical definitions:
-- Disc (filled circle)
-- Ring (circle outline / donut)
-- Arc (ring segment)
-- Pie (filled wedge)
-- Rectangle
-- Rounded Rectangle
-- Line (single segment)
+Following Cute Framework's approach, Anchor uses a **single uber-shader** for all shape types. The fragment shader branches on a `type` attribute to compute the appropriate SDF or sample textures.
 
-All SDF shapes render as single quads. The fragment shader computes the shape boundary per-pixel using signed distance functions. These shapes batch together into single draw calls.
+**SDF Shapes (rendered as quads):**
+- Circle (filled disc)
+- Box (axis-aligned or rotated rectangle)
+- Rounded Rectangle (box with corner radius)
+- Capsule (line with round caps)
+- Triangle
+- Segment (polyline corner — union of two line SDFs)
+- Polygon (up to 8 vertices)
 
-**Mesh Shader** — For shapes requiring triangulated geometry:
-- Arbitrary Polygon (with holes)
-- Polyline (with join types)
+**Texture Shapes (rendered as quads):**
+- Sprite
+- Text (future)
 
-These shapes generate vertices on the CPU via triangulation (polygons) or join geometry (polylines). They use a simpler fragment shader that just applies colors/gradients to pre-computed geometry.
+**Mesh Fallback (no SDF, CPU triangulation):**
+- Polygon with >8 vertices
+- Complex polylines with many segments
+
+The uber-shader approach maximizes batching — all shapes can be submitted in one draw call as long as texture and blend mode don't change.
 
 ### Rendering Pipeline (Deferred)
 
@@ -41,9 +138,9 @@ Anchor uses **deferred rendering** — draw calls during update store commands, 
 
 **During update (Lua draw calls):**
 ```
-game:circle(100, 100, 10, red)   → stores command in game.commands[]
-game:polygon(points, blue)       → stores command in game.commands[]
-game:circle(200, 100, 10, green) → stores command in game.commands[]
+layer_circle(game, 100, 100, 10, red)   → stores command in game.commands[]
+layer_polygon(game, points, blue)       → stores command in game.commands[]
+layer_circle(game, 200, 100, 10, green) → stores command in game.commands[]
 ```
 
 Each layer maintains a command queue. Commands are small structs (~64-128 bytes) containing shape type and parameters. No vertex building, no GPU work during update.
@@ -69,64 +166,46 @@ Present (swap buffers)
 - Clean separation: update = game logic + record draws, frame end = render
 - No mid-frame flushes visible to Lua code
 
-### Vertex Format — SDF Shapes
+### Vertex Format
 
-These vertices are built **at frame end** from DrawCommands. Each command generates 4 vertices (one quad).
+Following Cute Framework's approach, we use a unified vertex format with shape data passed per-vertex. The shader interprets the data based on `type`.
 
-```c
-typedef struct {
-    float x, y;           // Position (transformed from command)
-    float u, v;           // UV coordinates (0-1 across shape quad)
-    uint32_t color;       // Primary color (packed RGBA)
-    uint32_t color2;      // Secondary color (gradient end / outline)
-    float mode;           // Shape type (DISC, RING, ARC, PIE, RECT, RRECT, LINE)
-    float params[8];      // Shape-specific parameters (see below)
-} SdfVertex;
-```
-
-**Parameter encoding by shape type:**
-
-| Shape | params[0] | params[1] | params[2] | params[3] | params[4] | params[5] | params[6] | params[7] |
-|-------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
-| Disc | radius | outline_thickness | — | — | — | — | — | — |
-| Ring | inner_radius | outer_radius | outline_thickness | — | — | — | — | — |
-| Arc | inner_radius | outer_radius | start_angle | end_angle | cap_type | outline_thickness | — | — |
-| Pie | radius | start_angle | end_angle | outline_thickness | — | — | — | — |
-| Rect | width | height | outline_thickness | — | — | — | — | — |
-| RRect | width | height | corner_radius | outline_thickness | — | — | — | — |
-| Line | x1 | y1 | x2 | y2 | thickness | cap_type | — | — |
-
-Additional vertex attributes for advanced features:
+**Current Implementation (Phase 3) — 52 bytes per vertex (13 floats):**
 
 ```c
-typedef struct {
-    // ... base fields above ...
-    uint32_t color3;      // Gradient color 3 (for bilinear)
-    uint32_t color4;      // Gradient color 4 (for bilinear)
-    float gradient_type;  // NONE, LINEAR, RADIAL, ANGULAR, BILINEAR
-    float gradient_params[4]; // Direction/center/radius depending on type
-    float dash_size;
-    float dash_spacing;
-    float dash_offset;
-    float dash_type;      // NONE, BASIC, ROUNDED, ANGLED
-} SdfVertexFull;
+// Vertex layout: x, y, u, v, r, g, b, a, type, shape[4]
+#define VERTEX_FLOATS 13
+
+// VAO attributes:
+// location 0: vec2 aPos      (x, y)
+// location 1: vec2 aUV       (u, v)
+// location 2: vec4 aColor    (r, g, b, a) - unpacked floats 0-1
+// location 3: float aType    (0=RECT, 1=CIRCLE, 2=SPRITE)
+// location 4: vec4 aShape    (shape params, meaning depends on type)
 ```
 
-Total: 80 bytes per vertex, 320 bytes per quad. At 480×270 with hundreds of shapes, this is negligible.
+**Shape data encoding:**
 
-### Vertex Format — Mesh Shapes
+| Type | shape.x | shape.y | shape.z | shape.w |
+|------|---------|---------|---------|---------|
+| RECT (0) | center.x | center.y | half_width | half_height |
+| CIRCLE (1) | center.x | center.y | radius | (unused) |
+| SPRITE (2) | (future) | (future) | (future) | (future) |
 
-These vertices are built **at frame end** via triangulation (polygons) or join geometry (polylines).
+**Note:** Current shape[4] (vec4) limits us to simple shapes. For polygons (8 vertices = 16 floats), the vertex format will need expansion to shape[8] like Cute Framework.
+
+**Future Phases (Full Features) — expanded format:**
+
+When implementing advanced shapes (polygons, gradients, strokes), expand to:
 
 ```c
-typedef struct {
-    float x, y;           // Position
-    float u, v;           // UV (for gradients/textures)
-    uint32_t color;       // Vertex color
-} MeshVertex;
+// Expanded vertex layout for full shapes system
+// location 4: vec4 aShape0   (shape params 0-3)
+// location 5: vec4 aShape1   (shape params 4-7)
+// + additional attributes for: color2, stroke, gradient params, dash params
 ```
 
-Simpler format since shape complexity is in geometry, not shader. 20 bytes per vertex.
+The base format supports Phase 3 shapes (circle, rectangle, sprite). Advanced features (gradients, dashes, polygons) are added incrementally.
 
 ---
 
@@ -690,18 +769,18 @@ int layer_order[MAX_LAYERS];
 
 ### Layer API
 
-**Layer creation:**
+**Raw C bindings (Phase 3):**
 ```lua
-game = an:layer('game')
-effects = an:layer('effects')
-ui = an:layer('ui')
+game = layer_create('game')
+effects = layer_create('effects')
+ui = layer_create('ui')
+
+-- Drawing to layers (stores commands, no GPU work)
+layer_circle(game, x, y, r, color)     -- Adds command to game.commands[]
+layer_circle(effects, x, y, r, color)  -- Adds command to effects.commands[]
 ```
 
-**Drawing to layers (stores commands, no GPU work):**
-```lua
-game:circle(x, y, r, color)     -- Adds command to game.commands[]
-effects:circle(x, y, r, color)  -- Adds command to effects.commands[]
-```
+**YueScript wrappers (final API):** See Lua API section below.
 
 ### Frame-End Rendering
 
@@ -952,6 +1031,37 @@ Blend mode is stored per-command. At frame end, changing blend mode between comm
 
 ## Lua API
 
+Anchor exposes **two API levels**:
+
+1. **Raw C bindings** — Plain functions called from Lua, used during Phase 3 implementation
+2. **YueScript wrappers** — OOP-style methods built on top of C bindings, the final user-facing API
+
+### Raw C Bindings (Phase 3)
+
+```lua
+-- Layer management
+local game = layer_create('game')
+
+-- Shapes (all take layer as first argument)
+layer_circle(game, x, y, radius, color)
+layer_rectangle(game, x, y, w, h, color)
+layer_line(game, x1, y1, x2, y2, thickness, color)
+
+-- Transforms
+layer_push(game, x, y, r, sx, sy)
+layer_pop(game)
+
+-- State
+layer_set_blend_mode(game, 'additive')
+
+-- Helpers
+local red = rgba(255, 0, 0, 255)
+```
+
+### YueScript API (Final)
+
+The following shows the user-facing API after YueScript wrappers are built:
+
 ### Layer Management
 
 ```lua
@@ -1135,27 +1245,29 @@ game:set_blend_mode('alpha')    -- back to normal
 
 ## Implementation Phases
 
-### Phase 3A: Core Infrastructure
+**Note:** Following Cute Framework's approach, we use a single uber-shader for all shapes (SDF and sprites). The mesh fallback is only needed for polygons >8 vertices.
 
-1. **Framebuffer setup**
-   - Create render target at game resolution
+### Phase 3A: Core Infrastructure (Done in Phase 3 Part 1)
+
+1. **Framebuffer setup** ✓
+   - Layer struct with FBO at game resolution
    - Nearest-neighbor filtering
    - Blit to screen with aspect-ratio scaling
 
-2. **Command queue system**
+2. **Command queue system** ✓
    - DrawCommand struct definition
    - Per-layer command arrays with dynamic growth
    - Command recording from Lua draw calls
 
-3. **Vertex buffer management**
-   - Create dynamic vertex buffer for batching
-   - Index buffer for quads (0,1,2,2,3,0 pattern)
-   - Buffer orphaning for efficient updates
+3. **Vertex buffer management** ✓
+   - Dynamic vertex buffer for batching
+   - Currently using GL_TRIANGLES (6 verts/quad)
+   - Can optimize to indexed quads later
 
-4. **Basic shader pipeline**
-   - Compile SDF uber-shader (start with disc only)
-   - Compile mesh shader (for polygons later)
-   - Uniform setup (projection matrix, etc.)
+4. **Basic shader pipeline** ✓
+   - SDF uber-shader with type branching (RECT, CIRCLE, SPRITE)
+   - Shape filter modes: smooth (anti-aliased) vs rough (pixel-perfect)
+   - Uniform setup (projection matrix, aa_width) ✓
 
 5. **Frame-end renderer**
    - Process command queues in order
@@ -1163,27 +1275,54 @@ game:set_blend_mode('alpha')    -- back to normal
    - Batch and flush with state change detection
    - Track current shader/texture/blend mode
 
-### Phase 3B: SDF Shapes
+### Phase 3B: SDF Shapes (Partial - Circle/Box Done)
 
-1. **Disc and Ring**
-   - Implement SDF functions
-   - Anti-aliasing via smoothstep
-   - Test at various sizes
+Following Cute Framework, implement these SDFs in the uber-shader:
 
-2. **Rectangle and Rounded Rectangle**
-   - Implement SDF functions
-   - Four-corner radius variant
-   - Test outline rendering
+1. **Circle (Disc)** ✓
+   ```glsl
+   float sdf_circle(vec2 p, vec2 center, float radius) {
+       return length(p - center) - radius;
+   }
+   // Also: sdf_circle_pixel() using superellipse (n=1.95) for pixel-art style
+   ```
 
-3. **Line**
-   - Implement SDF with all cap types
-   - Thinness fading for sub-pixel lines
-   - Test at various angles and thicknesses
+2. **Box (Rectangle)** ✓
+   ```glsl
+   float sdf_rect(vec2 p, vec2 center, vec2 half_size) {
+       vec2 d = abs(p - center) - half_size;
+       return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+   }
+   ```
 
-4. **Arc and Pie**
-   - Implement angular SDF (most complex)
-   - Cap handling for arc endpoints
-   - Test at various angle ranges
+3. **Segment (Line/Capsule)**
+   ```glsl
+   float sdf_segment(vec2 p, vec2 a, vec2 b) {
+       vec2 pa = p - a, ba = b - a;
+       float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+       return length(pa - ba * h);
+   }
+   ```
+
+4. **Triangle**
+   - Three-point SDF using edge distances
+
+5. **Polyline Corners** (Cute Framework approach)
+   - Each corner = union of two segments: `min(sdf_segment(p, A, B), sdf_segment(p, B, C))`
+   - Build corner geometry on CPU with careful shared-edge computation
+   - Avoids complex join geometry
+
+6. **Polygon (up to 8 vertices)**
+   ```glsl
+   // Referenced from: https://www.shadertoy.com/view/wdBXRW
+   float sdf_polygon(vec2 p, vec2[8] v, int N) { ... }
+   ```
+   - For >8 vertices: fall back to ear-clipping triangulation (no SDF)
+
+**Deferred to later phases:**
+- Arc and Pie (complex angular math)
+- Ring (can be approximated with stroke on circle)
+- Four-corner radius variants
 
 ### Phase 3C: Styling Features
 

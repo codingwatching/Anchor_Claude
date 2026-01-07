@@ -18,7 +18,9 @@
       "WebFetch(domain:strudel.cc)",
       "WebFetch(domain:github.com)",
       "Bash(export PATH=\"/c/emsdk:/c/emsdk/upstream/emscripten:$PATH\")",
-      "Bash(/c/emsdk/upstream/emscripten/emcc.bat --version)"
+      "Bash(/c/emsdk/upstream/emscripten/emcc.bat --version)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:randygaul.github.io)"
     ]
   }
 }

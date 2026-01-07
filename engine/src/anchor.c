@@ -26,7 +26,7 @@
 #define WINDOW_TITLE "Anchor"
 #define GAME_WIDTH 480
 #define GAME_HEIGHT 270
-#define INITIAL_SCALE 2
+#define INITIAL_SCALE 3
 
 // Timing configuration (matching reference Anchor)
 #define FIXED_RATE (1.0 / 144.0)  // 144 Hz fixed timestep
@@ -215,7 +215,19 @@ static void layer_add_circle(Layer* layer, float x, float y, float radius, uint3
 
 // Batch rendering
 #define MAX_BATCH_VERTICES 6000  // 1000 quads * 6 vertices
-#define VERTEX_FLOATS 6          // x, y, r, g, b, a
+#define VERTEX_FLOATS 13         // x, y, u, v, r, g, b, a, type, shape[4]
+
+// Shape types for uber-shader
+#define SHAPE_TYPE_RECT   0.0f
+#define SHAPE_TYPE_CIRCLE 1.0f
+#define SHAPE_TYPE_SPRITE 2.0f
+
+// Shape filter mode (smooth = anti-aliased, rough = hard pixel edges)
+enum {
+    FILTER_SMOOTH = 0,
+    FILTER_ROUGH,
+};
+static int shape_filter_mode = FILTER_SMOOTH;
 
 static float batch_vertices[MAX_BATCH_VERTICES * VERTEX_FLOATS];
 static int batch_vertex_count = 0;
@@ -236,31 +248,48 @@ static void unpack_color(uint32_t color, float* r, float* g, float* b, float* a)
     *a = (color & 0xFF) / 255.0f;
 }
 
-// Add a vertex to the batch
-static void batch_add_vertex(float x, float y, float r, float g, float b, float a) {
+// Add a vertex to the batch (13 floats per vertex)
+static void batch_add_vertex(float x, float y, float u, float v,
+                             float r, float g, float b, float a,
+                             float type, float s0, float s1, float s2, float s3) {
     if (batch_vertex_count >= MAX_BATCH_VERTICES) return;
     int i = batch_vertex_count * VERTEX_FLOATS;
     batch_vertices[i + 0] = x;
     batch_vertices[i + 1] = y;
-    batch_vertices[i + 2] = r;
-    batch_vertices[i + 3] = g;
-    batch_vertices[i + 4] = b;
-    batch_vertices[i + 5] = a;
+    batch_vertices[i + 2] = u;
+    batch_vertices[i + 3] = v;
+    batch_vertices[i + 4] = r;
+    batch_vertices[i + 5] = g;
+    batch_vertices[i + 6] = b;
+    batch_vertices[i + 7] = a;
+    batch_vertices[i + 8] = type;
+    batch_vertices[i + 9] = s0;   // shape[0]
+    batch_vertices[i + 10] = s1;  // shape[1]
+    batch_vertices[i + 11] = s2;  // shape[2]
+    batch_vertices[i + 12] = s3;  // shape[3]
     batch_vertex_count++;
 }
 
-// Add a quad (two triangles, 6 vertices) to the batch
-static void batch_add_quad(float x0, float y0, float x1, float y1,
-                           float x2, float y2, float x3, float y3,
-                           float r, float g, float b, float a) {
+// Add a quad (two triangles, 6 vertices) for SDF shapes
+// UVs go from (0,0) to (1,1) across the quad
+// Shape params are the same for all vertices
+static void batch_add_sdf_quad(float x0, float y0, float x1, float y1,
+                               float x2, float y2, float x3, float y3,
+                               float r, float g, float b, float a,
+                               float type, float s0, float s1, float s2, float s3) {
+    // Quad corners with UVs:
+    // 0(0,0)---1(1,0)
+    // |         |
+    // 3(0,1)---2(1,1)
+
     // Triangle 1: 0, 1, 2
-    batch_add_vertex(x0, y0, r, g, b, a);
-    batch_add_vertex(x1, y1, r, g, b, a);
-    batch_add_vertex(x2, y2, r, g, b, a);
+    batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3);
+    batch_add_vertex(x1, y1, 1.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3);
+    batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3);
     // Triangle 2: 0, 2, 3
-    batch_add_vertex(x0, y0, r, g, b, a);
-    batch_add_vertex(x2, y2, r, g, b, a);
-    batch_add_vertex(x3, y3, r, g, b, a);
+    batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3);
+    batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3);
+    batch_add_vertex(x3, y3, 0.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3);
 }
 
 static SDL_Window* window = NULL;
@@ -297,21 +326,24 @@ static void batch_flush(void) {
     batch_vertex_count = 0;
 }
 
-// Process a rectangle command
+// Process a rectangle command (SDF-based)
 static void process_rectangle(const DrawCommand* cmd) {
     float x = cmd->params[0];
     float y = cmd->params[1];
     float w = cmd->params[2];
     float h = cmd->params[3];
 
-    // Rectangle corners (local coordinates)
+    // Add padding for anti-aliasing (1-2 pixels)
+    float pad = 2.0f;
+
+    // Rectangle corners with padding (local coordinates)
     // 0---1
     // |   |
     // 3---2
-    float lx0 = x, ly0 = y;
-    float lx1 = x + w, ly1 = y;
-    float lx2 = x + w, ly2 = y + h;
-    float lx3 = x, ly3 = y + h;
+    float lx0 = x - pad, ly0 = y - pad;
+    float lx1 = x + w + pad, ly1 = y - pad;
+    float lx2 = x + w + pad, ly2 = y + h + pad;
+    float lx3 = x - pad, ly3 = y + h + pad;
 
     // Transform to world coordinates
     float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
@@ -320,12 +352,57 @@ static void process_rectangle(const DrawCommand* cmd) {
     transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
     transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
 
+    // Compute center and half-size in world space (for SDF)
+    // Note: This assumes no rotation in transform for now
+    float cx, cy;
+    transform_point(cmd->transform, x + w * 0.5f, y + h * 0.5f, &cx, &cy);
+    float half_w = w * 0.5f;
+    float half_h = h * 0.5f;
+
     // Unpack color
     float r, g, b, a;
     unpack_color(cmd->color, &r, &g, &b, &a);
 
-    // Add to batch
-    batch_add_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3, r, g, b, a);
+    // Add SDF quad: shape = (center.x, center.y, half_w, half_h)
+    batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
+                       r, g, b, a,
+                       SHAPE_TYPE_RECT, cx, cy, half_w, half_h);
+}
+
+// Process a circle command (SDF-based)
+static void process_circle(const DrawCommand* cmd) {
+    float x = cmd->params[0];
+    float y = cmd->params[1];
+    float radius = cmd->params[2];
+
+    // Add padding for anti-aliasing
+    float pad = 2.0f;
+
+    // Circle bounding box with padding (local coordinates)
+    float lx0 = x - radius - pad, ly0 = y - radius - pad;
+    float lx1 = x + radius + pad, ly1 = y - radius - pad;
+    float lx2 = x + radius + pad, ly2 = y + radius + pad;
+    float lx3 = x - radius - pad, ly3 = y + radius + pad;
+
+    // Transform to world coordinates
+    float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
+    transform_point(cmd->transform, lx0, ly0, &wx0, &wy0);
+    transform_point(cmd->transform, lx1, ly1, &wx1, &wy1);
+    transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
+    transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
+
+    // Transform center to world space
+    float cx, cy;
+    transform_point(cmd->transform, x, y, &cx, &cy);
+
+    // Unpack color
+    float r, g, b, a;
+    unpack_color(cmd->color, &r, &g, &b, &a);
+
+    // Add SDF quad: shape = (center.x, center.y, radius, unused)
+    batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
+                       r, g, b, a,
+                       SHAPE_TYPE_CIRCLE, cx, cy, radius, 0.0f);
 }
 
 // Render all commands on a layer
@@ -340,7 +417,7 @@ static void layer_render(Layer* layer) {
                 process_rectangle(cmd);
                 break;
             case SHAPE_CIRCLE:
-                // TODO: Step 5
+                process_circle(cmd);
                 break;
             case SHAPE_SPRITE:
                 // TODO: Step 7
@@ -355,9 +432,6 @@ static void layer_render(Layer* layer) {
 
     // Final flush
     batch_flush();
-
-    // Clear commands for next frame
-    layer_clear_commands(layer);
 }
 
 // Lua bindings
@@ -380,6 +454,16 @@ static int l_layer_rectangle(lua_State* L) {
     return 0;
 }
 
+static int l_layer_circle(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    float radius = (float)luaL_checknumber(L, 4);
+    uint32_t color = (uint32_t)luaL_checkinteger(L, 5);
+    layer_add_circle(layer, x, y, radius, color);
+    return 0;
+}
+
 static int l_rgba(lua_State* L) {
     int r = (int)luaL_checkinteger(L, 1);
     int g = (int)luaL_checkinteger(L, 2);
@@ -390,10 +474,24 @@ static int l_rgba(lua_State* L) {
     return 1;
 }
 
+static int l_set_shape_filter(lua_State* L) {
+    const char* mode = luaL_checkstring(L, 1);
+    if (strcmp(mode, "smooth") == 0) {
+        shape_filter_mode = FILTER_SMOOTH;
+    } else if (strcmp(mode, "rough") == 0) {
+        shape_filter_mode = FILTER_ROUGH;
+    } else {
+        return luaL_error(L, "Invalid filter mode: %s (use 'smooth' or 'rough')", mode);
+    }
+    return 0;
+}
+
 static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_create", l_layer_create);
     lua_register(L, "layer_rectangle", l_layer_rectangle);
+    lua_register(L, "layer_circle", l_layer_circle);
     lua_register(L, "rgba", l_rgba);
+    lua_register(L, "set_shape_filter", l_set_shape_filter);
 }
 
 // Main loop state (needed for emscripten)
@@ -417,19 +515,95 @@ static Uint64 frame = 0;
 // Shader sources (no version line - header prepended at compile time)
 static const char* vertex_shader_source =
     "layout (location = 0) in vec2 aPos;\n"
-    "layout (location = 1) in vec4 aColor;\n"
-    "out vec4 vertexColor;\n"
+    "layout (location = 1) in vec2 aUV;\n"
+    "layout (location = 2) in vec4 aColor;\n"
+    "layout (location = 3) in float aType;\n"
+    "layout (location = 4) in vec4 aShape;\n"
+    "\n"
+    "out vec2 vPos;\n"
+    "out vec2 vUV;\n"
+    "out vec4 vColor;\n"
+    "out float vType;\n"
+    "out vec4 vShape;\n"
+    "\n"
     "uniform mat4 projection;\n"
+    "\n"
     "void main() {\n"
     "    gl_Position = projection * vec4(aPos, 0.0, 1.0);\n"
-    "    vertexColor = aColor;\n"
+    "    vPos = aPos;\n"
+    "    vUV = aUV;\n"
+    "    vColor = aColor;\n"
+    "    vType = aType;\n"
+    "    vShape = aShape;\n"
     "}\n";
 
 static const char* fragment_shader_source =
-    "in vec4 vertexColor;\n"
+    "in vec2 vPos;\n"
+    "in vec2 vUV;\n"
+    "in vec4 vColor;\n"
+    "in float vType;\n"
+    "in vec4 vShape;\n"
+    "\n"
     "out vec4 FragColor;\n"
+    "\n"
+    "uniform float u_aa_width;\n"
+    "\n"
+    "// SDF for rectangle: shape = (center.x, center.y, half_w, half_h)\n"
+    "float sdf_rect(vec2 p, vec2 center, vec2 half_size) {\n"
+    "    vec2 d = abs(p - center) - half_size;\n"
+    "    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);\n"
+    "}\n"
+    "\n"
+    "// SDF for circle: shape = (center.x, center.y, radius, unused)\n"
+    "float sdf_circle(vec2 p, vec2 center, float radius) {\n"
+    "    return length(p - center) - radius;\n"
+    "}\n"
+    "\n"
+    "// SDF for 'pixel-style' circle with cardinal bumps (superellipse, n < 2)\n"
+    "float sdf_circle_pixel(vec2 p, vec2 center, float radius) {\n"
+    "    vec2 d = abs(p - center);\n"
+    "    float n = 1.95;\n"
+    "    float dist = pow(pow(d.x, n) + pow(d.y, n), 1.0/n);\n"
+    "    return dist - radius;\n"
+    "}\n"
+    "\n"
     "void main() {\n"
-    "    FragColor = vertexColor;\n"
+    "    float d;\n"
+    "    \n"
+    "    // In rough mode, snap position to pixel centers for chunky look\n"
+    "    vec2 p = (u_aa_width > 0.0) ? vPos : floor(vPos) + 0.5;\n"
+    "    \n"
+    "    if (vType < 0.5) {\n"
+    "        // Rectangle\n"
+    "        vec2 center = vShape.xy;\n"
+    "        vec2 half_size = vShape.zw;\n"
+    "        d = sdf_rect(p, center, half_size);\n"
+    "    } else if (vType < 1.5) {\n"
+    "        // Circle\n"
+    "        vec2 center = vShape.xy;\n"
+    "        float radius = vShape.z;\n"
+    "        if (u_aa_width == 0.0) {\n"
+    "            // Rough mode: snap center and radius to pixel grid\n"
+    "            center = floor(center) + 0.5;\n"
+    "            radius = floor(radius + 0.5);\n"
+    "            d = sdf_circle_pixel(p, center, radius);\n"
+    "        } else {\n"
+    "            d = sdf_circle(p, center, radius);\n"
+    "        }\n"
+    "    } else {\n"
+    "        // Sprite (future) - for now just solid color\n"
+    "        FragColor = vColor;\n"
+    "        return;\n"
+    "    }\n"
+    "    \n"
+    "    // Apply anti-aliasing (or hard edges when u_aa_width = 0)\n"
+    "    float alpha;\n"
+    "    if (u_aa_width > 0.0) {\n"
+    "        alpha = 1.0 - smoothstep(-u_aa_width, u_aa_width, d);\n"
+    "    } else {\n"
+    "        alpha = 1.0 - step(0.0, d);\n"
+    "    }\n"
+    "    FragColor = vec4(vColor.rgb, vColor.a * alpha);\n"
     "}\n";
 
 static const char* screen_vertex_source =
@@ -548,28 +722,34 @@ static void main_loop_iteration(void) {
         lag = FIXED_RATE * MAX_UPDATES;
     }
 
-    // Fixed timestep loop
-    while (lag >= FIXED_RATE) {
-        // Process events inside fixed loop (input tied to simulation steps)
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
+    // Process events every frame (not tied to fixed timestep)
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_QUIT) {
+            running = false;
+        }
+        if (event.type == SDL_KEYDOWN) {
+            if (event.key.keysym.sym == SDLK_ESCAPE) {
                 running = false;
             }
-            if (event.type == SDL_KEYDOWN) {
-                if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    running = false;
-                }
-                #ifndef __EMSCRIPTEN__
-                // Fullscreen toggle only on desktop
-                if (event.key.keysym.sym == SDLK_F11 ||
-                    (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))) {
-                    Uint32 flags = SDL_GetWindowFlags(window);
-                    SDL_SetWindowFullscreen(window, (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-                }
-                #endif
+            #ifndef __EMSCRIPTEN__
+            // Fullscreen toggle only on desktop
+            if (event.key.keysym.sym == SDLK_F11 ||
+                (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT))) {
+                Uint32 flags = SDL_GetWindowFlags(window);
+                SDL_SetWindowFullscreen(window, (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
             }
+            #endif
         }
+    }
+
+    // Fixed timestep loop
+    bool did_update = false;
+    while (lag >= FIXED_RATE) {
+        did_update = true;
+
+        // Clear commands at start of update (so they persist if no update runs)
+        layer_clear_commands(game_layer);
 
         // Call Lua update (skip if in error state)
         if (!error_state) {
@@ -606,7 +786,7 @@ static void main_loop_iteration(void) {
     if (error_state) {
         glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
     } else {
-        glClearColor(0.2f, 0.3f, 0.4f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  // Black
     }
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -623,6 +803,11 @@ static void main_loop_iteration(void) {
     GLint proj_loc = glGetUniformLocation(shader_program, "projection");
     glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
 
+    // Set AA width based on filter mode (0 = rough/hard edges, 1 = smooth)
+    GLint aa_loc = glGetUniformLocation(shader_program, "u_aa_width");
+    float aa_width = (shape_filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
+    glUniform1f(aa_loc, aa_width);
+
     // Render all commands (added by Lua during update)
     layer_render(game_layer);
 
@@ -635,13 +820,16 @@ static void main_loop_iteration(void) {
     glViewport(0, 0, window_w, window_h);
 
     // Calculate scale to fit window while maintaining aspect ratio
+    // Use integer scaling for pixel-perfect rendering
     float scale_x = (float)window_w / game_layer->width;
     float scale_y = (float)window_h / game_layer->height;
     float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    int int_scale = (int)scale;
+    if (int_scale < 1) int_scale = 1;
 
     // Calculate centered position with letterboxing
-    int scaled_w = (int)(game_layer->width * scale);
-    int scaled_h = (int)(game_layer->height * scale);
+    int scaled_w = game_layer->width * int_scale;
+    int scaled_h = game_layer->height * int_scale;
     int offset_x = (window_w - scaled_w) / 2;
     int offset_y = (window_h - scaled_h) / 2;
 
@@ -743,7 +931,7 @@ int main(int argc, char* argv[]) {
     printf("Shader program created\n");
 
     // Set up VAO and VBO for dynamic quad rendering
-    // Vertex format: x, y, r, g, b, a (6 floats per vertex, 6 vertices per quad)
+    // Vertex format: x, y, u, v, r, g, b, a, type, shape[4] (13 floats per vertex)
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
 
@@ -752,16 +940,31 @@ int main(int argc, char* argv[]) {
     // Allocate space for batch rendering
     glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * VERTEX_FLOATS * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
-    // Position attribute (location 0): 2 floats
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    // Stride = 13 floats = 52 bytes
+    int stride = VERTEX_FLOATS * sizeof(float);
+
+    // Position attribute (location 0): 2 floats at offset 0
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*)0);
     glEnableVertexAttribArray(0);
 
-    // Color attribute (location 1): 4 floats
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(2 * sizeof(float)));
+    // UV attribute (location 1): 2 floats at offset 2
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // Color attribute (location 2): 4 floats at offset 4
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, (void*)(4 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    // Type attribute (location 3): 1 float at offset 8
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+
+    // Shape attribute (location 4): 4 floats at offset 9
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(9 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+
     glBindVertexArray(0);
-    printf("Game VAO/VBO created\n");
+    printf("Game VAO/VBO created (stride=%d bytes)\n", stride);
 
     // Create game layer
     game_layer = layer_create(GAME_WIDTH, GAME_HEIGHT);

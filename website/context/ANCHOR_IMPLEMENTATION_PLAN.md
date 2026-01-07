@@ -181,8 +181,8 @@ See `docs/SHAPES_PLAN.md` for full technical details on the shapes system (to be
 
 ```
 During update:
-  game:circle(...)  → stores DrawCommand in game.commands[]
-  game:rectangle(...)  → stores DrawCommand in game.commands[]
+  layer_circle(game, ...)      → stores DrawCommand in game.commands[]
+  layer_rectangle(game, ...)   → stores DrawCommand in game.commands[]
 
 At frame end:
   For each layer:
@@ -192,82 +192,115 @@ At frame end:
 
 ---
 
-### 3.1 Layer System & Command Queue
-- [ ] Layer struct: FBO, color texture, command array, transform stack
-- [ ] DrawCommand struct: type, blend_mode, color, transform, params
-- [ ] `an:layer(name)` creates layer with FBO at game resolution
-- [ ] Per-layer transform stack (mat3 array, depth 32)
-- [ ] Per-layer current blend mode
-- [ ] Command array with dynamic growth
-- [ ] Maximum 16 layers
+### Implementation Steps
 
-### 3.2 Frame-End Renderer
-- [ ] `render_frame()` — process all layers, then composite to screen
-- [ ] `render_layer()` — iterate commands, build vertices, batch, flush
-- [ ] Batch state tracking: current texture, current blend mode
-- [ ] Flush batch on: texture change, blend change, buffer full
-- [ ] Vertex building from DrawCommand (apply captured transform)
-- [ ] Reset command queue after rendering each layer
-- [ ] Composite layers to screen (fullscreen quads with layer textures)
+**Step 1: Read existing code** ✓
+- [x] Understand Phase 1 & 2 code (window, GL context, shaders, Lua)
 
-### 3.3 Transform Stack
-- [ ] `layer:push(x, y, r, sx, sy)` — push transform onto layer's stack
-- [ ] `layer:pop()` — pop transform
-- [ ] Current transform captured into DrawCommand at record time
-- [ ] Transform applied when building vertices at frame end
+**Step 2: Layer struct + single FBO** ✓
+- [x] Layer struct: FBO, color texture, width/height, transform stack (32 deep)
+- [x] `layer_create()` / `layer_destroy()` C functions
+- [x] Replace hardcoded fbo/fbo_texture with `game_layer`
+- [x] Initialize transform stack to identity at depth 0
 
-### 3.4 Basic SDF Shader
-- [ ] Vertex format: position, UV, color, mode, params
-- [ ] Mode branching: CIRCLE, RECTANGLE, SPRITE
-- [ ] Circle SDF: `length(uv - 0.5) - radius`
-- [ ] Rectangle SDF: box distance function
+**Step 3: DrawCommand + command queue (C only)** ✓
+- [x] DrawCommand struct: type, blend_mode, color, transform (2x3), params
+- [x] Command queue with dynamic growth (`layer_add_command`)
+- [x] C functions: `layer_add_rectangle`, `layer_add_circle`, `layer_clear_commands`
 
-### 3.5 Basic Shapes
-- [ ] `layer:circle(x, y, radius, color)` — filled circle via SDF
-- [ ] `layer:rectangle(x, y, w, h, color)` — filled rectangle via SDF
+**Step 4: Rectangle rendering + Lua bindings** ✓
+- [x] Batch rendering system (`batch_flush`, `batch_add_vertex`, `batch_add_quad`)
+- [x] `process_rectangle()` — transform vertices, add to batch
+- [x] `layer_render()` — iterate commands, build vertices, flush
+- [x] Lua bindings: `layer_create()`, `layer_rectangle()`, `rgba()`
+- [x] Verified on Windows and Web
 
-### 3.6 Sprite System
-- [ ] Texture loading via stb_image (`an:texture_load(path)`)
-- [ ] `layer:draw_image(img, x, y, r, sx, sy, ox, oy, color)`
-- [ ] Textured quads (mode = SPRITE, sample texture, multiply by color)
-- [ ] Smooth rotation via transformed quad vertices
+**Step 5: Circle with SDF uber-shader** ✓
+- [x] Expand vertex format to 13 floats: x, y, u, v, r, g, b, a, type, shape[4]
+- [x] Update VAO with 5 vertex attributes (pos, uv, color, type, shape)
+- [x] Uber-shader with SDF functions and type branching (RECT, CIRCLE, SPRITE)
+- [x] Rectangle SDF: `sdf_rect(p, center, half_size)`
+- [x] Circle SDF: `sdf_circle(p, center, radius)`
+- [x] `process_circle()` and Lua binding `layer_circle()`
+- [x] Verified on Windows
 
-### 3.7 Blend Modes
-- [ ] Alpha: `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`
-- [ ] Additive: `glBlendFunc(GL_SRC_ALPHA, GL_ONE)`
-- [ ] `layer:set_blend_mode('alpha' | 'additive')`
-- [ ] Blend mode stored per-command, batch flush on change
+**Step 5b: Shape filter modes (smooth/rough)** ✓
+- [x] Global filter mode: `FILTER_SMOOTH` (anti-aliased) vs `FILTER_ROUGH` (pixel-perfect)
+- [x] Shader uniform `u_aa_width`: 1.0 for smooth (smoothstep), 0.0 for rough (step)
+- [x] Lua binding: `set_shape_filter("smooth")` / `set_shape_filter("rough")`
+- [x] Rough mode features for pixel-art aesthetic:
+  - Fragment position snapped to pixel centers: `floor(vPos) + 0.5`
+  - Circle center snapped to pixel grid: `floor(center) + 0.5`
+  - Circle radius snapped to integer: `floor(radius + 0.5)`
+  - Superellipse SDF (n=1.95) for characteristic pixel-circle "cardinal bumps"
 
-### 3.8 Lua Bindings
+**Step 5c: Pixel-perfect screen scaling** ✓
+- [x] Integer-only scaling for screen blit (no fractional scaling)
+- [x] Ensures each game pixel maps to exactly NxN screen pixels
+- [x] Prevents interpolation artifacts at non-integer scales
+
+**Step 5d: Main loop fixes** ✓
+- [x] Event processing moved outside fixed timestep loop (always responsive)
+- [x] Command queue cleared at START of update, not end of render
+- [x] Fixes flickering when no fixed update runs in a frame (previous commands persist)
+
+**Step 6: Transform stack (push/pop)**
+- [ ] `layer_push(layer, x, y, r, sx, sy)` — build TRS matrix, multiply with current
+- [ ] `layer_pop(layer)` — decrement depth
+- [ ] Lua bindings: `layer_push()`, `layer_pop()`
+
+**Step 7: Sprites (texture loading, draw_image)**
+- [ ] Texture loading via stb_image: `texture_load(path)`
+- [ ] `layer_draw_image(layer, img, x, y, r, sx, sy, ox, oy, color)`
+- [ ] SPRITE mode in shader (sample texture, multiply by color)
+- [ ] Batch flush on texture change
+
+**Step 8: Blend modes**
+- [ ] `layer_set_blend_mode(layer, mode)` — 'alpha' or 'additive'
+- [ ] Blend mode stored per-command
+- [ ] Batch flush on blend mode change
+- [ ] Apply blend state before drawing batch
+
+**Step 9: Multiple layers + composition**
+- [ ] Layer registry (max 16 layers)
+- [ ] `layer_create(name)` creates/retrieves named layer
+- [ ] Layer ordering for composition
+- [ ] Composite all layers to screen at frame end
+
+### Lua API (C bindings)
+
 ```lua
--- Layers
-game = an:layer('game')
-effects = an:layer('effects')
+-- Layer management
+game = layer_create('game')
 
 -- Shapes
-game:circle(x, y, radius, color)
-game:rectangle(x, y, w, h, color)
-
--- Sprites
-local img = an:texture_load('player.png')
-game:draw_image(img, x, y, r, sx, sy, ox, oy, color)
+layer_rectangle(game, x, y, w, h, color)
+layer_circle(game, x, y, radius, color)
 
 -- Transforms
-game:push(x, y, r, sx, sy)
-game:pop()
+layer_push(game, x, y, r, sx, sy)
+layer_pop(game)
+
+-- Sprites
+local img = texture_load('player.png')
+layer_draw_image(game, img, x, y, r, sx, sy, ox, oy, color)
 
 -- Blend modes
-game:set_blend_mode('additive')
-game:set_blend_mode('alpha')
+layer_set_blend_mode(game, 'additive')
+layer_set_blend_mode(game, 'alpha')
+
+-- Color helper
+local red = rgba(255, 0, 0, 255)
 ```
 
-### 3.9 Verification
-- [ ] Circle and rectangle render correctly
-- [ ] Sprites load and render with transforms
-- [ ] Transform stack works (rotation, scale, nesting)
-- [ ] Multiple layers composite correctly
-- [ ] Blend modes (alpha, additive)
-- [ ] Web build verification (WebGL 2.0)
+### Verification
+- [x] Rectangle renders correctly (Step 4)
+- [x] Circle renders correctly with SDF (Step 5)
+- [ ] Transform stack works (rotation, scale, nesting) (Step 6)
+- [ ] Sprites load and render with transforms (Step 7)
+- [ ] Blend modes work (alpha, additive) (Step 8)
+- [ ] Multiple layers composite correctly (Step 9)
+- [x] Steps 1-5 verified on both Windows and Web
 
 **Deliverable:** Working layer system with deferred rendering, basic shapes (circle, rectangle), sprites, transforms, and blend modes.
 
