@@ -48,11 +48,15 @@
 // This prevents accumulator drift from timer jitter
 #define VSYNC_SNAP_TOLERANCE 0.0002
 
+// Forward declaration for timing resync (defined with main loop state)
+static void timing_resync(void);
+
 // Transform stack depth
 #define MAX_TRANSFORM_DEPTH 32
 
-// Initial command queue capacity
-#define INITIAL_COMMAND_CAPACITY 256
+// Command queue capacity (fixed size, allocated once)
+// 16384 commands × ~64 bytes = ~1MB per layer
+#define MAX_COMMAND_CAPACITY 16384
 
 // Shape types
 enum {
@@ -68,22 +72,37 @@ enum {
 };
 
 // DrawCommand — stores one deferred draw call
+// Explicitly padded to 64 bytes for consistent memory layout across platforms
+//
+// Coordinate conventions:
+//   RECTANGLE: x,y is top-left corner, w,h extend right and down (matches SDL/LÖVE)
+//   CIRCLE: x,y is center, radius extends outward
+//   SPRITE: x,y is center (texture drawn centered at that point)
 typedef struct {
     uint8_t type;           // SHAPE_RECTANGLE, SHAPE_CIRCLE, SHAPE_SPRITE
     uint8_t blend_mode;     // BLEND_ALPHA, BLEND_ADDITIVE, BLEND_MULTIPLY
-    uint8_t _pad[2];
+    uint8_t _pad[2];        // Padding to align next field to 4 bytes
 
-    float transform[6];     // 2D affine matrix (2x3): [m00 m01 m02 m10 m11 m12]
-    uint32_t color;         // Packed RGBA
+    float transform[6];     // 2D affine matrix (2x3): [m00 m01 m02 m10 m11 m12] (24 bytes)
+    uint32_t color;         // Packed RGBA (4 bytes)
 
     // Shape parameters (meaning depends on type)
     // RECTANGLE: params[0]=x, [1]=y, [2]=w, [3]=h
     // CIRCLE: params[0]=x, [1]=y, [2]=radius
     // SPRITE: params[0]=x, [1]=y, [2]=w, [3]=h, [4]=ox, [5]=oy (+ texture_id)
-    float params[8];
+    float params[6];        // 24 bytes (reduced from 8 to fit 64-byte target)
 
-    GLuint texture_id;      // For SPRITE
+    GLuint texture_id;      // For SPRITE (4 bytes)
+    // Total: 4 + 24 + 4 + 24 + 4 = 60 bytes, padded to 64
+    uint8_t _pad2[4];       // Explicit padding to reach 64 bytes
 } DrawCommand;
+
+// Verify DrawCommand is exactly 64 bytes (compile-time check)
+#ifdef _MSC_VER
+    static_assert(sizeof(DrawCommand) == 64, "DrawCommand must be 64 bytes");
+#else
+    _Static_assert(sizeof(DrawCommand) == 64, "DrawCommand must be 64 bytes");
+#endif
 
 // Layer
 typedef struct {
@@ -168,14 +187,14 @@ static Layer* layer_create(int width, int height) {
     m[3] = 0.0f; m[4] = 1.0f; m[5] = 0.0f;  // row 1
     m[6] = 0.0f; m[7] = 0.0f; m[8] = 1.0f;  // row 2
 
-    // Initialize command queue
-    layer->commands = (DrawCommand*)malloc(INITIAL_COMMAND_CAPACITY * sizeof(DrawCommand));
+    // Initialize command queue (fixed size, never grows)
+    layer->commands = (DrawCommand*)malloc(MAX_COMMAND_CAPACITY * sizeof(DrawCommand));
     if (!layer->commands) {
         free(layer);
         return NULL;
     }
     layer->command_count = 0;
-    layer->command_capacity = INITIAL_COMMAND_CAPACITY;
+    layer->command_capacity = MAX_COMMAND_CAPACITY;
     layer->current_blend = BLEND_ALPHA;
 
     // Create FBO
@@ -228,15 +247,18 @@ static void layer_copy_transform(Layer* layer, float* dest) {
 }
 
 // Add a command to the layer's queue (returns pointer to the new command)
+// Returns NULL if queue is full (MAX_COMMAND_CAPACITY reached)
 static DrawCommand* layer_add_command(Layer* layer) {
-    // Grow if needed
     if (layer->command_count >= layer->command_capacity) {
-        int new_capacity = layer->command_capacity * 2;
-        DrawCommand* new_commands = (DrawCommand*)realloc(layer->commands,
-            new_capacity * sizeof(DrawCommand));
-        if (!new_commands) return NULL;
-        layer->commands = new_commands;
-        layer->command_capacity = new_capacity;
+        // Fixed size queue - don't grow, just drop the command
+        // This should never happen in normal use (16384 commands per frame is huge)
+        static bool warned = false;
+        if (!warned) {
+            fprintf(stderr, "Error: Command queue full (%d commands). Dropping draw calls.\n",
+                    layer->command_capacity);
+            warned = true;
+        }
+        return NULL;
     }
 
     DrawCommand* cmd = &layer->commands[layer->command_count++];
@@ -339,10 +361,10 @@ static void mat3_multiply(const float* A, const float* B, float* C) {
 
 // Push a transform onto the layer's stack
 // Builds TRS matrix (Translate * Rotate * Scale) and multiplies with current
-static void layer_push(Layer* layer, float x, float y, float r, float sx, float sy) {
+// Returns false if stack overflow (caller should error)
+static bool layer_push(Layer* layer, float x, float y, float r, float sx, float sy) {
     if (layer->transform_depth >= MAX_TRANSFORM_DEPTH - 1) {
-        fprintf(stderr, "Warning: transform stack overflow\n");
-        return;
+        return false;  // Stack overflow
     }
 
     // Build TRS matrix: result of Translate(x,y) * Rotate(r) * Scale(sx,sy)
@@ -368,6 +390,7 @@ static void layer_push(Layer* layer, float x, float y, float r, float sx, float 
 
     // Multiply: current = parent * m
     mat3_multiply(parent, m, current);
+    return true;
 }
 
 // Pop a transform from the layer's stack
@@ -757,6 +780,12 @@ static int l_set_shape_filter(lua_State* L) {
     return 0;
 }
 
+static int l_timing_resync(lua_State* L) {
+    (void)L;  // Unused
+    timing_resync();
+    return 0;
+}
+
 static int l_layer_push(lua_State* L) {
     Layer* layer = (Layer*)lua_touserdata(L, 1);
     float x = (float)luaL_optnumber(L, 2, 0.0);
@@ -764,7 +793,9 @@ static int l_layer_push(lua_State* L) {
     float r = (float)luaL_optnumber(L, 4, 0.0);
     float sx = (float)luaL_optnumber(L, 5, 1.0);
     float sy = (float)luaL_optnumber(L, 6, 1.0);
-    layer_push(layer, x, y, r, sx, sy);
+    if (!layer_push(layer, x, y, r, sx, sy)) {
+        return luaL_error(L, "Transform stack overflow (max depth: %d)", MAX_TRANSFORM_DEPTH);
+    }
     return 0;
 }
 
@@ -832,6 +863,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "texture_get_height", l_texture_get_height);
     lua_register(L, "rgba", l_rgba);
     lua_register(L, "set_shape_filter", l_set_shape_filter);
+    lua_register(L, "timing_resync", l_timing_resync);
 }
 
 // Main loop state (needed for emscripten)
@@ -847,6 +879,14 @@ static Uint64 frame = 0;
 // VSync snap frequencies (computed at init based on display refresh rate)
 static double snap_frequencies[8];
 static int snap_frequency_count = 0;
+
+// Reset timing accumulators (call on focus gain, scene transitions, etc.)
+// This prevents accumulated lag from causing catch-up updates
+static void timing_resync(void) {
+    physics_lag = 0.0;
+    render_lag = 0.0;
+    last_time = SDL_GetPerformanceCounter();
+}
 
 // Shader headers - prepended to all shaders based on platform
 #ifdef __EMSCRIPTEN__
@@ -1131,6 +1171,12 @@ static void main_loop_iteration(void) {
                 SDL_SetWindowFullscreen(window, (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
             }
             #endif
+        }
+        // Handle window focus events - resync timing to prevent catch-up stutter
+        if (event.type == SDL_WINDOWEVENT) {
+            if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                timing_resync();
+            }
         }
     }
 

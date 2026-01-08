@@ -1262,6 +1262,23 @@ In YueScript:
 
 ---
 
+## Engine State
+
+The engine exposes timing and frame information to Lua:
+
+```lua
+an.frame      -- Render frame count (increments each rendered frame at 60Hz)
+an.step       -- Physics step count (increments each physics tick at 120Hz)
+an.game_time  -- Accumulated game time in seconds
+```
+
+Useful for:
+- Deterministic effects (use `an.step` instead of random for consistent patterns)
+- Debugging and profiling
+- Replay systems (verify sync with step count)
+
+---
+
 ## Rendering
 
 Anchor uses OpenGL 3.3 Core Profile (WebGL 2.0 compatible) for rendering, targeting 480×270 or 640×360 base resolution (per-game configurable). The low resolution is rendered to a framebuffer texture, then scaled to fill the window while maintaining aspect ratio (letterboxing when needed), with nearest-neighbor filtering.

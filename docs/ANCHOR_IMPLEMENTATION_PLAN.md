@@ -360,7 +360,8 @@ local red = rgba(255, 0, 0, 255)
 ### 4.3 Custom Shaders
 - [ ] Load custom fragment shaders from file
 - [ ] Expose to Lua: `layer:set_shader(shader, params)`
-- [ ] Shader hot-reload during development (optional, nice-to-have)
+
+**Note:** Shader hot-reload not needed. Restart-to-test is acceptable.
 
 ### 4.4 Lua Bindings
 ```lua
@@ -391,6 +392,8 @@ game:set_shader(custom, {time = t, intensity = 0.5})
 - [ ] Action → input mapping
 - [ ] Multiple inputs per action
 - [ ] Input string parsing: `key:a`, `key:space`, `mouse:1`, `mouse:wheel_up`
+- [ ] Runtime rebindable (for options menus)
+- [ ] Key capture support for rebinding UI
 
 ### 5.3 Lua Bindings
 ```lua
@@ -466,6 +469,7 @@ an:music_fade_out(1.0)  -- fade over 1 second
 - [ ] Box2D world creation
 - [ ] Gravity configuration
 - [ ] Fixed timestep stepping (synced with game loop)
+- [ ] Configurable pixel-to-meter scale (check old Anchor values for reference)
 
 ### 7.2 Body Management
 - [ ] Body creation: static, dynamic, kinematic
@@ -473,9 +477,11 @@ an:music_fade_out(1.0)  -- fade over 1 second
 - [ ] Return body ID to Lua (Lua manages lifetime)
 
 ### 7.3 Collision Configuration
-- [ ] Collision tag system
+- [ ] Collision tag system (string API for readability, maps to Box2D internally)
 - [ ] Enable/disable contact between tag pairs
 - [ ] Enable/disable sensor between tag pairs
+
+**Note:** Start with collision detection only. Add joints (hinges, ropes, etc.) if/when needed for specific games.
 
 ### 7.4 Event System
 Box2D 3.1 provides:
@@ -538,12 +544,13 @@ an:physics_destroy_body(body)
 
 ## Phase 8: Random
 
-**Goal:** Seedable PRNG for deterministic gameplay.
+**Goal:** Seedable PRNG for deterministic gameplay and replay support.
 
 ### 8.1 Implementation
 - [ ] PCG or xorshift PRNG (fast, good quality)
 - [ ] Seed function
-- [ ] State can be saved/restored for replays
+- [ ] Save/restore RNG state (required for replays)
+- [ ] Consider separate streams for gameplay vs cosmetic RNG
 
 ### 8.2 Lua Bindings
 ```lua
@@ -562,13 +569,15 @@ local item = an:random_choice(array)   -- random element
 
 ## Phase 9: Text Rendering
 
-**Goal:** TTF fonts with per-character effects (handled in YueScript).
+**Goal:** Font rendering with per-character effects (handled in YueScript).
 
 ### 9.1 Font Loading (C Side)
-- [ ] Load TTF via stb_truetype
-- [ ] Bake glyphs to texture atlas at specified size
+- [ ] Support both bitmap fonts (pixel-perfect) and TTF (scalable)
+- [ ] TTF: Load via stb_truetype, bake glyphs to texture atlas
+- [ ] Bitmap: Load from spritesheet with metrics file
 - [ ] Support multiple sizes per font (separate atlases)
 - [ ] Store glyph metrics (advance, bearing, size)
+- [ ] Error screen shows full stack trace (file:line for each call)
 
 ### 9.2 Glyph Rendering (C Side)
 - [ ] Draw single glyph at position with transform and color
@@ -658,6 +667,10 @@ C calls into Lua each frame:
 3. Late phase — all `late_update` and `/ L` actions
 4. Cleanup — remove dead objects, call `destroy` hooks
 
+**Sibling update order:** Creation order (first added = first updated).
+
+**Timer callbacks:** Receive only `self` (may explore alternatives during implementation).
+
 ### 10.7 Aliases
 ```yuescript
 E = object
@@ -671,6 +684,32 @@ X = (name, fn) -> {[name]: fn}
 
 ---
 
+## Phase 11: Distribution & Polish
+
+**Goal:** Packaging, web edge cases, and final robustness.
+
+### 11.1 Asset Packaging
+- [ ] Single executable with embedded assets (zip-append or similar)
+- [ ] Asset extraction for modders (optional)
+
+### 11.2 Web Build Polish
+- [ ] Audio context unlock handling
+- [ ] Gamepad support via SDL2/Emscripten
+- [ ] Additional keyboard key capture (F1-F12, Tab, Backspace, etc.)
+- [ ] Final cross-browser testing
+
+### 11.3 Engine State Exposure
+- [ ] Expose frame counters to Lua: `an.frame`, `an.step`, `an.game_time`
+
+### 11.4 Robustness
+- [ ] Final error handling review
+- [ ] Edge case testing
+- [ ] Performance profiling
+
+**Deliverable:** Production-ready engine with single-exe distribution.
+
+---
+
 ## Phase Summary
 
 | Phase | Focus | Key Deliverable |
@@ -679,12 +718,13 @@ X = (name, fn) -> {[name]: fn}
 | 2 | Web Build | Emscripten/WebGL parity |
 | 3 | Rendering | Shapes, sprites, layers, blend modes |
 | 4 | Effects | Post-process shaders (outline, tint, custom) |
-| 5 | Input | Keyboard/mouse with action bindings |
+| 5 | Input | Keyboard/mouse with action bindings (runtime rebindable) |
 | 6 | Audio | Sound/music with pitch shifting |
 | 7 | Physics | Box2D 3.1 with events and queries |
-| 8 | Random | Seedable PRNG |
-| 9 | Text | TTF fonts, glyph rendering |
+| 8 | Random | Seedable PRNG with replay support |
+| 9 | Text | Bitmap + TTF fonts, glyph rendering |
 | 10 | YueScript | Object tree, timers, springs, colliders |
+| 11 | Distribution | Single-exe packaging, web polish, robustness |
 
 ---
 
