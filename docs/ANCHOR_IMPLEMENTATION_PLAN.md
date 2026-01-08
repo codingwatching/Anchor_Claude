@@ -460,35 +460,384 @@ local tex = layer_get_texture(game)
 
 ## Phase 5: Input
 
-**Goal:** Action-based input with keyboard and mouse.
+**Goal:** Action-based input system with keyboard, mouse, and gamepad support. Includes advanced features: chords, sequences, holds, input type detection, and rebinding capture.
 
-### 5.1 Input State Tracking
-- [ ] Keyboard state (down, pressed this frame, released this frame)
-- [ ] Mouse state (position, buttons, wheel)
-- [ ] Per-frame state transitions
+See `reference/input-system-research.md` for research on input systems across 17+ game engines.
 
-### 5.2 Binding System
-- [ ] Action → input mapping
-- [ ] Multiple inputs per action
-- [ ] Input string parsing: `key:a`, `key:space`, `mouse:1`, `mouse:wheel_up`
-- [ ] Runtime rebindable (for options menus)
-- [ ] Key capture support for rebinding UI
+---
 
-### 5.3 Lua Bindings
+### Architecture Overview
+
+**Action-based input:** Physical inputs (keys, buttons) map to named actions. Game code queries actions, not raw keys.
+
+**Control string format:** `type:key` — e.g., `'key:space'`, `'mouse:1'`, `'button:a'`, `'axis:leftx+'`
+
+**Unified query system:** Actions, chords, sequences, and holds all use the same `is_pressed`/`is_down`/`is_released` functions.
+
+**Edge detection:** Standard previous/current frame comparison for pressed (just this frame) and released (just this frame).
+
+---
+
+### Implementation Steps
+
+**Step 1: Raw keyboard state**
+- [x] Internal state arrays: `keys_current[NUM_KEYS]`, `keys_previous[NUM_KEYS]`
+- [x] SDL event handling: `SDL_KEYDOWN`, `SDL_KEYUP` update `keys_current`
+- [x] End of frame: copy `keys_current` to `keys_previous`
+- [x] `key_is_down(key)` — returns `keys_current[scancode]`
+- [x] `key_is_pressed(key)` — returns `current && !previous`
+- [x] `key_is_released(key)` — returns `!current && previous`
+- [x] Key string parsing: `'a'`, `'space'`, `'left'`, `'lshift'`, etc. → SDL scancodes
+
+**Step 2: Mouse state**
+- [x] Track: position (x, y), delta (dx, dy), buttons (1-5), wheel
+- [x] SDL events: `SDL_MOUSEMOTION`, `SDL_MOUSEBUTTONDOWN/UP`, `SDL_MOUSEWHEEL`
+- [x] `mouse_position()` — returns x, y in game coordinates (scaled from window)
+- [x] `mouse_delta()` — returns dx, dy this frame
+- [x] `mouse_wheel()` — returns wheel x, y delta this frame
+- [x] `mouse_is_pressed/down/released(button)` — edge detection for buttons
+- [x] `mouse_set_visible(bool)` — show/hide cursor
+- [x] `mouse_set_grabbed(bool)` — lock cursor to window (for FPS-style controls)
+
+**Step 3: Basic action binding**
+- [x] Action struct: name, array of controls, pressed/down/released state
+- [x] Control struct: type (KEY, MOUSE, BUTTON, AXIS), code, sign (for axes)
+- [x] `input_bind(action, control_string)` — parse control string, add to action
+- [x] `is_pressed(action)` — true if any bound control just pressed
+- [x] `is_down(action)` — true if any bound control held
+- [x] `is_released(action)` — true if any bound control just released
+- [x] Per-frame action state computation from raw input states
+
+**Step 4: Unbinding and bind_all**
+- [x] `input_unbind(action, control)` — remove specific control from action
+- [x] `input_unbind_all(action)` — remove all controls from action
+- [x] `input_bind_all()` — bind every key/button to action with same name
+  - All keyboard keys → `'a'`, `'space'`, `'left'`, etc.
+  - Mouse buttons → `'mouse_1'`, `'mouse_2'`, `'mouse_3'`
+  - Gamepad buttons → `'button_a'`, `'button_b'`, `'button_x'`, etc.
+
+**Step 5: Axis helpers**
+- [x] `input_get_axis(negative, positive)` — returns -1 to 1
+  - Digital: `is_down(positive) - is_down(negative)`
+  - Analog: uses actual axis values if bound to gamepad axis
+- [x] `input_get_vector(left, right, up, down)` — returns x, y
+  - Normalized to prevent faster diagonal movement
+  - `len = sqrt(x*x + y*y); if len > 1 then x, y = x/len, y/len`
+
+**Step 6: Gamepad support**
+- [x] SDL GameController initialization and hotplug handling
+- [x] `gamepad_is_connected()` — true if at least one gamepad connected
+- [x] `gamepad_get_axis(axis)` — raw axis value (-1 to 1) with deadzone
+  - Axes: `'leftx'`, `'lefty'`, `'rightx'`, `'righty'`, `'triggerleft'`, `'triggerright'`
+- [x] `input_set_deadzone(value)` — threshold for axis→button conversion (default 0.2)
+- [x] Gamepad button/axis state tracking (current/previous)
+- [x] Control string parsing: `'button:a'`, `'button:start'`, `'axis:leftx+'`, `'axis:lefty-'`
+
+**Step 7: Chords**
+- [x] Chord struct: name, array of action names, pressed/down/released state
+- [x] `input_bind_chord(name, actions)` — e.g., `('sprint_jump', {'shift', 'space'})`
+- [x] Chord is down when ALL actions are down
+- [x] Chord pressed when it becomes down (wasn't down last frame)
+- [x] Chord released when it stops being down
+- [x] Chords queryable via `is_pressed`/`is_down`/`is_released` (same namespace as actions)
+
+**Step 8: Sequences**
+- [x] Sequence struct: name, array of {action, delay} pairs, state machine
+- [x] `input_bind_sequence(name, sequence)` — e.g., `('dash', {'d', 0.3, 'd'})`
+- [x] State machine tracks: current step, last press time
+- [x] Advances when next action pressed within time window
+- [x] Resets if timeout or wrong action pressed
+- [x] Sequence fires (is_pressed returns true) when final action completes in time
+- [x] Sequences queryable via `is_pressed`/`is_down`/`is_released`
+- [x] Bug fix: use `lua_type() == LUA_TSTRING` instead of `lua_isstring()` (numbers are convertible)
+
+**Step 9: Holds**
+- [x] Hold struct: name, source action, duration, state (waiting/triggered)
+- [x] `input_bind_hold(name, duration, action)` — e.g., `('charge', 1.0, 'space')`
+- [x] Tracks how long source action has been held
+- [x] `is_pressed` fires on the frame hold duration is reached
+- [x] `is_down` true while held after duration reached
+- [x] `is_released` fires when released after duration was reached
+- [x] Resets when source action released before duration
+- [x] `input_get_hold_duration(name)` — returns current hold progress (for charge bar UI)
+- [x] Holds queryable via `is_pressed`/`is_down`/`is_released`
+
+**Step 10: Input type detection**
+- [x] Track last input type: `'keyboard'`, `'mouse'`, or `'gamepad'`
+- [x] Updated whenever any input is received (key press, mouse move/click, gamepad)
+- [x] `input_get_last_type()` — returns current type string
+- [x] Useful for UI prompt switching (show keyboard vs gamepad icons)
+
+**Step 11: Rebinding capture**
+- [x] Capture mode flag
+- [x] `input_start_capture()` — enter capture mode, suppress normal input processing
+- [x] While in capture mode: wait for any key/button/axis press
+- [x] Store captured control as string (e.g., `'key:w'`, `'button:a'`)
+- [x] `input_get_captured()` — returns control string if captured, nil otherwise
+- [x] `input_stop_capture()` — exit capture mode, clear captured value
+
+**Step 12: Utility**
+- [x] `input_any_pressed()` — true if any bound action was just pressed this frame
+- [x] `input_get_pressed_action()` — returns action name that was pressed (or nil)
+
+---
+
+### Lua API
+
+#### Action Binding
+
 ```lua
-an:input_bind('move_left', {'key:a', 'key:left'})
-an:input_bind('move_right', {'key:d', 'key:right'})
-an:input_bind('shoot', {'mouse:1', 'key:space'})
+-- Bind controls to actions (call multiple times to add multiple controls)
+input_bind('action_name', 'control_string')
 
-if an:is_pressed('shoot') then ... end   -- just pressed this frame
-if an:is_down('move_left') then ... end  -- currently held
-if an:is_released('shoot') then ... end  -- just released this frame
+-- Control string formats:
+--   'key:a', 'key:space', 'key:lshift', 'key:up', 'key:1'
+--   'mouse:1' (left), 'mouse:2' (middle), 'mouse:3' (right)
+--   'button:a', 'button:b', 'button:x', 'button:y'
+--   'button:dpup', 'button:dpdown', 'button:dpleft', 'button:dpright'
+--   'button:leftshoulder', 'button:rightshoulder'
+--   'button:leftstick', 'button:rightstick', 'button:start', 'button:back'
+--   'axis:leftx+', 'axis:leftx-', 'axis:lefty+', 'axis:lefty-'
+--   'axis:rightx+', 'axis:rightx-', 'axis:righty+', 'axis:righty-'
+--   'axis:triggerleft', 'axis:triggerright'
 
-local mx, my = an:mouse_position()  -- screen coordinates
--- World position computed in YueScript using camera transform
+-- Example: bind movement to WASD + arrows + left stick + dpad
+input_bind('move_up', 'key:w')
+input_bind('move_up', 'key:up')
+input_bind('move_up', 'axis:lefty-')
+input_bind('move_up', 'button:dpup')
+
+-- Unbind specific control or all controls
+input_unbind('action_name', 'control_string')
+input_unbind_all('action_name')
+
+-- Bind all keys/buttons to same-named actions (useful for rebinding UI)
+input_bind_all()  -- 'a' -> 'key:a', 'space' -> 'key:space', etc.
+                  -- Also binds mouse_1, mouse_2, mouse_3
+                  -- Also binds button_a, button_b, button_x, button_y, etc.
 ```
 
-**Deliverable:** Keyboard and mouse input with action bindings.
+#### Action Queries
+
+```lua
+-- These work for regular actions, chords, sequences, and holds
+if is_pressed('action') then end   -- true for one frame when pressed
+if is_down('action') then end      -- true while held
+if is_released('action') then end  -- true for one frame when released
+```
+
+#### Axis Helpers
+
+```lua
+-- Get axis value from two opposing actions (-1, 0, or 1)
+local move_x = input_get_axis('move_left', 'move_right')
+
+-- Get normalized 2D vector (diagonal movement is ~0.707, not 1.414)
+local vx, vy = input_get_vector('move_left', 'move_right', 'move_up', 'move_down')
+
+-- Set gamepad deadzone (default 0.2)
+input_set_deadzone(0.3)
+```
+
+#### Chords (simultaneous keys)
+
+```lua
+-- Chord triggers when ALL actions are held simultaneously
+input_bind_chord('chord_name', {'action1', 'action2', ...})
+
+-- Example: Shift+Space for super jump
+input_bind_chord('super_jump', {'lshift', 'space'})
+
+-- In update:
+if is_pressed('super_jump') then
+    -- Triggers once when both Shift AND Space are held
+    player:super_jump()
+end
+```
+
+#### Sequences (combos, double-tap)
+
+```lua
+-- Sequence triggers when actions are pressed in order within time windows
+-- Format: {action1, delay1, action2, delay2, action3, ...}
+-- delay = max seconds allowed before next action
+input_bind_sequence('sequence_name', {action1, delay, action2, ...})
+
+-- Example: double-tap D to dash (press D, then D again within 0.3s)
+input_bind_sequence('dash', {'d', 0.3, 'd'})
+
+-- Example: fighting game combo (down, down-right, right, punch within 0.5s each)
+input_bind_sequence('hadouken', {'down', 0.5, 'downright', 0.5, 'right', 0.5, 'punch'})
+
+-- In update:
+if is_pressed('dash') then
+    -- Triggers once when sequence completes
+    player:dash()
+end
+```
+
+#### Holds (charge attacks)
+
+```lua
+-- Hold triggers after holding source action for specified duration
+input_bind_hold('hold_name', duration_seconds, 'source_action')
+
+-- Example: hold Space for 1 second to charge
+input_bind_hold('charge', 1.0, 'space')
+
+-- Get current hold progress (for charge bar UI)
+local duration = input_get_hold_duration('charge')  -- 0 to required_duration
+
+-- In update:
+local charge_time = input_get_hold_duration('charge')
+if charge_time > 0 and charge_time < 1.0 then
+    -- Show charge bar: charge_time / 1.0 = progress 0-1
+    draw_charge_bar(charge_time / 1.0)
+end
+
+if is_pressed('charge') then
+    -- Triggers once when hold duration reached
+    player:release_charged_attack()
+end
+
+if is_released('charge') then
+    -- Triggers if player releases before charge completes OR after
+end
+```
+
+#### Mouse
+
+```lua
+local x, y = mouse_position()    -- game coordinates (scaled to game resolution)
+local dx, dy = mouse_delta()     -- raw pixel movement this frame
+local wx, wy = mouse_wheel()     -- scroll wheel delta this frame
+
+-- Raw mouse button queries
+if mouse_is_pressed(1) then end  -- left click just pressed
+if mouse_is_down(1) then end     -- left button held
+if mouse_is_released(1) then end -- left click just released
+-- Button 1 = left, 2 = middle, 3 = right
+
+mouse_set_visible(false)
+mouse_set_grabbed(true)  -- confine to window
+```
+
+#### Keyboard (raw)
+
+```lua
+-- Raw key queries (bypass action system)
+if key_is_pressed('space') then end   -- just pressed
+if key_is_down('w') then end          -- held
+if key_is_released('escape') then end -- just released
+
+-- Key names: a-z, 0-9, space, enter, escape, tab, backspace,
+-- up, down, left, right, lshift, rshift, lctrl, rctrl, lalt, ralt,
+-- f1-f12, etc.
+```
+
+#### Gamepad
+
+```lua
+if gamepad_is_connected() then
+    -- Raw axis values (-1.0 to 1.0, with deadzone applied)
+    local lx = gamepad_get_axis('leftx')
+    local ly = gamepad_get_axis('lefty')
+    local rx = gamepad_get_axis('rightx')
+    local ry = gamepad_get_axis('righty')
+    local lt = gamepad_get_axis('triggerleft')   -- 0 to 1
+    local rt = gamepad_get_axis('triggerright')  -- 0 to 1
+end
+
+-- Gamepad buttons are accessed via action system:
+-- After input_bind_all(), use is_pressed('button_a'), is_pressed('button_x'), etc.
+```
+
+#### Input Type Detection
+
+```lua
+-- Returns 'keyboard', 'mouse', or 'gamepad'
+-- Updates whenever user provides input
+local input_type = input_get_last_type()
+
+-- Example: switch UI prompts based on input device
+if input_type == 'gamepad' then
+    show_prompt("Press A to continue")
+else
+    show_prompt("Press Space to continue")
+end
+```
+
+#### Rebinding Capture
+
+```lua
+-- For options menu: capture next input to rebind a control
+
+-- Start capture mode (suppresses normal input, waits for any key/button/axis)
+input_start_capture()
+
+-- Check if something was captured (returns control string or nil)
+local captured = input_get_captured()  -- e.g., 'key:space', 'button:a', 'axis:leftx+'
+
+-- Stop capture mode
+input_stop_capture()
+
+-- Example: rebinding UI
+local rebinding = nil  -- action being rebound, or nil
+
+function start_rebind(action_name)
+    rebinding = action_name
+    input_start_capture()
+    show_message("Press a key or button...")
+end
+
+function update(dt)
+    if rebinding then
+        local captured = input_get_captured()
+        if captured then
+            input_unbind_all(rebinding)      -- clear old bindings
+            input_bind(rebinding, captured)  -- apply new binding
+            input_stop_capture()
+            rebinding = nil
+            show_message("Bound!")
+        end
+    end
+end
+```
+
+#### Utility
+
+```lua
+-- True if ANY bound action was just pressed this frame
+if input_any_pressed() then
+    -- "Press any key to continue"
+end
+
+-- Get the name of the action that was pressed (or nil)
+local action = input_get_pressed_action()
+if action then
+    print("You pressed: " .. action)
+end
+```
+
+---
+
+### Verification (test each step individually)
+
+- [x] Step 1: `key_is_pressed('space')` fires once on press, `key_is_down` while held
+- [x] Step 2: `mouse_position()` returns correct game coords, `mouse_delta()` tracks movement
+- [x] Step 3: `input_bind` + `is_pressed` works with multiple controls per action
+- [x] Step 4: `input_unbind` removes control, `input_bind_all` creates all key actions
+- [x] Step 5: `input_get_axis` returns -1/0/1, `input_get_vector` normalizes diagonal
+- [x] Step 6: Gamepad detected, `gamepad_get_axis` returns analog values
+- [x] Step 7: Chord fires only when all actions held simultaneously
+- [x] Step 8: Sequence fires only when actions pressed in order within time windows
+- [x] Step 9: Hold fires only after holding source action for specified duration
+- [x] Step 10: `input_get_last_type` updates correctly when switching input devices
+- [x] Step 11: Capture mode captures next input, normal input suppressed during capture
+- [x] Step 12: `input_any_pressed` detects any action press
+- [x] All steps verified on Windows and Web
+
+**Deliverable:** Full input system with actions, chords, sequences, holds, and rebinding support.
 
 ---
 
@@ -797,7 +1146,7 @@ X = (name, fn) -> {[name]: fn}
 | 2 | Web Build | Emscripten/WebGL parity |
 | 3 | Rendering | Shapes, sprites, layers, blend modes |
 | 4 | Effects | Post-process shaders (outline, shadow) + per-object flash |
-| 5 | Input | Keyboard/mouse with action bindings (runtime rebindable) |
+| 5 | Input | Actions, chords, sequences, holds, gamepad, rebinding |
 | 6 | Audio | Sound/music with pitch shifting |
 | 7 | Physics | Box2D 3.1 with events and queries |
 | 8 | Random | Seedable PRNG with replay support |
@@ -826,19 +1175,13 @@ If object-based particles become slow for dense effects (hundreds/thousands), co
 - Particle pools
 - GPU particle system
 
-### Gamepad Support
-**Status:** Deferred to Steam release prep
-
-SDL2 gamepad API is straightforward when needed.
-
 ---
 
 ## Deferred Features
 
 Not implementing now, add later if needed:
 
-- **Gamepad input** — Steam release prep
-- **Steam Input** — Steam release prep
+- **Steam Input** — Steam release prep (beyond basic gamepad)
 - **Hot reloading** — nice for iteration but not essential
 - **Debug console/inspector** — print debugging is sufficient
 - **Advanced audio effects** — reverb, filters (after basic audio works)
