@@ -205,9 +205,14 @@ Once trust is established, this shifts to larger tasks.
 
 After completing a task, **always give the user a turn** before starting the next one. Don't chain tasks together autonomously — the user may want to test, adjust, or redirect.
 
-### Build Only, Don't Run
+### Always Build, Never Run
 
-**Only build things, never run them.** The user will run builds and tests themselves. Don't execute `build.bat`, `run-web.bat`, or similar commands unless explicitly asked.
+**Always build the engine after making C code changes.** Use this command:
+```bash
+cd E:/a327ex/Anchor/engine && ./build.bat
+```
+
+**Never run the executable.** The user will run and test themselves. Don't execute `./build/anchor.exe`, `run-web.bat`, or similar run commands.
 
 ### Build Order
 

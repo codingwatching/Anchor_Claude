@@ -1335,20 +1335,41 @@ layer:set_blend_mode('additive')  -- for glows, explosions, energy effects
 
 ### Effects
 
-Post-processing effects are fragment shaders applied to layer framebuffers:
+Effects are fragment shaders applied to layer framebuffers. Shaders are loaded from files and controlled from Lua — there are no built-in effects in C.
+
+**Fully deferred pipeline:** All shader operations (uniform setting, shader application) are queued during update and processed at frame end. This ensures all draw commands are complete before effects are applied.
+
+**Layer effects (post-processing):**
+
+Each layer has a ping-pong buffer system (`color_texture` ↔ `effect_texture`). When `layer_apply_shader()` is called, it queues a command that renders the current texture to the other buffer using the shader, then swaps. This allows effect chaining.
 
 ```lua
-game:set_effect('outline', {color = colors.black, thickness = 1})
-game:set_effect('tint', {color = 0xFF0000FF, mix = 0.5})
-game:set_effect('brightness', {factor = 1.2})
-game:clear_effect()
+-- Load shaders from files
+local outline_shader = shader_load_file('shaders/outline.frag')
+local shadow_shader = shader_load_file('shaders/shadow.frag')
 
--- Custom shaders
-local custom = an:shader_load('effects/custom.frag')
-game:set_shader(custom, {time = t, intensity = 0.5})
+-- Deferred uniform setting (queues command, processed at frame end)
+layer_shader_set_vec2(outline_layer, outline_shader, 'u_pixel_size', 1/480, 1/270)
+
+-- Apply shader to layer (deferred, ping-pong)
+layer_apply_shader(outline_layer, outline_shader)
+layer_apply_shader(shadow_layer, shadow_shader)
+
+-- Manual layer compositing with offset (for shadow positioning)
+layer_draw(bg_layer)
+layer_draw(shadow_layer, 4, 4)  -- offset shadow by 4 pixels
+layer_draw(outline_layer)
+layer_draw(game_layer)
 ```
 
-Built-in effects: `outline`, `tint`, `brightness`. Additional effects via custom shaders.
+**Per-object flash (vertex attribute):**
+
+Flash is baked into the uber-shader via a per-vertex additive color attribute (`vAddColor`). This avoids shader swapping, so many flashing objects stay in one batched draw call. The vertex format is 16 floats: x, y, u, v, r, g, b, a, type, shape[4], addR, addG, addB.
+
+**Layer-level vs per-object effects:**
+
+- **Layer effects** (outline, shadow, CRT) are post-processing — they can sample neighboring pixels because they run after all objects are drawn to the layer.
+- **Per-object effects** (flash) run during object drawing — they can only access the object's own texture, not neighbors.
 
 ### Colors
 

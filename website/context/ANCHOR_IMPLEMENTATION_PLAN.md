@@ -345,37 +345,116 @@ local red = rgba(255, 0, 0, 255)
 
 ## Phase 4: Effects (Shaders)
 
-**Goal:** Post-processing effects on layers via fragment shaders.
+**Goal:** Post-processing effects on layers and per-object flash effect.
 
-### 4.1 Effect Shader Framework
-- [ ] Post-process shader pipeline (render layer to texture, apply shader, output)
-- [ ] Effect parameter passing (uniforms)
-- [ ] Per-layer effect configuration
+See `reference/phase-4-effects-analysis.md` for full technical analysis.
 
-### 4.2 Built-in Effects
-- [ ] **Outline** — edge detection, configurable color and thickness
-- [ ] **Tint** — multiply or blend toward a color
-- [ ] **Brightness** — multiply RGB values
+### Architecture Overview
 
-### 4.3 Custom Shaders
-- [ ] Load custom fragment shaders from file
-- [ ] Expose to Lua: `layer:set_shader(shader, params)`
+**Lua-controlled pipeline:** C provides shader primitives, Lua orchestrates the rendering pipeline.
 
-**Note:** Shader hot-reload not needed. Restart-to-test is acceptable.
+**Ping-pong buffer system:** Each layer has two textures (`color_texture` and `effect_texture`). When `layer_apply_shader()` is called, it renders from one to the other and swaps. This allows effect chaining.
 
-### 4.4 Lua Bindings
+**Per-object flash via vertex attributes:** Instead of shader swapping (which breaks batching), flash color is passed as a per-vertex attribute. 50 flashing objects = 1 batched draw call.
+
+---
+
+### Implementation Steps
+
+**Step 1: Shader loading infrastructure** ✓
+- [x] `shader_load_file(path)` — load fragment shader from file, pair with screen vertex shader
+- [x] `shader_load_string(source)` — load fragment shader from string
+- [x] `shader_destroy(shader)` — cleanup
+- [x] Auto-prepend platform headers (`#version 330 core` / `#version 300 es`)
+- [x] Lua bindings for above
+
+**Step 2: Uniform setting (deferred)** ✓
+- [x] `layer_shader_set_float(layer, shader, name, value)` — queues command
+- [x] `layer_shader_set_vec2(layer, shader, name, x, y)` — queues command
+- [x] `layer_shader_set_vec4(layer, shader, name, x, y, z, w)` — queues command
+- [x] `layer_shader_set_int(layer, shader, name, value)` — queues command
+- [x] Uniforms processed at frame end (deferred, not immediate)
+- [x] Lua bindings for above
+
+**Step 3: Layer ping-pong buffers** ✓
+- [x] Add to Layer struct: `effect_fbo`, `effect_texture`, `textures_swapped`
+- [x] Create effect FBO on first use (lazy initialization)
+- [x] `layer_apply_shader(layer, shader)` — queues command (deferred)
+- [x] Ping-pong rendering: color_texture ↔ effect_texture
+- [x] `layer_get_texture(layer)` — return whichever texture is current
+- [x] Reset `textures_swapped` at start of each frame
+- [x] Lua bindings for above
+
+**Step 4: Per-object flash (vertex attribute)** ✓
+- [x] Extend vertex format: add `addR, addG, addB` (3 floats, total 16 floats per vertex)
+- [x] Update VAO setup with new attribute (location 5)
+- [x] Update uber-shader: `FragColor.rgb = texColor.rgb * vColor.rgb + vAddColor`
+- [x] Shapes draw with flash = (0, 0, 0) by default
+
+**Step 5: Example shaders** ✓
+- [x] Create `test/shaders/` folder with example effect shaders
+- [x] `outline.frag` — 5x5 neighbor sampling, detects alpha edges, outputs black outline
+- [x] `shadow.frag` — outputs gray (0.5, 0.5, 0.5) with 50% alpha for drop shadow effect
+- [x] Test shaders work on both Windows and Web
+
+**Step 6: Manual layer compositing** ✓
+- [x] `layer_draw(layer, x, y)` — queue layer for manual compositing with offset
+- [x] Screen shader supports `u_offset` uniform for shadow positioning
+- [x] If manual queue used, automatic layer compositing is skipped
+- [x] Enables shadow offset pattern: `layer_draw(shadow_layer, 4, 4)`
+
+**Step 7: Integration test** ✓
+- [x] Test outline effect on game layer (5x5 sampling for thick outline)
+- [x] Test shadow effect (draw shadow layer with offset)
+- [x] Test multi-layer compositing (bg, shadow, outline, game layers)
+- [x] Verify all effects work on Windows and Web
+
+---
+
+### Lua API
+
 ```lua
-game:set_effect('outline', {color = 0x000000FF, thickness = 1})
-game:set_effect('tint', {color = 0xFF0000FF, mix = 0.5})
-game:set_effect('brightness', {factor = 1.5})
-game:clear_effect()
+-- Shader loading
+local outline_shader = shader_load_file('shaders/outline.frag')
+local shadow_shader = shader_load_file('shaders/shadow.frag')
 
--- Custom shader
-local custom = an:shader_load('effects/custom.frag')
-game:set_shader(custom, {time = t, intensity = 0.5})
+-- Deferred uniform setting (queues command, processed at frame end)
+layer_shader_set_vec2(outline_layer, outline_shader, 'u_pixel_size', 1/480, 1/270)
+
+-- Layer post-processing (deferred, ping-pong)
+layer_apply_shader(shadow_layer, shadow_shader)
+layer_apply_shader(outline_layer, outline_shader)
+
+-- Manual layer compositing with offset (for shadow positioning)
+layer_draw(bg_layer)
+layer_draw(shadow_layer, 4, 4)  -- offset shadow by 4 pixels
+layer_draw(outline_layer)
+layer_draw(game_layer)
+
+-- Get layer texture (for use as input to another shader)
+local tex = layer_get_texture(game)
 ```
 
-**Deliverable:** Post-processing effects including custom shaders.
+**Key architecture decisions:**
+- All shader operations are deferred (commands queued during update, executed at frame end)
+- Uniform commands processed inline during layer rendering
+- Manual layer compositing skips automatic compositing when used
+- Screen shader accepts `u_offset` uniform for layer positioning
+
+---
+
+### Verification
+- [x] Shader loads and compiles on Windows
+- [x] Shader loads and compiles on Web (WebGL)
+- [x] Deferred uniforms are set correctly
+- [x] `layer_apply_shader()` ping-pong works (single effect)
+- [x] `layer_apply_shader()` chaining works (multiple effects)
+- [x] Per-object flash vertex attribute in uber-shader
+- [x] Outline shader produces correct visual result (5x5 neighbor sampling)
+- [x] Shadow shader produces correct visual result (gray with offset)
+- [x] Manual layer compositing with offset support
+
+**Deliverable:** Post-processing effects (outline, shadow) and per-object flash. ✓ Complete
 
 ---
 
@@ -717,7 +796,7 @@ X = (name, fn) -> {[name]: fn}
 | 1 | C Skeleton | OpenGL window + Lua + error handling |
 | 2 | Web Build | Emscripten/WebGL parity |
 | 3 | Rendering | Shapes, sprites, layers, blend modes |
-| 4 | Effects | Post-process shaders (outline, tint, custom) |
+| 4 | Effects | Post-process shaders (outline, shadow) + per-object flash |
 | 5 | Input | Keyboard/mouse with action bindings (runtime rebindable) |
 | 6 | Audio | Sound/music with pitch shifting |
 | 7 | Physics | Box2D 3.1 with events and queries |

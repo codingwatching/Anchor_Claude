@@ -58,11 +58,16 @@ static void timing_resync(void);
 // 16384 commands × ~64 bytes = ~1MB per layer
 #define MAX_COMMAND_CAPACITY 16384
 
-// Shape types
+// Command types
 enum {
-    SHAPE_RECTANGLE = 0,
-    SHAPE_CIRCLE,
-    SHAPE_SPRITE,
+    COMMAND_RECTANGLE = 0,
+    COMMAND_CIRCLE,
+    COMMAND_SPRITE,
+    COMMAND_APPLY_SHADER,       // Post-process layer through a shader
+    COMMAND_SET_UNIFORM_FLOAT,  // Set float uniform on shader
+    COMMAND_SET_UNIFORM_VEC2,   // Set vec2 uniform on shader
+    COMMAND_SET_UNIFORM_VEC4,   // Set vec4 uniform on shader
+    COMMAND_SET_UNIFORM_INT,    // Set int uniform on shader
 };
 
 // Blend modes
@@ -79,22 +84,26 @@ enum {
 //   CIRCLE: x,y is center, radius extends outward
 //   SPRITE: x,y is center (texture drawn centered at that point)
 typedef struct {
-    uint8_t type;           // SHAPE_RECTANGLE, SHAPE_CIRCLE, SHAPE_SPRITE
+    uint8_t type;           // COMMAND_RECTANGLE, COMMAND_CIRCLE, COMMAND_SPRITE, COMMAND_APPLY_SHADER, COMMAND_SET_UNIFORM_*
     uint8_t blend_mode;     // BLEND_ALPHA, BLEND_ADDITIVE, BLEND_MULTIPLY
     uint8_t _pad[2];        // Padding to align next field to 4 bytes
 
     float transform[6];     // 2D affine matrix (2x3): [m00 m01 m02 m10 m11 m12] (24 bytes)
-    uint32_t color;         // Packed RGBA (4 bytes)
+    uint32_t color;         // Packed RGBA for multiply/tint; For SET_UNIFORM_*: uniform location (4 bytes)
 
     // Shape parameters (meaning depends on type)
     // RECTANGLE: params[0]=x, [1]=y, [2]=w, [3]=h
     // CIRCLE: params[0]=x, [1]=y, [2]=radius
     // SPRITE: params[0]=x, [1]=y, [2]=w, [3]=h, [4]=ox, [5]=oy (+ texture_id)
+    // SET_UNIFORM_FLOAT: params[0]=value
+    // SET_UNIFORM_VEC2: params[0]=x, [1]=y
+    // SET_UNIFORM_VEC4: params[0]=x, [1]=y, [2]=z, [3]=w
+    // SET_UNIFORM_INT: params[0]=value (as float, cast to int)
     float params[6];        // 24 bytes (reduced from 8 to fit 64-byte target)
 
-    GLuint texture_id;      // For SPRITE (4 bytes)
-    // Total: 4 + 24 + 4 + 24 + 4 = 60 bytes, padded to 64
-    uint8_t _pad2[4];       // Explicit padding to reach 64 bytes
+    GLuint texture_id;      // For SPRITE: texture handle; For APPLY_SHADER: shader handle (4 bytes)
+    uint32_t flash_color;   // Packed RGB for additive flash (uses only RGB, alpha ignored)
+    // Total: 4 + 24 + 4 + 24 + 4 + 4 = 64 bytes
 } DrawCommand;
 
 // Verify DrawCommand is exactly 64 bytes (compile-time check)
@@ -110,6 +119,11 @@ typedef struct {
     GLuint color_texture;
     int width;
     int height;
+
+    // Effect ping-pong buffers (created on first use)
+    GLuint effect_fbo;
+    GLuint effect_texture;
+    bool textures_swapped;  // Which buffer is current result
 
     // Transform stack (mat3 stored as 9 floats: row-major)
     // Each mat3: [m00 m01 m02 m10 m11 m12 m20 m21 m22]
@@ -230,7 +244,47 @@ static void layer_destroy(Layer* layer) {
     if (layer->commands) free(layer->commands);
     if (layer->color_texture) glDeleteTextures(1, &layer->color_texture);
     if (layer->fbo) glDeleteFramebuffers(1, &layer->fbo);
+    // Effect ping-pong buffers
+    if (layer->effect_texture) glDeleteTextures(1, &layer->effect_texture);
+    if (layer->effect_fbo) glDeleteFramebuffers(1, &layer->effect_fbo);
     free(layer);
+}
+
+// Ensure effect buffer exists (lazy creation)
+static void layer_ensure_effect_buffer(Layer* layer) {
+    if (layer->effect_fbo != 0) return;  // Already created
+
+    // Create effect texture
+    glGenTextures(1, &layer->effect_texture);
+    glBindTexture(GL_TEXTURE_2D, layer->effect_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, layer->width, layer->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    // Create effect FBO
+    glGenFramebuffers(1, &layer->effect_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, layer->effect_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, layer->effect_texture, 0);
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "Effect framebuffer incomplete: 0x%x\n", status);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// Get the current result texture (accounts for ping-pong state)
+static GLuint layer_get_texture(Layer* layer) {
+    return layer->textures_swapped ? layer->effect_texture : layer->color_texture;
+}
+
+// Reset effect state for start of frame (call after layer_flush, before new frame)
+static void layer_reset_effects(Layer* layer) {
+    layer->textures_swapped = false;
 }
 
 // Get pointer to current transform (mat3 at current depth)
@@ -277,7 +331,7 @@ static void layer_clear_commands(Layer* layer) {
 static void layer_add_rectangle(Layer* layer, float x, float y, float w, float h, uint32_t color) {
     DrawCommand* cmd = layer_add_command(layer);
     if (!cmd) return;
-    cmd->type = SHAPE_RECTANGLE;
+    cmd->type = COMMAND_RECTANGLE;
     cmd->color = color;
     cmd->params[0] = x;
     cmd->params[1] = y;
@@ -289,7 +343,7 @@ static void layer_add_rectangle(Layer* layer, float x, float y, float w, float h
 static void layer_add_circle(Layer* layer, float x, float y, float radius, uint32_t color) {
     DrawCommand* cmd = layer_add_command(layer);
     if (!cmd) return;
-    cmd->type = SHAPE_CIRCLE;
+    cmd->type = COMMAND_CIRCLE;
     cmd->color = color;
     cmd->params[0] = x;
     cmd->params[1] = y;
@@ -297,11 +351,13 @@ static void layer_add_circle(Layer* layer, float x, float y, float radius, uint3
 }
 
 // Record a sprite/image command (centered at x, y)
-static void layer_add_image(Layer* layer, Texture* tex, float x, float y, uint32_t color) {
+// color = multiply/tint color (RGBA), flash_color = additive flash color (RGB, alpha ignored)
+static void layer_add_image(Layer* layer, Texture* tex, float x, float y, uint32_t color, uint32_t flash_color) {
     DrawCommand* cmd = layer_add_command(layer);
     if (!cmd) return;
-    cmd->type = SHAPE_SPRITE;
+    cmd->type = COMMAND_SPRITE;
     cmd->color = color;
+    cmd->flash_color = flash_color;
     cmd->texture_id = tex->id;
     cmd->params[0] = x;
     cmd->params[1] = y;
@@ -316,7 +372,7 @@ static void layer_set_blend_mode(Layer* layer, uint8_t mode) {
 
 // Batch rendering
 #define MAX_BATCH_VERTICES 6000  // 1000 quads * 6 vertices
-#define VERTEX_FLOATS 13         // x, y, u, v, r, g, b, a, type, shape[4]
+#define VERTEX_FLOATS 16         // x, y, u, v, r, g, b, a, type, shape[4], addR, addG, addB
 
 // Shape types for uber-shader
 #define SHAPE_TYPE_RECT   0.0f
@@ -410,10 +466,11 @@ static void unpack_color(uint32_t color, float* r, float* g, float* b, float* a)
     *a = (color & 0xFF) / 255.0f;
 }
 
-// Add a vertex to the batch (13 floats per vertex)
+// Add a vertex to the batch (16 floats per vertex)
 static void batch_add_vertex(float x, float y, float u, float v,
                              float r, float g, float b, float a,
-                             float type, float s0, float s1, float s2, float s3) {
+                             float type, float s0, float s1, float s2, float s3,
+                             float addR, float addG, float addB) {
     if (batch_vertex_count >= MAX_BATCH_VERTICES) return;
     int i = batch_vertex_count * VERTEX_FLOATS;
     batch_vertices[i + 0] = x;
@@ -425,33 +482,38 @@ static void batch_add_vertex(float x, float y, float u, float v,
     batch_vertices[i + 6] = b;
     batch_vertices[i + 7] = a;
     batch_vertices[i + 8] = type;
-    batch_vertices[i + 9] = s0;   // shape[0]
-    batch_vertices[i + 10] = s1;  // shape[1]
-    batch_vertices[i + 11] = s2;  // shape[2]
-    batch_vertices[i + 12] = s3;  // shape[3]
+    batch_vertices[i + 9] = s0;    // shape[0]
+    batch_vertices[i + 10] = s1;   // shape[1]
+    batch_vertices[i + 11] = s2;   // shape[2]
+    batch_vertices[i + 12] = s3;   // shape[3]
+    batch_vertices[i + 13] = addR; // additive color R (flash)
+    batch_vertices[i + 14] = addG; // additive color G (flash)
+    batch_vertices[i + 15] = addB; // additive color B (flash)
     batch_vertex_count++;
 }
 
 // Add a quad (two triangles, 6 vertices) for SDF shapes
 // UVs go from (0,0) to (1,1) across the quad
 // Shape params are the same for all vertices
+// addR/G/B is additive color (flash effect)
 static void batch_add_sdf_quad(float x0, float y0, float x1, float y1,
                                float x2, float y2, float x3, float y3,
                                float r, float g, float b, float a,
-                               float type, float s0, float s1, float s2, float s3) {
+                               float type, float s0, float s1, float s2, float s3,
+                               float addR, float addG, float addB) {
     // Quad corners with UVs:
     // 0(0,0)---1(1,0)
     // |         |
     // 3(0,1)---2(1,1)
 
     // Triangle 1: 0, 1, 2
-    batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3);
-    batch_add_vertex(x1, y1, 1.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3);
-    batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3);
+    batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
+    batch_add_vertex(x1, y1, 1.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
+    batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
     // Triangle 2: 0, 2, 3
-    batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3);
-    batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3);
-    batch_add_vertex(x3, y3, 0.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3);
+    batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
+    batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
+    batch_add_vertex(x3, y3, 0.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
 }
 
 static SDL_Window* window = NULL;
@@ -475,6 +537,147 @@ static int layer_count = 0;
 static GLuint screen_shader = 0;
 static GLuint screen_vao = 0;
 static GLuint screen_vbo = 0;
+
+// Manual layer compositing queue
+typedef struct {
+    Layer* layer;
+    float x, y;  // Offset in game coordinates
+} LayerDrawCommand;
+
+#define MAX_LAYER_DRAWS 64
+static LayerDrawCommand layer_draw_queue[MAX_LAYER_DRAWS];
+static int layer_draw_count = 0;
+
+// Queue a layer to be drawn to screen at given offset
+static void layer_queue_draw(Layer* layer, float x, float y) {
+    if (layer_draw_count >= MAX_LAYER_DRAWS) return;
+    layer_draw_queue[layer_draw_count].layer = layer;
+    layer_draw_queue[layer_draw_count].x = x;
+    layer_draw_queue[layer_draw_count].y = y;
+    layer_draw_count++;
+}
+
+// Queue a shader application command (deferred - actual work done at frame end)
+static void layer_apply_shader(Layer* layer, GLuint shader) {
+    if (!shader) return;
+    if (layer->command_count >= MAX_COMMAND_CAPACITY) return;
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->type = COMMAND_APPLY_SHADER;
+    cmd->texture_id = shader;  // Reuse texture_id field for shader handle
+}
+
+// Queue uniform setting commands (deferred - applied when processing commands)
+static void layer_shader_set_float(Layer* layer, GLuint shader, const char* name, float value) {
+    if (!shader || layer->command_count >= MAX_COMMAND_CAPACITY) return;
+
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc == -1) return;  // Uniform not found
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->type = COMMAND_SET_UNIFORM_FLOAT;
+    cmd->texture_id = shader;
+    cmd->color = (uint32_t)loc;  // Store uniform location
+    cmd->params[0] = value;
+}
+
+static void layer_shader_set_vec2(Layer* layer, GLuint shader, const char* name, float x, float y) {
+    if (!shader || layer->command_count >= MAX_COMMAND_CAPACITY) return;
+
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc == -1) return;
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->type = COMMAND_SET_UNIFORM_VEC2;
+    cmd->texture_id = shader;
+    cmd->color = (uint32_t)loc;
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+}
+
+static void layer_shader_set_vec4(Layer* layer, GLuint shader, const char* name, float x, float y, float z, float w) {
+    if (!shader || layer->command_count >= MAX_COMMAND_CAPACITY) return;
+
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc == -1) return;
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->type = COMMAND_SET_UNIFORM_VEC4;
+    cmd->texture_id = shader;
+    cmd->color = (uint32_t)loc;
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = z;
+    cmd->params[3] = w;
+}
+
+static void layer_shader_set_int(Layer* layer, GLuint shader, const char* name, int value) {
+    if (!shader || layer->command_count >= MAX_COMMAND_CAPACITY) return;
+
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc == -1) return;
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->type = COMMAND_SET_UNIFORM_INT;
+    cmd->texture_id = shader;
+    cmd->color = (uint32_t)loc;
+    cmd->params[0] = (float)value;  // Store as float, cast back when processing
+}
+
+// Execute shader application (ping-pong): read from current buffer, apply shader, write to alternate
+// Called during command processing when COMMAND_APPLY_SHADER is encountered
+static void execute_apply_shader(Layer* layer, GLuint shader) {
+    // Ensure effect buffer exists
+    layer_ensure_effect_buffer(layer);
+
+    // Determine source and destination based on current state
+    GLuint src_tex, dst_fbo;
+    if (layer->textures_swapped) {
+        src_tex = layer->effect_texture;
+        dst_fbo = layer->fbo;
+    } else {
+        src_tex = layer->color_texture;
+        dst_fbo = layer->effect_fbo;
+    }
+
+    // Bind destination FBO
+    glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
+    glViewport(0, 0, layer->width, layer->height);
+
+    // Clear destination
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Disable blending (replace, don't blend)
+    glDisable(GL_BLEND);
+
+    // Use the effect shader
+    glUseProgram(shader);
+
+    // Set standard uniforms
+    GLint tex_loc = glGetUniformLocation(shader, "u_texture");
+    if (tex_loc != -1) glUniform1i(tex_loc, 0);
+
+    // Bind source texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, src_tex);
+
+    // Draw fullscreen quad
+    glBindVertexArray(screen_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    // Re-enable blending
+    glEnable(GL_BLEND);
+
+    // Toggle state - now the "current" buffer is the destination
+    layer->textures_swapped = !layer->textures_swapped;
+}
 
 // Flush batch to GPU
 static void batch_flush(void) {
@@ -540,9 +743,11 @@ static void process_rectangle(const DrawCommand* cmd) {
 
     // Add SDF quad: shape = (quad_w, quad_h, half_w, half_h)
     // Shader computes local_p = vUV * quad_size, center = quad_size * 0.5
+    // No flash for shapes (additive = 0)
     batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
                        r, g, b, a,
-                       SHAPE_TYPE_RECT, quad_w, quad_h, half_w, half_h);
+                       SHAPE_TYPE_RECT, quad_w, quad_h, half_w, half_h,
+                       0.0f, 0.0f, 0.0f);
 }
 
 // Process a circle command (SDF-based, UV-space approach)
@@ -577,9 +782,11 @@ static void process_circle(const DrawCommand* cmd) {
 
     // Add SDF quad: shape = (quad_size, quad_size, radius, unused)
     // Shader computes local_p = vUV * quad_size, center = quad_size * 0.5
+    // No flash for shapes (additive = 0)
     batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
                        r, g, b, a,
-                       SHAPE_TYPE_CIRCLE, quad_size, quad_size, radius, 0.0f);
+                       SHAPE_TYPE_CIRCLE, quad_size, quad_size, radius, 0.0f,
+                       0.0f, 0.0f, 0.0f);
 }
 
 // Forward declaration of batch_flush (needed for process_sprite)
@@ -620,11 +827,17 @@ static void process_sprite(const DrawCommand* cmd) {
     float r, g, b, a;
     unpack_color(cmd->color, &r, &g, &b, &a);
 
+    // Unpack flash color (additive, alpha ignored)
+    float addR, addG, addB, addA;
+    unpack_color(cmd->flash_color, &addR, &addG, &addB, &addA);
+    (void)addA;  // Alpha not used for additive color
+
     // Add sprite quad with UVs (0,0) to (1,1)
     // shape params unused for sprites, but we still use the same vertex format
     batch_add_sdf_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
                        r, g, b, a,
-                       SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f);
+                       SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f,
+                       addR, addG, addB);
 }
 
 // Apply GL blend state based on blend mode
@@ -642,6 +855,7 @@ static void apply_blend_mode(uint8_t mode) {
 }
 
 // Render all commands on a layer
+// Note: Caller must have set up projection matrix and bound initial FBO before calling
 static void layer_render(Layer* layer) {
     batch_vertex_count = 0;
     current_batch_texture = 0;
@@ -651,7 +865,61 @@ static void layer_render(Layer* layer) {
     for (int i = 0; i < layer->command_count; i++) {
         const DrawCommand* cmd = &layer->commands[i];
 
-        // Check for blend mode change
+        // Handle uniform setting commands
+        // These need to temporarily switch programs, so flush batch first and restore after
+        if (cmd->type == COMMAND_SET_UNIFORM_FLOAT ||
+            cmd->type == COMMAND_SET_UNIFORM_VEC2 ||
+            cmd->type == COMMAND_SET_UNIFORM_VEC4 ||
+            cmd->type == COMMAND_SET_UNIFORM_INT) {
+            // Flush any pending draws before switching programs
+            batch_flush();
+            current_batch_texture = 0;
+
+            glUseProgram(cmd->texture_id);
+            switch (cmd->type) {
+                case COMMAND_SET_UNIFORM_FLOAT:
+                    glUniform1f((GLint)cmd->color, cmd->params[0]);
+                    break;
+                case COMMAND_SET_UNIFORM_VEC2:
+                    glUniform2f((GLint)cmd->color, cmd->params[0], cmd->params[1]);
+                    break;
+                case COMMAND_SET_UNIFORM_VEC4:
+                    glUniform4f((GLint)cmd->color, cmd->params[0], cmd->params[1], cmd->params[2], cmd->params[3]);
+                    break;
+                case COMMAND_SET_UNIFORM_INT:
+                    glUniform1i((GLint)cmd->color, (int)cmd->params[0]);
+                    break;
+            }
+
+            // Restore drawing shader for subsequent draw commands
+            glUseProgram(shader_program);
+            continue;
+        }
+
+        // Handle shader application command
+        if (cmd->type == COMMAND_APPLY_SHADER) {
+            // Flush pending draw commands before shader application
+            batch_flush();
+            current_batch_texture = 0;
+
+            // Execute the shader (ping-pong to alternate buffer)
+            execute_apply_shader(layer, cmd->texture_id);
+
+            // After ping-pong, bind the NEW current FBO for subsequent draws
+            // (execute_apply_shader toggled textures_swapped, so current is now the destination)
+            GLuint current_fbo = layer->textures_swapped ? layer->effect_fbo : layer->fbo;
+            glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+            glViewport(0, 0, layer->width, layer->height);
+            // DON'T clear - the ping-pong output is our background for subsequent draws
+
+            // Restore drawing shader state
+            glUseProgram(shader_program);
+            apply_blend_mode(current_blend);
+
+            continue;
+        }
+
+        // Check for blend mode change (draw commands only)
         if (cmd->blend_mode != current_blend && batch_vertex_count > 0) {
             batch_flush();
             current_blend = cmd->blend_mode;
@@ -662,7 +930,7 @@ static void layer_render(Layer* layer) {
         }
 
         switch (cmd->type) {
-            case SHAPE_RECTANGLE:
+            case COMMAND_RECTANGLE:
                 // SDF shapes use no texture - flush if we were drawing sprites
                 if (current_batch_texture != 0 && batch_vertex_count > 0) {
                     batch_flush();
@@ -670,7 +938,7 @@ static void layer_render(Layer* layer) {
                 }
                 process_rectangle(cmd);
                 break;
-            case SHAPE_CIRCLE:
+            case COMMAND_CIRCLE:
                 // SDF shapes use no texture - flush if we were drawing sprites
                 if (current_batch_texture != 0 && batch_vertex_count > 0) {
                     batch_flush();
@@ -678,7 +946,7 @@ static void layer_render(Layer* layer) {
                 }
                 process_circle(cmd);
                 break;
-            case SHAPE_SPRITE:
+            case COMMAND_SPRITE:
                 process_sprite(cmd);
                 break;
         }
@@ -725,6 +993,16 @@ static Layer* layer_get_or_create(const char* name) {
     printf("Created layer: %s\n", name);
     return layer;
 }
+
+// Forward declarations for effect shader functions (defined after shader sources)
+static GLuint effect_shader_load_file(const char* path);
+static GLuint effect_shader_load_string(const char* frag_source);
+static void effect_shader_destroy(GLuint shader);
+static void shader_set_float(GLuint shader, const char* name, float value);
+static void shader_set_vec2(GLuint shader, const char* name, float x, float y);
+static void shader_set_vec4(GLuint shader, const char* name, float x, float y, float z, float w);
+static void shader_set_int(GLuint shader, const char* name, int value);
+static void shader_set_texture(GLuint shader, const char* name, GLuint texture, int unit);
 
 // Lua bindings
 static int l_layer_create(lua_State* L) {
@@ -833,7 +1111,8 @@ static int l_layer_draw_texture(lua_State* L) {
     float x = (float)luaL_checknumber(L, 3);
     float y = (float)luaL_checknumber(L, 4);
     uint32_t color = (uint32_t)luaL_optinteger(L, 5, 0xFFFFFFFF);  // Default white (no tint)
-    layer_add_image(layer, tex, x, y, color);
+    uint32_t flash = (uint32_t)luaL_optinteger(L, 6, 0x00000000);  // Default black (no flash)
+    layer_add_image(layer, tex, x, y, color, flash);
     return 0;
 }
 
@@ -847,6 +1126,103 @@ static int l_layer_set_blend_mode(lua_State* L) {
     } else {
         return luaL_error(L, "Invalid blend mode: %s (use 'alpha' or 'additive')", mode);
     }
+    return 0;
+}
+
+// Effect shader Lua bindings
+static int l_shader_load_file(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    GLuint shader = effect_shader_load_file(path);
+    if (!shader) {
+        return luaL_error(L, "Failed to load effect shader: %s", path);
+    }
+    lua_pushinteger(L, (lua_Integer)shader);
+    return 1;
+}
+
+static int l_shader_load_string(lua_State* L) {
+    const char* source = luaL_checkstring(L, 1);
+    GLuint shader = effect_shader_load_string(source);
+    if (!shader) {
+        return luaL_error(L, "Failed to compile effect shader from string");
+    }
+    lua_pushinteger(L, (lua_Integer)shader);
+    return 1;
+}
+
+static int l_shader_destroy(lua_State* L) {
+    GLuint shader = (GLuint)luaL_checkinteger(L, 1);
+    effect_shader_destroy(shader);
+    return 0;
+}
+
+// Deferred uniform setting Lua bindings (queued to layer's command list)
+static int l_layer_shader_set_float(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint shader = (GLuint)luaL_checkinteger(L, 2);
+    const char* name = luaL_checkstring(L, 3);
+    float value = (float)luaL_checknumber(L, 4);
+    layer_shader_set_float(layer, shader, name, value);
+    return 0;
+}
+
+static int l_layer_shader_set_vec2(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint shader = (GLuint)luaL_checkinteger(L, 2);
+    const char* name = luaL_checkstring(L, 3);
+    float x = (float)luaL_checknumber(L, 4);
+    float y = (float)luaL_checknumber(L, 5);
+    layer_shader_set_vec2(layer, shader, name, x, y);
+    return 0;
+}
+
+static int l_layer_shader_set_vec4(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint shader = (GLuint)luaL_checkinteger(L, 2);
+    const char* name = luaL_checkstring(L, 3);
+    float x = (float)luaL_checknumber(L, 4);
+    float y = (float)luaL_checknumber(L, 5);
+    float z = (float)luaL_checknumber(L, 6);
+    float w = (float)luaL_checknumber(L, 7);
+    layer_shader_set_vec4(layer, shader, name, x, y, z, w);
+    return 0;
+}
+
+static int l_layer_shader_set_int(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint shader = (GLuint)luaL_checkinteger(L, 2);
+    const char* name = luaL_checkstring(L, 3);
+    int value = (int)luaL_checkinteger(L, 4);
+    layer_shader_set_int(layer, shader, name, value);
+    return 0;
+}
+
+// Layer effect Lua bindings
+static int l_layer_apply_shader(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint shader = (GLuint)luaL_checkinteger(L, 2);
+    layer_apply_shader(layer, shader);
+    return 0;
+}
+
+static int l_layer_draw(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    float x = (lua_gettop(L) >= 2) ? (float)luaL_checknumber(L, 2) : 0.0f;
+    float y = (lua_gettop(L) >= 3) ? (float)luaL_checknumber(L, 3) : 0.0f;
+    layer_queue_draw(layer, x, y);
+    return 0;
+}
+
+static int l_layer_get_texture(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint tex = layer_get_texture(layer);
+    lua_pushinteger(L, (lua_Integer)tex);
+    return 1;
+}
+
+static int l_layer_reset_effects(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    layer_reset_effects(layer);
     return 0;
 }
 
@@ -864,6 +1240,20 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "rgba", l_rgba);
     lua_register(L, "set_shape_filter", l_set_shape_filter);
     lua_register(L, "timing_resync", l_timing_resync);
+    // Effect shaders
+    lua_register(L, "shader_load_file", l_shader_load_file);
+    lua_register(L, "shader_load_string", l_shader_load_string);
+    lua_register(L, "shader_destroy", l_shader_destroy);
+    // Layer shader uniforms (deferred)
+    lua_register(L, "layer_shader_set_float", l_layer_shader_set_float);
+    lua_register(L, "layer_shader_set_vec2", l_layer_shader_set_vec2);
+    lua_register(L, "layer_shader_set_vec4", l_layer_shader_set_vec4);
+    lua_register(L, "layer_shader_set_int", l_layer_shader_set_int);
+    // Layer effects
+    lua_register(L, "layer_apply_shader", l_layer_apply_shader);
+    lua_register(L, "layer_draw", l_layer_draw);
+    lua_register(L, "layer_get_texture", l_layer_get_texture);
+    lua_register(L, "layer_reset_effects", l_layer_reset_effects);
 }
 
 // Main loop state (needed for emscripten)
@@ -904,12 +1294,14 @@ static const char* vertex_shader_source =
     "layout (location = 2) in vec4 aColor;\n"
     "layout (location = 3) in float aType;\n"
     "layout (location = 4) in vec4 aShape;\n"
+    "layout (location = 5) in vec3 aAddColor;\n"
     "\n"
     "out vec2 vPos;\n"
     "out vec2 vUV;\n"
     "out vec4 vColor;\n"
     "out float vType;\n"
     "out vec4 vShape;\n"
+    "out vec3 vAddColor;\n"
     "\n"
     "uniform mat4 projection;\n"
     "\n"
@@ -920,6 +1312,7 @@ static const char* vertex_shader_source =
     "    vColor = aColor;\n"
     "    vType = aType;\n"
     "    vShape = aShape;\n"
+    "    vAddColor = aAddColor;\n"
     "}\n";
 
 static const char* fragment_shader_source =
@@ -928,6 +1321,7 @@ static const char* fragment_shader_source =
     "in vec4 vColor;\n"
     "in float vType;\n"
     "in vec4 vShape;\n"
+    "in vec3 vAddColor;\n"
     "\n"
     "out vec4 FragColor;\n"
     "\n"
@@ -989,29 +1383,32 @@ static const char* fragment_shader_source =
     "        d = sdf_circle(local_p, center, radius);\n"
     "    } else {\n"
     "        // Sprite: sample texture at texel centers for pixel-perfect rendering\n"
+    "        // vColor is multiply (tint), vAddColor is additive (flash)\n"
     "        ivec2 texSize = textureSize(u_texture, 0);\n"
     "        vec2 snappedUV = (floor(vUV * vec2(texSize)) + 0.5) / vec2(texSize);\n"
     "        vec4 texColor = texture(u_texture, snappedUV);\n"
-    "        FragColor = texColor * vColor;\n"
+    "        FragColor = vec4(texColor.rgb * vColor.rgb + vAddColor, texColor.a * vColor.a);\n"
     "        return;\n"
     "    }\n"
     "    \n"
     "    // Apply anti-aliasing (or hard edges when u_aa_width = 0)\n"
+    "    // vColor is multiply (tint), vAddColor is additive (flash)\n"
     "    float alpha;\n"
     "    if (u_aa_width > 0.0) {\n"
     "        alpha = 1.0 - smoothstep(-u_aa_width, u_aa_width, d);\n"
     "    } else {\n"
     "        alpha = 1.0 - step(0.0, d);\n"
     "    }\n"
-    "    FragColor = vec4(vColor.rgb, vColor.a * alpha);\n"
+    "    FragColor = vec4(vColor.rgb + vAddColor, vColor.a * alpha);\n"
     "}\n";
 
 static const char* screen_vertex_source =
     "layout (location = 0) in vec2 aPos;\n"
     "layout (location = 1) in vec2 aTexCoord;\n"
+    "uniform vec2 u_offset;\n"  // Offset in NDC (-1 to 1 range)
     "out vec2 TexCoord;\n"
     "void main() {\n"
-    "    gl_Position = vec4(aPos, 0.0, 1.0);\n"
+    "    gl_Position = vec4(aPos + u_offset, 0.0, 1.0);\n"
     "    TexCoord = aTexCoord;\n"
     "}\n";
 
@@ -1083,6 +1480,85 @@ static GLuint create_shader_program(const char* vert_src, const char* frag_src) 
         return 0;
     }
     return program;
+}
+
+// Effect shader loading
+// Read entire file into malloc'd string (caller must free)
+static char* read_file_to_string(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Failed to open file: %s\n", path);
+        return NULL;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* buffer = (char*)malloc(size + 1);
+    if (!buffer) {
+        fclose(f);
+        return NULL;
+    }
+    size_t read_size = fread(buffer, 1, size, f);
+    buffer[read_size] = '\0';
+    fclose(f);
+    return buffer;
+}
+
+// Create an effect shader program from fragment source (uses screen_vertex_source)
+static GLuint effect_shader_load_string(const char* frag_source) {
+    return create_shader_program(screen_vertex_source, frag_source);
+}
+
+// Create an effect shader program from a fragment shader file
+static GLuint effect_shader_load_file(const char* path) {
+    char* source = read_file_to_string(path);
+    if (!source) return 0;
+    GLuint shader = effect_shader_load_string(source);
+    free(source);
+    if (shader) {
+        printf("Loaded effect shader: %s\n", path);
+    }
+    return shader;
+}
+
+// Destroy an effect shader program
+static void effect_shader_destroy(GLuint shader) {
+    if (shader) {
+        glDeleteProgram(shader);
+    }
+}
+
+// Uniform setters
+static void shader_set_float(GLuint shader, const char* name, float value) {
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform1f(loc, value);
+}
+
+static void shader_set_vec2(GLuint shader, const char* name, float x, float y) {
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform2f(loc, x, y);
+}
+
+static void shader_set_vec4(GLuint shader, const char* name, float x, float y, float z, float w) {
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform4f(loc, x, y, z, w);
+}
+
+static void shader_set_int(GLuint shader, const char* name, int value) {
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform1i(loc, value);
+}
+
+static void shader_set_texture(GLuint shader, const char* name, GLuint texture, int unit) {
+    glUseProgram(shader);
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform1i(loc, unit);
 }
 
 // Error handler that adds stack trace
@@ -1283,15 +1759,54 @@ static void main_loop_iteration(void) {
         glViewport(offset_x, offset_y, scaled_w, scaled_h);
         glUseProgram(screen_shader);
 
-        // Blit each layer in order (first created = bottom)
-        for (int i = 0; i < layer_count; i++) {
-            Layer* layer = layer_registry[i];
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, layer->color_texture);
+        // Get offset uniform location
+        GLint offset_loc = glGetUniformLocation(screen_shader, "u_offset");
 
-            glBindVertexArray(screen_vao);
-            glDrawArrays(GL_TRIANGLES, 0, 6);
-            glBindVertexArray(0);
+        if (layer_draw_count > 0) {
+            // Manual compositing: use layer_draw queue
+            for (int i = 0; i < layer_draw_count; i++) {
+                LayerDrawCommand* cmd = &layer_draw_queue[i];
+                Layer* layer = cmd->layer;
+
+                // Convert game coordinates to NDC offset
+                // Game coords: (0,0) top-left, positive Y down
+                // NDC: (-1,-1) bottom-left, positive Y up
+                // Offset in NDC = (game_offset / game_size) * 2
+                float ndc_x = (cmd->x / GAME_WIDTH) * 2.0f;
+                float ndc_y = -(cmd->y / GAME_HEIGHT) * 2.0f;  // Flip Y
+                glUniform2f(offset_loc, ndc_x, ndc_y);
+
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+
+                glBindVertexArray(screen_vao);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+                glBindVertexArray(0);
+            }
+
+            // Reset all layers' effect state
+            for (int i = 0; i < layer_count; i++) {
+                layer_reset_effects(layer_registry[i]);
+            }
+
+            // Clear the draw queue for next frame
+            layer_draw_count = 0;
+        } else {
+            // Automatic compositing: blit each layer in order (first created = bottom)
+            glUniform2f(offset_loc, 0.0f, 0.0f);  // No offset for automatic
+
+            for (int i = 0; i < layer_count; i++) {
+                Layer* layer = layer_registry[i];
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+
+                glBindVertexArray(screen_vao);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+                glBindVertexArray(0);
+
+                // Reset effect state for next frame
+                layer_reset_effects(layer);
+            }
         }
 
         SDL_GL_SwapWindow(window);
@@ -1398,7 +1913,7 @@ int main(int argc, char* argv[]) {
     // Allocate space for batch rendering
     glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * VERTEX_FLOATS * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
-    // Stride = 13 floats = 52 bytes
+    // Stride = 16 floats = 64 bytes
     int stride = VERTEX_FLOATS * sizeof(float);
 
     // Position attribute (location 0): 2 floats at offset 0
@@ -1420,6 +1935,10 @@ int main(int argc, char* argv[]) {
     // Shape attribute (location 4): 4 floats at offset 9
     glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(9 * sizeof(float)));
     glEnableVertexAttribArray(4);
+
+    // AddColor attribute (location 5): 3 floats at offset 13 (additive flash color)
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, (void*)(13 * sizeof(float)));
+    glEnableVertexAttribArray(5);
 
     glBindVertexArray(0);
     printf("Game VAO/VBO created (stride=%d bytes)\n", stride);
