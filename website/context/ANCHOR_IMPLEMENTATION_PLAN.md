@@ -1303,24 +1303,286 @@ end
 
 **Goal:** Seedable PRNG for deterministic gameplay and replay support.
 
-### 8.1 Implementation
-- [ ] PCG or xorshift PRNG (fast, good quality)
-- [ ] Seed function
-- [ ] Save/restore RNG state (required for replays)
-- [ ] Consider separate streams for gameplay vs cosmetic RNG
+See `reference/phase-8-random-research.md` for full API research across 17+ game engines.
 
-### 8.2 Lua Bindings
+---
+
+### Architecture
+
+**Algorithm:** PCG32 (Permuted Congruential Generator)
+- Fast (~1 billion numbers/sec)
+- Excellent statistical quality (passes BigCrush)
+- Small state: 64 bits (easy to save for replays)
+- Period: 2^64 (far more than any game needs)
+
+**API Style:** Flat global functions (not `an:method()` style)
+
+**Multiple Instances:** All functions take optional `rng` parameter. When omitted, uses global RNG.
+
+**Ranges:** All ranges are inclusive: [0, 1], [min, max], [0, 2π]
+
+---
+
+### Implementation Steps
+
+**Step 1: PCG32 core**
+- [x] PCG32 state struct (64-bit state, 64-bit increment)
+- [x] `pcg32_seed(state, seed)` — initialize from seed
+- [x] `pcg32_next(state)` — generate next uint32
+- [x] Global RNG instance
+- [x] Verify determinism (same seed = same sequence)
+
+**Step 2: Basic generation functions**
+- [x] `random_float_01(rng?)` — float [0, 1]
+- [x] `random_float(min, max, rng?)` — float [min, max]
+- [x] `random_int(min, max, rng?)` — int [min, max] inclusive
+- [x] Lua bindings for above
+
+**Step 3: Seeding and state**
+- [x] `random_seed(seed, rng?)` — seed the RNG
+- [x] `random_get_seed(rng?)` — retrieve current seed
+- [x] `random_create(seed)` — create new RNG instance, returns userdata
+- [x] Lua bindings for above
+
+**Step 4: Convenience functions**
+- [x] `random_angle(rng?)` — float [0, 2π]
+- [x] `random_sign(chance?, rng?)` — -1 or 1 (chance 0-100, default 50)
+- [x] `random_bool(chance?, rng?)` — bool (chance 0-100, default 50)
+- [x] Lua bindings for above
+
+**Step 5: Distribution**
+- [x] `random_normal(mean?, stddev?, rng?)` — Gaussian via Box-Muller transform
+- [x] Lua binding
+
+**Step 6: Array functions**
+- [x] `random_choice(array, rng?)` — pick one element
+- [x] `random_choices(array, n, rng?)` — pick n elements (unique indexes)
+- [x] `random_weighted(weights, rng?)` — returns index based on weights
+- [x] Lua bindings for above
+
+**Step 7: Perlin noise**
+- [x] Integrate stb_perlin.h
+- [x] `noise(x, y?, z?)` — Perlin noise [-1, 1]
+- [x] Lua binding (1D, 2D, 3D variants)
+
+---
+
+### Lua API
+
 ```lua
-an:random_seed(12345)
-local x = an:random_float(0, 100)      -- [0, 100)
-local i = an:random_int(1, 10)         -- [1, 10] inclusive
-local r = an:random_angle()            -- [0, 2π)
-local s = an:random_sign()             -- -1 or 1
-local b = an:random_bool()             -- true or false
-local item = an:random_choice(array)   -- random element
+-- Seeding
+random_seed(seed, rng?)                -- Seed the RNG (default: global)
+random_get_seed(rng?)                  -- Get current seed
+random_create(seed)                    -- Create new RNG instance
+
+-- Core generation
+random_float_01(rng?)                  -- Float [0, 1]
+random_float(min, max, rng?)           -- Float [min, max]
+random_int(min, max, rng?)             -- Int [min, max] inclusive
+
+-- Convenience
+random_angle(rng?)                     -- Float [0, 2π]
+random_sign(chance?, rng?)             -- -1 or 1 (chance 0-100, default 50)
+random_bool(chance?, rng?)             -- Bool (chance 0-100, default 50)
+
+-- Distribution
+random_normal(mean?, stddev?, rng?)    -- Gaussian (mean=0, stddev=1)
+
+-- Array
+random_choice(array, rng?)             -- Pick one random element
+random_choices(array, n, rng?)         -- Pick n random elements (unique indexes)
+random_weighted(weights, rng?)         -- Returns index based on weights
+
+-- Noise
+noise(x, y?, z?)                       -- Perlin noise [-1, 1]
 ```
 
-**Deliverable:** Deterministic random.
+---
+
+### Usage Examples
+
+#### Basic Usage
+
+```lua
+-- Seed at game start for determinism
+random_seed(12345)
+
+-- Basic generation
+local x = random_float(0, 100)         -- e.g., 47.832
+local i = random_int(1, 10)            -- e.g., 7
+local r = random_angle()               -- e.g., 4.21
+local s = random_sign()                -- -1 or 1
+local b = random_bool(30)              -- 30% chance true
+
+-- Pitch variation for sound
+sound_play(hit_sound, 1.0, random_float(0.95, 1.05))
+```
+
+#### Weighted Selection
+
+```lua
+-- Loot rarity: 70% common, 25% rare, 5% epic
+local weights = {70, 25, 5}
+local index = random_weighted(weights)
+-- index = 1 (common), 2 (rare), or 3 (epic)
+
+-- Use with item tables
+local loot_tiers = {'common', 'rare', 'epic'}
+local tier = loot_tiers[random_weighted({70, 25, 5})]
+
+-- Enemy spawn weights
+local enemy_types = {'slime', 'goblin', 'orc', 'dragon'}
+local spawn_weights = {50, 30, 15, 5}
+local enemy = enemy_types[random_weighted(spawn_weights)]
+```
+
+#### Multiple Choices
+
+```lua
+-- Draw 5 cards from deck (unique, no repeats)
+local deck = {'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'}
+local hand = random_choices(deck, 5)   -- e.g., {'7', 'K', '2', '10', 'A'}
+
+-- Select 3 random enemies to buff
+local enemies = arena:all('enemy')
+local buffed = random_choices(enemies, 3)
+for _, enemy in ipairs(buffed) do
+    enemy.damage = enemy.damage * 2
+end
+```
+
+#### Replay from Start
+
+Save the seed before the run begins. Replay = re-seed with that value + replay all inputs.
+
+```lua
+-- Start of run
+function start_run(user_seed)
+    local seed = user_seed or os.time()
+    random_seed(seed)
+
+    replay = {
+        seed = seed,
+        inputs = {}
+    }
+end
+
+-- During gameplay, record inputs
+function on_input(input)
+    table.insert(replay.inputs, {frame = frame_count, input = input})
+    process_input(input)
+end
+
+-- Save replay
+function save_replay(filename)
+    save_to_file(filename, replay)
+end
+
+-- Load and play replay
+function play_replay(filename)
+    local data = load_from_file(filename)
+    random_seed(data.seed)              -- Same seed = same RNG sequence
+    play_inputs(data.inputs)            -- Game plays identically
+end
+```
+
+#### Checkpoint Save/Restore
+
+For mid-run saves, you need the full game state including RNG seed.
+
+```lua
+-- Save checkpoint
+function save_checkpoint()
+    checkpoint = {
+        seed = random_get_seed(),       -- Current RNG seed
+        player = {
+            x = player.x,
+            y = player.y,
+            hp = player.hp
+        },
+        enemies = serialize_enemies(),
+        score = score,
+        -- ... other game state
+    }
+end
+
+-- Load checkpoint
+function load_checkpoint()
+    random_seed(checkpoint.seed)        -- Restore RNG state
+    player.x = checkpoint.player.x
+    player.y = checkpoint.player.y
+    player.hp = checkpoint.player.hp
+    deserialize_enemies(checkpoint.enemies)
+    score = checkpoint.score
+    -- ... restore other game state
+end
+```
+
+#### Separate RNG for Procedural Generation
+
+```lua
+-- Main game RNG
+random_seed(os.time())
+
+-- Level generation with fixed seed (same seed = same level)
+local level_rng = random_create(level_number * 1000)
+
+for i = 1, 50 do
+    local x = random_int(0, 480, level_rng)
+    local y = random_int(0, 270, level_rng)
+    spawn_platform(x, y)
+end
+
+-- Main game RNG unaffected
+local particle_angle = random_angle()  -- Uses global RNG
+```
+
+#### Noise for Terrain/Effects
+
+```lua
+-- IMPORTANT: Noise scaling
+-- Perlin noise returns 0 at integer coordinates by design.
+-- The scale factor controls "zoom level":
+--   Small scale (0.01-0.05): Smooth, gradual changes (clouds, terrain)
+--   Medium scale (0.1-0.2): Moderate variation (texture detail)
+--   Large scale (0.5+): Rapid changes, more random-looking
+-- Adjacent samples should differ by small amounts for smooth results.
+
+-- Terrain height (scale 0.02 = gradual hills)
+for x = 0, 480 do
+    local height = noise(x * 0.02) * 50 + 100  -- Scale and offset
+    draw_ground(x, height)
+end
+
+-- 2D cloud density (scale 0.01 = large smooth clouds)
+for x = 0, 480 do
+    for y = 0, 270 do
+        local density = noise(x * 0.01, y * 0.01)
+        if density > 0.3 then
+            draw_cloud_pixel(x, y, density)
+        end
+    end
+end
+
+-- Animated noise (use z as time)
+local wobble = noise(enemy.x * 0.1, enemy.y * 0.1, time * 0.5)
+enemy.visual_x = enemy.x + wobble * 5
+```
+
+---
+
+### Verification
+
+- [x] Step 1: Same seed produces identical sequence across runs
+- [x] Step 2: `random_float` and `random_int` produce values in correct ranges
+- [x] Step 3: `random_create` produces independent RNG instances
+- [x] Step 4: `random_sign` and `random_bool` respect chance parameter
+- [x] Step 5: `random_normal` produces bell curve distribution
+- [x] Step 6: `random_weighted` respects weight ratios
+- [x] Step 7: `noise` produces smooth, continuous values
+- [x] All steps verified on Windows and Web
+
+**Deliverable:** Deterministic random with replay support and Perlin noise. ✓ Complete
 
 ---
 

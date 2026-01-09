@@ -34,6 +34,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define STB_PERLIN_IMPLEMENTATION
+#include <stb_perlin.h>
+
 #define STB_VORBIS_HEADER_ONLY
 #include <stb_vorbis.c>
 
@@ -276,6 +279,40 @@ static int sensor_begin_count = 0;
 
 static PhysicsSensorEndEvent sensor_end_events[MAX_PHYSICS_EVENTS];
 static int sensor_end_count = 0;
+
+// Random (PCG32)
+// PCG32 - Permuted Congruential Generator (32-bit output, 64-bit state)
+// Fast, excellent statistical quality, small state for easy replay save/restore
+typedef struct {
+    uint64_t state;      // RNG state (all values are possible)
+    uint64_t increment;  // Controls which RNG sequence (stream) is selected (must be odd)
+    uint64_t seed;       // Original seed (for random_get_seed)
+} PCG32;
+
+// Global RNG instance
+static PCG32 global_rng = {0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL, 0};
+
+// Seed the PCG32 generator
+static void pcg32_seed(PCG32* rng, uint64_t seed) {
+    rng->seed = seed;
+    rng->state = 0;
+    rng->increment = (seed << 1) | 1;  // Increment must be odd
+    // Advance state once to mix in the seed
+    rng->state = rng->state * 6364136223846793005ULL + rng->increment;
+    rng->state += seed;
+    rng->state = rng->state * 6364136223846793005ULL + rng->increment;
+}
+
+// Generate next 32-bit random number
+static uint32_t pcg32_next(PCG32* rng) {
+    uint64_t oldstate = rng->state;
+    // Advance internal state
+    rng->state = oldstate * 6364136223846793005ULL + rng->increment;
+    // Calculate output function (XSH RR)
+    uint32_t xorshifted = (uint32_t)(((oldstate >> 18u) ^ oldstate) >> 27u);
+    uint32_t rot = (uint32_t)(oldstate >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((32 - rot) & 31));
+}
 
 // Clear all event buffers (call at start of each physics step)
 static void physics_clear_events(void) {
@@ -4493,6 +4530,305 @@ static int l_physics_raycast_all(lua_State* L) {
     return 1;
 }
 
+// Random Lua bindings
+#define RNG_METATABLE "Anchor.RNG"
+#define PI 3.14159265358979323846
+
+// Helper to get RNG from optional last argument, or global
+static PCG32* get_rng(lua_State* L, int arg) {
+    if (lua_isuserdata(L, arg)) {
+        return (PCG32*)luaL_checkudata(L, arg, RNG_METATABLE);
+    }
+    return &global_rng;
+}
+
+// random_create(seed) - Create new RNG instance
+static int l_random_create(lua_State* L) {
+    lua_Integer seed = luaL_checkinteger(L, 1);
+    PCG32* rng = (PCG32*)lua_newuserdata(L, sizeof(PCG32));
+    pcg32_seed(rng, (uint64_t)seed);
+    luaL_setmetatable(L, RNG_METATABLE);
+    return 1;
+}
+
+// random_seed(seed, rng?) - Seed the RNG
+static int l_random_seed(lua_State* L) {
+    lua_Integer seed = luaL_checkinteger(L, 1);
+    PCG32* rng = get_rng(L, 2);
+    pcg32_seed(rng, (uint64_t)seed);
+    return 0;
+}
+
+// random_get_seed(rng?) - Get the current seed
+static int l_random_get_seed(lua_State* L) {
+    PCG32* rng = get_rng(L, 1);
+    lua_pushinteger(L, (lua_Integer)rng->seed);
+    return 1;
+}
+
+// random_float_01(rng?) - Random float [0, 1]
+static int l_random_float_01(lua_State* L) {
+    PCG32* rng = get_rng(L, 1);
+    uint32_t r = pcg32_next(rng);
+    double result = (double)r / 4294967295.0;
+    lua_pushnumber(L, result);
+    return 1;
+}
+
+// random_float(min, max, rng?) - Random float [min, max]
+static int l_random_float(lua_State* L) {
+    double min = luaL_checknumber(L, 1);
+    double max = luaL_checknumber(L, 2);
+    PCG32* rng = get_rng(L, 3);
+    uint32_t r = pcg32_next(rng);
+    double t = (double)r / 4294967295.0;
+    double result = min + t * (max - min);
+    lua_pushnumber(L, result);
+    return 1;
+}
+
+// random_int(min, max, rng?) - Random integer [min, max] inclusive
+static int l_random_int(lua_State* L) {
+    lua_Integer min = luaL_checkinteger(L, 1);
+    lua_Integer max = luaL_checkinteger(L, 2);
+    PCG32* rng = get_rng(L, 3);
+    if (min > max) {
+        lua_Integer tmp = min;
+        min = max;
+        max = tmp;
+    }
+    uint64_t range = (uint64_t)(max - min) + 1;
+    uint32_t r = pcg32_next(rng);
+    lua_Integer result = min + (lua_Integer)(r % range);
+    lua_pushinteger(L, result);
+    return 1;
+}
+
+// random_angle(rng?) - Random float [0, 2π]
+static int l_random_angle(lua_State* L) {
+    PCG32* rng = get_rng(L, 1);
+    uint32_t r = pcg32_next(rng);
+    double result = ((double)r / 4294967295.0) * 2.0 * PI;
+    lua_pushnumber(L, result);
+    return 1;
+}
+
+// random_sign(chance?, rng?) - Returns -1 or 1 (chance 0-100, default 50)
+static int l_random_sign(lua_State* L) {
+    double chance = 50.0;
+    PCG32* rng = &global_rng;
+
+    // Parse arguments: chance is optional number, rng is optional userdata
+    if (lua_isnumber(L, 1)) {
+        chance = lua_tonumber(L, 1);
+        rng = get_rng(L, 2);
+    } else if (lua_isuserdata(L, 1)) {
+        rng = get_rng(L, 1);
+    }
+
+    uint32_t r = pcg32_next(rng);
+    double roll = (double)r / 4294967295.0 * 100.0;
+    lua_pushinteger(L, roll < chance ? 1 : -1);
+    return 1;
+}
+
+// random_bool(chance?, rng?) - Returns true or false (chance 0-100, default 50)
+static int l_random_bool(lua_State* L) {
+    double chance = 50.0;
+    PCG32* rng = &global_rng;
+
+    // Parse arguments: chance is optional number, rng is optional userdata
+    if (lua_isnumber(L, 1)) {
+        chance = lua_tonumber(L, 1);
+        rng = get_rng(L, 2);
+    } else if (lua_isuserdata(L, 1)) {
+        rng = get_rng(L, 1);
+    }
+
+    uint32_t r = pcg32_next(rng);
+    double roll = (double)r / 4294967295.0 * 100.0;
+    lua_pushboolean(L, roll < chance);
+    return 1;
+}
+
+// random_normal(mean?, stddev?, rng?) - Gaussian distribution via Box-Muller transform
+static int l_random_normal(lua_State* L) {
+    double mean = 0.0;
+    double stddev = 1.0;
+    PCG32* rng = &global_rng;
+
+    // Parse arguments
+    int arg = 1;
+    if (lua_isnumber(L, arg)) {
+        mean = lua_tonumber(L, arg);
+        arg++;
+    }
+    if (lua_isnumber(L, arg)) {
+        stddev = lua_tonumber(L, arg);
+        arg++;
+    }
+    if (lua_isuserdata(L, arg)) {
+        rng = get_rng(L, arg);
+    }
+
+    // Box-Muller transform
+    uint32_t r1 = pcg32_next(rng);
+    uint32_t r2 = pcg32_next(rng);
+    double u1 = ((double)r1 + 1.0) / 4294967297.0;  // (0, 1) exclusive to avoid log(0)
+    double u2 = (double)r2 / 4294967295.0;
+    double z = sqrt(-2.0 * log(u1)) * cos(2.0 * PI * u2);
+    double result = mean + z * stddev;
+    lua_pushnumber(L, result);
+    return 1;
+}
+
+// random_choice(array, rng?) - Pick one random element from array
+static int l_random_choice(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    PCG32* rng = get_rng(L, 2);
+
+    lua_len(L, 1);
+    int len = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    if (len == 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    uint32_t r = pcg32_next(rng);
+    int index = (int)(r % len) + 1;  // Lua arrays are 1-indexed
+    lua_rawgeti(L, 1, index);
+    return 1;
+}
+
+// random_choices(array, n, rng?) - Pick n random elements (unique indexes)
+static int l_random_choices(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    int n = (int)luaL_checkinteger(L, 2);
+    PCG32* rng = get_rng(L, 3);
+
+    lua_len(L, 1);
+    int len = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    // Clamp n to array length
+    if (n > len) n = len;
+    if (n <= 0) {
+        lua_newtable(L);
+        return 1;
+    }
+
+    // Create result table
+    lua_newtable(L);
+
+    // Track used indexes with a simple array (for small n)
+    // For larger selections, use Fisher-Yates on index array
+    if (n <= 32 && len <= 1000) {
+        // Simple rejection sampling for small n
+        int used[32] = {0};
+        int count = 0;
+        int attempts = 0;
+        while (count < n && attempts < n * 10) {
+            uint32_t r = pcg32_next(rng);
+            int index = (int)(r % len) + 1;
+            int already_used = 0;
+            for (int i = 0; i < count; i++) {
+                if (used[i] == index) {
+                    already_used = 1;
+                    break;
+                }
+            }
+            if (!already_used) {
+                used[count] = index;
+                lua_rawgeti(L, 1, index);
+                lua_rawseti(L, -2, count + 1);
+                count++;
+            }
+            attempts++;
+        }
+    } else {
+        // For larger selections, build index array and shuffle first n
+        int* indices = (int*)malloc(len * sizeof(int));
+        for (int i = 0; i < len; i++) indices[i] = i + 1;
+
+        // Partial Fisher-Yates: only shuffle first n elements
+        for (int i = 0; i < n; i++) {
+            uint32_t r = pcg32_next(rng);
+            int j = i + (int)(r % (len - i));
+            int tmp = indices[i];
+            indices[i] = indices[j];
+            indices[j] = tmp;
+
+            lua_rawgeti(L, 1, indices[i]);
+            lua_rawseti(L, -2, i + 1);
+        }
+        free(indices);
+    }
+
+    return 1;
+}
+
+// random_weighted(weights, rng?) - Returns index (1-based) based on weights
+static int l_random_weighted(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    PCG32* rng = get_rng(L, 2);
+
+    lua_len(L, 1);
+    int len = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    if (len == 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // Sum all weights
+    double total = 0.0;
+    for (int i = 1; i <= len; i++) {
+        lua_rawgeti(L, 1, i);
+        total += lua_tonumber(L, -1);
+        lua_pop(L, 1);
+    }
+
+    if (total <= 0.0) {
+        lua_pushinteger(L, 1);
+        return 1;
+    }
+
+    // Generate random value in [0, total)
+    uint32_t r = pcg32_next(rng);
+    double roll = ((double)r / 4294967295.0) * total;
+
+    // Find which bucket it falls into
+    double cumulative = 0.0;
+    for (int i = 1; i <= len; i++) {
+        lua_rawgeti(L, 1, i);
+        cumulative += lua_tonumber(L, -1);
+        lua_pop(L, 1);
+        if (roll < cumulative) {
+            lua_pushinteger(L, i);
+            return 1;
+        }
+    }
+
+    // Fallback to last index (handles floating point edge cases)
+    lua_pushinteger(L, len);
+    return 1;
+}
+
+// noise(x, y?, z?) - Perlin noise [-1, 1]
+static int l_noise(lua_State* L) {
+    float x = (float)luaL_checknumber(L, 1);
+    float y = (float)luaL_optnumber(L, 2, 0.0);
+    float z = (float)luaL_optnumber(L, 3, 0.0);
+
+    // stb_perlin_noise3 returns [-1, 1]
+    float result = stb_perlin_noise3(x, y, z, 0, 0, 0);
+    lua_pushnumber(L, result);
+    return 1;
+}
+
 // Input Lua bindings
 static int l_key_is_down(lua_State* L) {
     const char* key_name = luaL_checkstring(L, 1);
@@ -4811,6 +5147,10 @@ static int l_input_set_deadzone(lua_State* L) {
 }
 
 static void register_lua_bindings(lua_State* L) {
+    // Create RNG metatable (for random_create instances)
+    luaL_newmetatable(L, RNG_METATABLE);
+    lua_pop(L, 1);
+
     lua_register(L, "layer_create", l_layer_create);
     lua_register(L, "layer_rectangle", l_layer_rectangle);
     lua_register(L, "layer_circle", l_layer_circle);
@@ -4920,6 +5260,21 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_query_polygon", l_physics_query_polygon);
     lua_register(L, "physics_raycast", l_physics_raycast);
     lua_register(L, "physics_raycast_all", l_physics_raycast_all);
+    // Random
+    lua_register(L, "random_create", l_random_create);
+    lua_register(L, "random_seed", l_random_seed);
+    lua_register(L, "random_get_seed", l_random_get_seed);
+    lua_register(L, "random_float_01", l_random_float_01);
+    lua_register(L, "random_float", l_random_float);
+    lua_register(L, "random_int", l_random_int);
+    lua_register(L, "random_angle", l_random_angle);
+    lua_register(L, "random_sign", l_random_sign);
+    lua_register(L, "random_bool", l_random_bool);
+    lua_register(L, "random_normal", l_random_normal);
+    lua_register(L, "random_choice", l_random_choice);
+    lua_register(L, "random_choices", l_random_choices);
+    lua_register(L, "random_weighted", l_random_weighted);
+    lua_register(L, "noise", l_noise);
     // Input - Keyboard
     lua_register(L, "key_is_down", l_key_is_down);
     lua_register(L, "key_is_pressed", l_key_is_pressed);

@@ -22,7 +22,21 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:randygaul.github.io)",
       "Bash(./monitor_sim.exe:*)",
-      "WebFetch(domain:box2d.org)"
+      "WebFetch(domain:box2d.org)",
+      "WebFetch(domain:www.construct.net)",
+      "WebFetch(domain:heaps.io)",
+      "WebFetch(domain:phaserdocs.com)",
+      "WebFetch(domain:p5js.org)",
+      "WebFetch(domain:kaboomjs.com)",
+      "WebFetch(domain:manual.yoyogames.com)",
+      "WebFetch(domain:manual.gamemaker.io)",
+      "WebFetch(domain:docs.microsoft.com)",
+      "WebFetch(domain:defold.com)",
+      "WebFetch(domain:pixijs.download)",
+      "WebFetch(domain:docs.godotengine.org)",
+      "WebFetch(domain:api.haxeflixel.com)",
+      "WebFetch(domain:docs.phaser.io)",
+      "Bash(./build.bat)"
     ]
   }
 }

@@ -1,7 +1,109 @@
-print("main.lua loaded - Physics Test (Phase 7 - Step 10: Spatial Queries)")
+print("main.lua loaded - Phase 8: Random + Physics Test")
 
 set_shape_filter("rough")
 input_bind_all()
+
+-- Test random determinism: seed and print first 5 values
+print("Testing random determinism:")
+random_seed(12345)
+print(string.format("  Seed 12345 -> float_01: %.6f, %.6f, %.6f",
+    random_float_01(), random_float_01(), random_float_01()))
+print(string.format("  Seed 12345 -> int(1,10): %d, %d, %d",
+    random_int(1, 10), random_int(1, 10), random_int(1, 10)))
+
+-- Re-seed and verify same sequence
+random_seed(12345)
+print(string.format("  Re-seed 12345 -> float_01: %.6f, %.6f, %.6f",
+    random_float_01(), random_float_01(), random_float_01()))
+print(string.format("  Re-seed 12345 -> int(1,10): %d, %d, %d",
+    random_int(1, 10), random_int(1, 10), random_int(1, 10)))
+
+-- Verify get_seed works
+random_seed(99999)
+print(string.format("  After seed(99999), get_seed() = %d", random_get_seed()))
+
+-- Test convenience functions
+print("Testing convenience functions:")
+random_seed(12345)
+print(string.format("  random_angle(): %.4f, %.4f, %.4f", random_angle(), random_angle(), random_angle()))
+print(string.format("  random_sign(): %d, %d, %d, %d, %d", random_sign(), random_sign(), random_sign(), random_sign(), random_sign()))
+print(string.format("  random_bool(): %s, %s, %s, %s, %s", tostring(random_bool()), tostring(random_bool()), tostring(random_bool()), tostring(random_bool()), tostring(random_bool())))
+local bool80 = {}
+for i = 1, 10 do bool80[i] = tostring(random_bool(80)) end
+print(string.format("  random_bool(80): %s (80%% chance true)", table.concat(bool80, ", ")))
+local sign80 = {}
+for i = 1, 10 do sign80[i] = tostring(random_sign(80)) end
+print(string.format("  random_sign(80): %s (80%% chance +1)", table.concat(sign80, ", ")))
+
+-- Test separate RNG instance
+print("Testing separate RNG instance:")
+local level_rng = random_create(42)
+print(string.format("  level_rng seed 42 -> int(1,100): %d, %d, %d",
+    random_int(1, 100, level_rng), random_int(1, 100, level_rng), random_int(1, 100, level_rng)))
+-- Recreate to verify determinism
+level_rng = random_create(42)
+print(string.format("  level_rng re-seed 42 -> int(1,100): %d, %d, %d (should match)",
+    random_int(1, 100, level_rng), random_int(1, 100, level_rng), random_int(1, 100, level_rng)))
+
+-- Test random_normal (Gaussian distribution)
+print("Testing random_normal:")
+random_seed(12345)
+local normals = {}
+for i = 1, 10 do normals[i] = string.format("%.2f", random_normal()) end
+print(string.format("  random_normal(): %s", table.concat(normals, ", ")))
+local normals2 = {}
+for i = 1, 10 do normals2[i] = string.format("%.2f", random_normal(100, 15)) end
+print(string.format("  random_normal(100, 15): %s", table.concat(normals2, ", ")))
+
+-- Test array functions
+print("Testing array functions:")
+random_seed(12345)
+local fruits = {'apple', 'banana', 'cherry', 'date', 'elderberry'}
+print(string.format("  random_choice(fruits): %s, %s, %s", random_choice(fruits), random_choice(fruits), random_choice(fruits)))
+
+local deck = {'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'}
+local hand = random_choices(deck, 5)
+print(string.format("  random_choices(deck, 5): %s", table.concat(hand, ", ")))
+
+-- Test weighted selection (5 runs of 20 picks each)
+print("Testing random_weighted (70/25/5 = common/rare/epic):")
+random_seed(12345)
+local weights = {70, 25, 5}
+local loot = {'common', 'rare', 'epic'}
+for run = 1, 5 do
+    local results = {}
+    for i = 1, 20 do
+        local idx = random_weighted(weights)
+        results[i] = loot[idx]
+    end
+    print(string.format("  Run %d: %s", run, table.concat(results, ", ")))
+end
+
+-- Test Perlin noise
+print("Testing noise (Perlin):")
+local noise_vals = {}
+for i = 0, 9 do
+    noise_vals[i+1] = string.format("%.3f", noise(i * 0.1))
+end
+print(string.format("  noise(0..0.9 step 0.1): %s", table.concat(noise_vals, ", ")))
+
+-- 2D noise - show a 8x8 grid (small scale 0.1 to show smoothness)
+print("  2D noise grid (8x8, scale 0.1):")
+for y = 0, 7 do
+    local row = {}
+    for x = 0, 7 do
+        row[x+1] = string.format("%+.2f", noise(x * 0.1 + 0.05, y * 0.1 + 0.05))
+    end
+    print(string.format("    %s", table.concat(row, " ")))
+end
+
+-- Verify noise is deterministic (same input = same output)
+print(string.format("  noise(1.5, 2.5, 3.5) = %.6f (should be constant)", noise(1.5, 2.5, 3.5)))
+print(string.format("  noise(1.5, 2.5, 3.5) = %.6f (should match above)", noise(1.5, 2.5, 3.5)))
+
+-- Set seed for gameplay
+random_seed(os.time())
+print(string.format("  Gameplay seed: %d", random_get_seed()))
 
 local screen_w, screen_h = 480, 270
 
@@ -74,10 +176,10 @@ print("Created ground, walls, and sensor zone")
 local dynamic_bodies = {}
 local dynamic_shapes = {}
 
--- Helper to get a random ball
+-- Helper to get a random ball (using new random_int)
 local function get_random_ball()
     if #dynamic_bodies == 0 then return nil end
-    return dynamic_bodies[math.random(1, #dynamic_bodies)]
+    return dynamic_bodies[random_int(1, #dynamic_bodies)]
 end
 
 local function draw_objects(layer)
@@ -107,9 +209,9 @@ local function draw_objects(layer)
 end
 
 function update(dt)
-    -- Create body on Space
+    -- Create body on Space (using new random_int)
     if is_pressed('space') then
-        local x = math.random(50, screen_w - 50)
+        local x = random_int(50, screen_w - 50)
         local y = 50
         local body = physics_create_body('dynamic', x, y)
         local shape = physics_add_circle(body, 'ball', smile_size / 2)
@@ -127,22 +229,22 @@ function update(dt)
         print(string.format("Destroyed body - Remaining: %d", #dynamic_bodies))
     end
 
-    -- P: Random ball gets random high impulse
+    -- P: Random ball gets random high impulse (using new random_int)
     if is_pressed('p') then
         local ball = get_random_ball()
         if ball then
-            local ix = math.random(-25, 25)
-            local iy = math.random(-40, -10)
+            local ix = random_int(-25, 25)
+            local iy = random_int(-40, -10)
             physics_apply_impulse(ball, ix, iy)
             print(string.format("Applied impulse (%.0f, %.0f) to random ball", ix, iy))
         end
     end
 
-    -- L: Random ball gets random high angular impulse
+    -- L: Random ball gets random high angular impulse (using new random_float)
     if is_pressed('l') then
         local ball = get_random_ball()
         if ball then
-            local angular = (math.random() - 0.5) * 2.0  -- Range: -1.0 to 1.0
+            local angular = random_float(-1.0, 1.0)
             physics_apply_angular_impulse(ball, angular)
             print(string.format("Applied angular impulse %.2f to random ball", angular))
         end
