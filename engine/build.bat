@@ -49,13 +49,44 @@ if not exist lib\lua.lib (
     echo Lua library built.
 )
 
+:: Build Box2D library if it doesn't exist
+if not exist lib\box2d.lib (
+    echo Building Box2D library...
+    if not exist build\box2d_obj mkdir build\box2d_obj
+    cl.exe /nologo /O2 /W3 /c /std:c17 /DNDEBUG /I"include" /I"include/box2d" ^
+        include/box2d/aabb.c include/box2d/arena_allocator.c include/box2d/array.c ^
+        include/box2d/bitset.c include/box2d/body.c include/box2d/broad_phase.c ^
+        include/box2d/constraint_graph.c include/box2d/contact.c include/box2d/contact_solver.c ^
+        include/box2d/core.c include/box2d/distance.c include/box2d/distance_joint.c ^
+        include/box2d/dynamic_tree.c include/box2d/geometry.c include/box2d/hull.c ^
+        include/box2d/id_pool.c include/box2d/island.c include/box2d/joint.c ^
+        include/box2d/manifold.c include/box2d/math_functions.c include/box2d/motor_joint.c ^
+        include/box2d/mover.c include/box2d/physics_world.c include/box2d/prismatic_joint.c ^
+        include/box2d/revolute_joint.c include/box2d/sensor.c include/box2d/shape.c ^
+        include/box2d/solver.c include/box2d/solver_set.c include/box2d/table.c ^
+        include/box2d/timer.c include/box2d/types.c include/box2d/weld_joint.c ^
+        include/box2d/wheel_joint.c ^
+        /Fo"build\box2d_obj\\"
+    if %ERRORLEVEL% neq 0 (
+        echo Box2D build failed!
+        exit /b 1
+    )
+    lib.exe /nologo /out:lib\box2d.lib build\box2d_obj\*.obj
+    if %ERRORLEVEL% neq 0 (
+        echo Box2D library creation failed!
+        exit /b 1
+    )
+    rmdir /s /q build\box2d_obj
+    echo Box2D library built.
+)
+
 :: Build anchor (static linking - no DLLs needed)
 cl.exe /nologo /O2 /W3 ^
-    /I"include" /I"include/SDL2" /I"include/lua" /I"include/glad" /I"include/KHR" /I"include/stb" ^
+    /I"include" /I"include/SDL2" /I"include/lua" /I"include/glad" /I"include/KHR" /I"include/stb" /I"include/box2d" ^
     src/anchor.c include/glad/gl.c ^
     /Fe"build/anchor.exe" ^
     /link /LIBPATH:"lib" ^
-    lua.lib SDL2-static.lib SDL2main.lib ^
+    lua.lib box2d.lib SDL2-static.lib SDL2main.lib ^
     opengl32.lib kernel32.lib user32.lib gdi32.lib winmm.lib imm32.lib ^
     ole32.lib oleaut32.lib version.lib uuid.lib advapi32.lib setupapi.lib shell32.lib ^
     /SUBSYSTEM:CONSOLE

@@ -21,7 +21,8 @@
       "Bash(/c/emsdk/upstream/emscripten/emcc.bat --version)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:randygaul.github.io)",
-      "Bash(./monitor_sim.exe:*)"
+      "Bash(./monitor_sim.exe:*)",
+      "WebFetch(domain:box2d.org)"
     ]
   }
 }

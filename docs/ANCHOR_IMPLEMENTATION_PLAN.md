@@ -95,6 +95,7 @@ The engine takes a game folder as argument (like LÖVE):
 ### 1.3 Main Loop
 - [x] Decoupled timestep: 120Hz physics/input, 60Hz rendering
 - [x] Delta time accumulator pattern (separate accumulators for physics and rendering)
+- [x] Delta time averaging (4-frame ring buffer) to smooth OS scheduling jitter
 - [x] Event polling once per frame iteration (before physics loop)
 - [x] Clean shutdown
 
@@ -989,82 +990,312 @@ audio_set_master_pitch(1.0)            -- back to normal
 
 ## Phase 7: Physics
 
-**Goal:** Box2D 3.1 with sensor/contact events and spatial queries.
+**Goal:** Box2D 3.x integration with tag-based collision filtering, events, and spatial queries.
 
-### 7.1 World Setup
-- [ ] Box2D world creation
-- [ ] Gravity configuration
-- [ ] Fixed timestep stepping (synced with game loop)
-- [ ] Configurable pixel-to-meter scale (check old Anchor values for reference)
+See `reference/box2d-3-api-proposal.md` for full API design and Box2D 3.x research.
 
-### 7.2 Body Management
-- [ ] Body creation: static, dynamic, kinematic
-- [ ] Shape types: circle, rectangle, polygon
-- [ ] Return body ID to Lua (Lua manages lifetime)
+---
 
-### 7.3 Collision Configuration
-- [ ] Collision tag system (string API for readability, maps to Box2D internally)
-- [ ] Enable/disable contact between tag pairs
-- [ ] Enable/disable sensor between tag pairs
+### Implementation Steps
 
-**Note:** Start with collision detection only. Add joints (hinges, ropes, etc.) if/when needed for specific games.
+**Step 1: Box2D integration**
+- [x] Download Box2D 3.x source from GitHub
+- [x] Add to `engine/include/box2d/` (compiled as static library)
+- [x] Update `build.bat` to compile/link Box2D (with `/std:c17` for C11 support)
+- [x] Update `build-web.sh` for Emscripten compatibility (with `-DBOX2D_DISABLE_SIMD`)
+- [x] Verify compilation on Windows and Web
 
-### 7.4 Event System
-Box2D 3.1 provides:
-- **Sensor events** — overlap detection, no physics response
-- **Contact events** — physical collision with response
-- **Hit events** — high-speed impact data
+**Step 2: World setup**
+- [x] `physics_init()` — create `b2WorldId` with `b2DefaultWorldDef()`
+- [x] `physics_set_gravity(gx, gy)` — set gravity in pixels/sec² (convert to meters internally)
+- [x] `physics_set_meter_scale(scale)` — configure pixels-per-meter (default 64)
+- [x] Integrate `b2World_Step()` into main loop (use existing 120Hz physics rate)
+- [x] `physics_set_enabled(bool)` — pause/resume simulation
+- [x] Cleanup on shutdown
 
-Implementation:
-- [ ] Buffer sensor enter/exit events per frame
-- [ ] Buffer contact enter/exit events per frame
-- [ ] Buffer contact hit events per frame
-- [ ] Query functions return arrays of events
+**Step 3: Tag system**
+- [x] Tag registry: string name → 64-bit category bit (max 64 tags)
+- [x] `physics_register_tag(name)` — assigns next available bit
+- [x] Store tag info: name, category bit, collision mask, sensor mask, hit mask
+- [x] Internal lookup functions: tag name → category bit, shape → tag name
 
-### 7.5 Spatial Queries
-- [ ] `query_circle(x, y, radius, tags)` — find bodies in circle
-- [ ] `query_aabb(x, y, w, h, tags)` — find bodies in rectangle
-- [ ] `raycast_closest(x1, y1, x2, y2, tags)` — first hit
-- [ ] `raycast(x1, y1, x2, y2, tags)` — all hits
+**Step 4: Collision configuration**
+- [x] `physics_enable_collision(tag_a, tag_b)` — sets mask bits for physical collision
+- [x] `physics_disable_collision(tag_a, tag_b)` — clears mask bits
+- [x] `physics_enable_sensor(tag_a, tag_b)` — marks pair for sensor events
+- [x] `physics_enable_hit(tag_a, tag_b)` — marks pair for hit events
+- [x] `physics_tags_collide(tag_a, tag_b)` — query if tags collide
+- [x] Apply correct `b2Filter` when creating shapes based on tag
 
-### 7.6 Lua Bindings
+**Step 5: Body creation**
+- [x] `physics_create_body(type, x, y)` — create body, return `b2BodyId` as userdata
+  - Types: `'static'`, `'dynamic'`, `'kinematic'`
+  - Position in pixels, convert to meters
+- [x] `physics_destroy_body(body)` — destroy body and all attached shapes
+- [x] Lua userdata holds `b2BodyId` struct directly (pass-through, no mapping)
+- [x] `physics_get_body_count()` — get total number of bodies in simulation
+- [x] `physics_body_is_valid(body)` — check if body ID is still valid
+
+**Step 6: Shape creation**
+- [x] `physics_add_circle(body, tag, radius, [opts])` — attach circle shape
+- [x] `physics_add_box(body, tag, width, height, [opts])` — attach box shape
+- [x] `physics_add_polygon(body, tag, vertices, [opts])` — attach convex polygon
+- [x] `physics_add_capsule(body, tag, length, radius, [opts])` — attach capsule (vertical)
+- [x] Options table: `{sensor = bool, offset_x = n, offset_y = n, angle = n}`
+- [x] Set `b2ShapeDef` flags based on tag config: `enableContactEvents`, `enableSensorEvents`, `enableHitEvents`
+- [x] Return `b2ShapeId` as userdata
+
+**Step 7: Body and shape properties**
+- [x] Position/rotation getters:
+  - `physics_get_position(body)` → x, y (pixels)
+  - `physics_get_angle(body)` → radians
+- [x] Position/rotation setters:
+  - `physics_set_position(body, x, y)`
+  - `physics_set_angle(body, angle)`
+  - `physics_set_transform(body, x, y, angle)`
+- [x] Velocity:
+  - `physics_get_velocity(body)` → vx, vy (pixels/sec)
+  - `physics_get_angular_velocity(body)` → rad/sec
+  - `physics_set_velocity(body, vx, vy)`
+  - `physics_set_angular_velocity(body, av)`
+- [x] Forces/impulses (all in pixel units, convert internally):
+  - `physics_apply_force(body, fx, fy)`
+  - `physics_apply_force_at(body, fx, fy, px, py)`
+  - `physics_apply_impulse(body, ix, iy)`
+  - `physics_apply_impulse_at(body, ix, iy, px, py)`
+  - `physics_apply_torque(body, torque)`
+  - `physics_apply_angular_impulse(body, impulse)`
+- [x] Body properties:
+  - `physics_set_linear_damping(body, damping)`
+  - `physics_set_angular_damping(body, damping)`
+  - `physics_set_gravity_scale(body, scale)`
+  - `physics_set_fixed_rotation(body, bool)`
+  - `physics_set_bullet(body, bool)` — enable CCD
+- [x] User data:
+  - `physics_set_user_data(body, id)` — store integer ID
+  - `physics_get_user_data(body)` → integer ID
+- [x] Additional body queries:
+  - `physics_get_body_type(body)` → 'static', 'dynamic', or 'kinematic'
+  - `physics_get_mass(body)` → mass in kg
+  - `physics_is_awake(body)` → bool
+  - `physics_set_awake(body, bool)`
+- [x] Shape properties:
+  - `physics_shape_set_friction(shape, friction)`
+  - `physics_shape_get_friction(shape)` → friction
+  - `physics_shape_set_restitution(shape, restitution)`
+  - `physics_shape_get_restitution(shape)` → restitution
+  - `physics_shape_set_density(shape, density)`
+  - `physics_shape_get_density(shape)` → density
+  - `physics_shape_get_body(shape)` → body
+  - `physics_shape_is_valid(shape)` → bool
+
+**Step 8: Event buffering**
+- [x] After `b2World_Step()`, retrieve events:
+  - `b2World_GetContactEvents()` — collision begin/end, hit
+  - `b2World_GetSensorEvents()` — sensor begin/end
+- [x] Buffer events in C arrays (up to 256 per type), store tag indices for fast lookup
+- [x] Store body and shape IDs in events
+- [x] Clear event buffers at start of each physics step
+- [x] `physics_debug_events()` — print event counts for debugging
+
+**Step 9: Event queries (Lua bindings)**
+- [x] `physics_get_collision_begin(tag_a, tag_b)` → array of `{body_a, body_b, shape_a, shape_b}`
+- [x] `physics_get_collision_end(tag_a, tag_b)` → array of `{body_a, body_b, shape_a, shape_b}`
+- [x] `physics_get_hit(tag_a, tag_b)` → array of `{body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y, approach_speed}`
+- [x] `physics_get_sensor_begin(tag_a, tag_b)` → array of `{sensor_body, visitor_body, sensor_shape, visitor_shape}`
+- [x] `physics_get_sensor_end(tag_a, tag_b)` → array of `{sensor_body, visitor_body, sensor_shape, visitor_shape}`
+
+**Step 10: Spatial queries and raycast**
+- [x] Build `b2QueryFilter` from tag array (OR together category bits)
+- [x] `physics_query_point(x, y, tags)` → array of bodies
+- [x] `physics_query_circle(x, y, radius, tags)` → array of bodies
+- [x] `physics_query_aabb(x, y, w, h, tags)` → array of bodies
+- [x] `physics_query_box(x, y, w, h, angle, tags)` → array of bodies (rotated)
+- [x] `physics_query_capsule(x1, y1, x2, y2, radius, tags)` → array of bodies
+- [x] `physics_query_polygon(x, y, vertices, tags)` → array of bodies (convex, max 8 vertices)
+- [x] `physics_raycast(x1, y1, x2, y2, tags)` → `{body, shape, point_x, point_y, normal_x, normal_y, fraction}` or nil
+- [x] `physics_raycast_all(x1, y1, x2, y2, tags)` → array of hits
+
+---
+
+### Lua API Summary
+
 ```lua
-an:physics_set_gravity(0, 500)
-an:physics_enable_contact_between('ball', {'wall', 'paddle'})
-an:physics_enable_sensor_between('player', {'pickup', 'trigger'})
+-- World setup
+physics_init()
+physics_set_gravity(gx, gy)
+physics_set_meter_scale(scale)           -- Default 64 pixels per meter
+physics_set_enabled(bool)
 
--- Per-frame event queries
-for _, c in ipairs(an:physics_get_contact_enter('ball', 'wall')) do
-    local ball, wall = c.a, c.b
-    -- Handle collision
+-- Tag system (max 64 tags)
+physics_register_tag(name)
+physics_enable_collision(tag_a, tag_b)   -- Physical collision response
+physics_disable_collision(tag_a, tag_b)
+physics_enable_sensor(tag_a, tag_b)      -- Sensor events (no physical response)
+physics_enable_hit(tag_a, tag_b)         -- Hit events with contact info
+physics_tags_collide(tag_a, tag_b)       -- Query if tags collide
+
+-- Body creation/destruction
+local body = physics_create_body(type, x, y)  -- type: 'static', 'dynamic', 'kinematic'
+physics_destroy_body(body)
+physics_get_body_count()
+physics_body_is_valid(body)
+
+-- Shape creation (returns shape userdata)
+physics_add_circle(body, tag, radius, [opts])
+physics_add_box(body, tag, width, height, [opts])
+physics_add_capsule(body, tag, length, radius, [opts])
+physics_add_polygon(body, tag, vertices, [opts])
+-- opts: {sensor = bool, offset_x = n, offset_y = n, angle = n}
+
+-- Body position/rotation
+physics_get_position(body)               -- Returns x, y
+physics_set_position(body, x, y)
+physics_get_angle(body)                  -- Returns radians
+physics_set_angle(body, angle)
+physics_set_transform(body, x, y, angle)
+
+-- Body velocity
+physics_get_velocity(body)               -- Returns vx, vy
+physics_set_velocity(body, vx, vy)
+physics_get_angular_velocity(body)       -- Returns rad/sec
+physics_set_angular_velocity(body, av)
+
+-- Forces and impulses
+physics_apply_force(body, fx, fy)
+physics_apply_force_at(body, fx, fy, px, py)
+physics_apply_impulse(body, ix, iy)
+physics_apply_impulse_at(body, ix, iy, px, py)
+physics_apply_torque(body, torque)
+physics_apply_angular_impulse(body, impulse)
+
+-- Body properties
+physics_set_linear_damping(body, damping)
+physics_set_angular_damping(body, damping)
+physics_set_gravity_scale(body, scale)
+physics_set_fixed_rotation(body, bool)
+physics_set_bullet(body, bool)           -- CCD for fast-moving objects
+physics_get_body_type(body)              -- Returns 'static', 'dynamic', or 'kinematic'
+physics_get_mass(body)
+physics_is_awake(body)
+physics_set_awake(body, bool)
+
+-- User data (integer ID for linking to game objects)
+physics_set_user_data(body, id)
+physics_get_user_data(body)
+
+-- Shape properties
+physics_shape_set_friction(shape, friction)
+physics_shape_get_friction(shape)
+physics_shape_set_restitution(shape, restitution)
+physics_shape_get_restitution(shape)
+physics_shape_set_density(shape, density)
+physics_shape_get_density(shape)
+physics_shape_get_body(shape)
+physics_shape_is_valid(shape)
+
+-- Event queries (call each frame after physics step)
+physics_get_collision_begin(tag_a, tag_b)  -- Returns {{body_a, body_b, shape_a, shape_b}, ...}
+physics_get_collision_end(tag_a, tag_b)
+physics_get_hit(tag_a, tag_b)              -- Returns {{body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y, approach_speed}, ...}
+physics_get_sensor_begin(tag_a, tag_b)     -- Returns {{sensor_body, visitor_body, sensor_shape, visitor_shape}, ...}
+physics_get_sensor_end(tag_a, tag_b)
+physics_debug_events()                     -- Print event counts
+
+-- Spatial queries (overlap)
+physics_query_point(x, y, tags)            -- Returns array of bodies
+physics_query_circle(x, y, radius, tags)
+physics_query_aabb(x, y, w, h, tags)
+physics_query_box(x, y, w, h, angle, tags)
+physics_query_capsule(x1, y1, x2, y2, radius, tags)
+physics_query_polygon(x, y, vertices, tags)
+
+-- Raycast
+physics_raycast(x1, y1, x2, y2, tags)      -- Returns {body, shape, point_x, point_y, normal_x, normal_y, fraction} or nil
+physics_raycast_all(x1, y1, x2, y2, tags)  -- Returns array of hits
+```
+
+#### Usage Examples
+
+```lua
+-- Shape creation with options
+local body = physics_create_body('dynamic', 100, 100)
+local main_shape = physics_add_circle(body, 'player', 16)
+local feet_sensor = physics_add_circle(body, 'feet', 8, {
+    sensor = true,
+    offset_y = 16  -- Below the main shape
+})
+local rotated_box = physics_add_box(body, 'hitbox', 32, 16, {
+    offset_x = 20,
+    angle = 0.5  -- Radians
+})
+
+-- Polygon shape (convex, max 8 vertices, relative to body center)
+local vertices = {{-10, -10}, {10, -10}, {15, 0}, {10, 10}, {-10, 10}}
+local poly_shape = physics_add_polygon(body, 'custom', vertices)
+
+-- Collision events
+for _, e in ipairs(physics_get_collision_begin('ball', 'wall')) do
+    local ball_id = physics_get_user_data(e.body_a)
+    local x, y = physics_get_position(e.body_a)
+    -- e.body_a, e.body_b, e.shape_a, e.shape_b
 end
 
-for _, s in ipairs(an:physics_get_sensor_enter('player', 'pickup')) do
-    local player, pickup = s.a, s.b
-    pickup:collect()
+-- Hit events (with contact info)
+for _, e in ipairs(physics_get_hit('ball', 'wall')) do
+    -- Play bounce sound based on impact speed
+    sound_play(bounce_sound, e.approach_speed / 100)
+    -- Spawn particles at contact point
+    spawn_particles(e.point_x, e.point_y, e.normal_x, e.normal_y)
 end
 
-for _, h in ipairs(an:physics_get_contact_hit('ball', 'wall')) do
-    local speed = h.approach_speed
-    an:sound_play(bounce, {volume = speed / 100})
+-- Sensor events (trigger zones, pickups)
+for _, e in ipairs(physics_get_sensor_begin('player', 'pickup')) do
+    local pickup_id = physics_get_user_data(e.visitor_body)
+    collect_pickup(pickup_id)
+    physics_destroy_body(e.visitor_body)
 end
 
 -- Spatial queries
-local nearby = an:physics_query_circle(x, y, 50, {'enemy'})
-local hit = an:physics_raycast_closest(x1, y1, x2, y2, {'wall'})
+local nearby_enemies = physics_query_circle(player_x, player_y, 100, {'enemy'})
+for _, body in ipairs(nearby_enemies) do
+    local enemy_id = physics_get_user_data(body)
+    -- Do something with each enemy
+end
 
--- Current sensor overlaps (not just enter/exit events)
-local overlaps = an:physics_get_sensor_overlaps(sensor_collider)
+-- Rotated box query (for sword swing, etc.)
+local hit_bodies = physics_query_box(player_x + 30, player_y, 40, 20, player_angle, {'enemy', 'destructible'})
 
--- Body management
-local body = an:physics_create_body('ball', 'dynamic', 'circle', 10)
-an:physics_set_position(body, x, y)
-an:physics_set_velocity(body, vx, vy)
-an:physics_apply_impulse(body, ix, iy)
-an:physics_destroy_body(body)
+-- Raycast for line of sight
+local hit = physics_raycast(player_x, player_y, target_x, target_y, {'wall', 'obstacle'})
+if hit then
+    -- Line of sight blocked at hit.point_x, hit.point_y
+    -- hit.fraction is 0-1 (0 = at origin, 1 = at target)
+else
+    -- Clear line of sight
+end
+
+-- Raycast all for penetrating projectile
+local all_hits = physics_raycast_all(bullet_x, bullet_y, bullet_x + dx, bullet_y + dy, {'enemy'})
+for _, hit in ipairs(all_hits) do
+    deal_damage(physics_get_user_data(hit.body))
+end
 ```
 
-**Deliverable:** Full physics with events and queries.
+---
+
+### Verification
+
+- [x] Step 1: Box2D compiles on Windows and Web
+- [x] Step 2: World steps, gravity works (bodies fall)
+- [x] Step 3-4: Tags registered, collision filtering works
+- [x] Step 5-6: Bodies and shapes created, collisions occur
+- [x] Step 7: Position, velocity, forces work correctly
+- [x] Step 8-9: Events fire and can be queried from Lua
+- [x] Step 10: Overlap queries and raycast return correct results
+- [x] All steps verified on Windows and Web
+
+**Deliverable:** Full physics with tag-based collision, events, and spatial queries. ✓ Complete
 
 ---
 

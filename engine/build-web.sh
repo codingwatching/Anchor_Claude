@@ -39,9 +39,12 @@ mkdir -p build-web
 
 /c/emsdk/upstream/emscripten/emcc.bat \
     -O2 \
-    -I"include" -I"include/SDL2" -I"include/lua" -I"include/stb" \
+    -DNDEBUG \
+    -DBOX2D_DISABLE_SIMD \
+    -I"include" -I"include/SDL2" -I"include/lua" -I"include/stb" -I"include/box2d" \
     src/anchor.c \
     include/lua/*.c \
+    include/box2d/*.c \
     -o build-web/anchor.html \
     -s USE_SDL=2 \
     -s USE_WEBGL2=1 \
