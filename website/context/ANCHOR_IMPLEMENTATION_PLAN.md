@@ -9,7 +9,7 @@ C engine with YueScript scripting, OpenGL rendering, targeting Windows and Web.
 | Area | Decision | Rationale |
 |------|----------|-----------|
 | Renderer | OpenGL | Smooth rotation, additive blending, performance headroom, console-portable |
-| Audio | TBD (miniaudio or SoLoud) | Need pitch shifting; SDL_mixer insufficient |
+| Audio | miniaudio + stb_vorbis | Single-header, pitch shifting, OGG support |
 | Physics | Box2D 3.1 | Already used, true ball-to-ball collisions needed |
 | Scripting | Lua 5.4 + YueScript | Build-time compilation with `-r` flag for line numbers |
 | Timestep | Fixed 120Hz physics, 60Hz render | Decoupled for pixel-perfect visuals with responsive input |
@@ -843,49 +843,147 @@ end
 
 ## Phase 6: Audio
 
-**Goal:** Sound effects with pitch control, music playback.
+**Goal:** Sound effects with pitch control, music playback, separate volume controls for sounds and music.
 
-### 6.1 Library Selection (Research Required)
+### Library Decision
 
-**Options to evaluate:**
+**miniaudio** — single-header C library. Pitch shifting via resampling (changing playback rate). Works with Emscripten. Fits the monolithic anchor.c style.
 
-| Library | Pitch Shifting | Effects | Complexity | Web Support |
-|---------|---------------|---------|------------|-------------|
-| miniaudio | Yes (resampling) | Basic | Single header | Yes (Emscripten) |
-| SoLoud | Yes (native) | Filters, 3D | Medium | Yes |
-| SDL_mixer | Limited | None | Simple | Yes |
+### Architecture
 
-**Decision criteria:**
-- Must support pitch shifting immediately
-- Should support additional effects eventually (reverb, filters)
-- Must work with Emscripten for web builds
+**Volume:** Two separate master volumes (for options menu sliders)
+- Sound effects: `per_play_volume × sound_master_volume`
+- Music: `music_master_volume`
 
-### 6.2 Core Audio
-- [ ] Audio device initialization
-- [ ] Sound loading (WAV, OGG)
-- [ ] Music loading (OGG)
-- [ ] Web: handle audio context unlock (requires user interaction)
+**Pitch:** Per-play pitch + global master pitch
+- Per-play pitch: variation for each sound (e.g., 0.95-1.05 for natural variation)
+- Master pitch: slow-mo effect, multiplies with per-play pitch
+- Final pitch = `per_play_pitch × master_pitch`
+- Real-time adjustment — master pitch change affects currently playing sounds
 
-### 6.3 Playback Features
-- [ ] Sound playback with volume
-- [ ] **Pitch shifting** (essential)
-- [ ] Music playback (loop, stop, fade)
-- [ ] Master volume control
+---
 
-### 6.4 Lua Bindings
+### Implementation Steps
+
+**Step 1: Integrate miniaudio**
+- [x] Download miniaudio.h to `engine/include/`
+- [x] `#define MINIAUDIO_IMPLEMENTATION` in anchor.c
+- [x] Add stb_vorbis.c for OGG/Vorbis decoding (header at top, implementation at end of file to avoid macro conflicts)
+- [x] Rename `Chord` → `InputChord` and `shutdown` → `engine_shutdown` to avoid Windows header conflicts
+- [x] Verify it compiles on Windows
+
+**Step 2: Audio device initialization**
+- [x] Initialize `ma_engine` (high-level API, handles mixing)
+- [x] Shutdown on exit
+- [x] Verify no errors on startup
+
+**Step 3: Sound loading**
+- [x] `sound_load(path)` — returns Sound userdata
+- [x] Load WAV and OGG (via stb_vorbis)
+- [x] Sound struct stores path; audio data cached by miniaudio's resource manager
+- [x] Lua binding
+
+**Step 4: Sound playback**
+- [x] `sound_play(sound)` — play at volume=1, pitch=1
+- [x] `sound_play(sound, volume, pitch)` — play with per-play volume and pitch
+- [x] Per-play pitch for variation (e.g., random 0.95-1.05)
+- [x] Sound instance pool (64 slots) with main-thread cleanup to avoid audio thread issues
+- [x] Lua binding
+
+**Step 5: Sound master volume**
+- [x] `sound_set_volume(volume)` — 0 to 1, affects all sound effects
+- [x] Store as global, apply when playing sounds
+- [x] Lua binding
+
+**Step 6: Music loading**
+- [x] `music_load(path)` — returns Music userdata
+- [x] Streaming playback (not fully loaded into memory)
+- [x] Lua binding
+
+**Step 7: Music playback**
+- [x] `music_play(music)` — play once
+- [x] `music_play(music, loop)` — loop if true
+- [x] `music_stop()` — stop current music
+- [x] Only one music track at a time
+- [x] Lua bindings
+
+**Step 8: Music master volume**
+- [x] `music_set_volume(volume)` — 0 to 1
+- [x] Lua binding
+
+**Step 9: Master pitch (slow-mo)**
+- [x] `audio_set_master_pitch(pitch)` — affects all audio
+- [x] Multiplies with per-play pitch: `final = per_play_pitch × master_pitch`
+- [x] Must work on currently playing sounds (real-time adjustment)
+- [x] Lua binding
+
+**Step 10: Perceptual volume scaling**
+- [x] `linear_to_perceptual(linear)` helper — applies power curve (linear²)
+- [x] Applied to sound_play, music_play, and music_set_volume
+- [x] Human hearing is logarithmic; this makes sliders feel natural
+
+**Step 11: Bug fix — number key scancodes**
+- [x] SDL scancodes for 1-9 are sequential, then 0 (keyboard layout order, not 0-9)
+- [x] Fixed `key_name_to_scancode` to handle this correctly
+
+**Step 12: Web audio context unlock**
+- [x] Handle browser requirement for user interaction before audio
+- [x] Unlock on first input event (key/mouse/touch)
+- [x] `audio_try_unlock()` called from SDL_KEYDOWN, SDL_MOUSEBUTTONDOWN, SDL_FINGERDOWN
+
+**Step 13: Verification**
+- [x] Test on Windows: sound effects with volume/pitch variation
+- [x] Test on Windows: music looping
+- [x] Test on Windows: slow-mo pitch effect
+- [x] Test on Windows: perceptual volume scaling (triangle wave oscillation test)
+- [x] Test on Web: audio context unlocks on interaction
+- [x] Test on Web: all features match Windows
+
+---
+
+### Lua API
+
 ```lua
-local hit = an:sound_load('hit.ogg')
-an:sound_play(hit)
-an:sound_play(hit, {volume = 0.5, pitch = 1.2})
+-- Loading
+local hit = sound_load('hit.ogg')
+local bgm = music_load('bgm.ogg')
 
-local bgm = an:music_load('bgm.ogg')
-an:music_play(bgm, {loop = true})
-an:music_stop()
-an:music_volume(0.5)
-an:music_fade_out(1.0)  -- fade over 1 second
+-- Sound playback (fire-and-forget)
+sound_play(hit)                                -- volume=1, pitch=1
+sound_play(hit, 0.5, 1.2)                      -- volume=0.5, pitch=1.2
+sound_play(hit, 1.0, 0.95 + random() * 0.1)   -- random pitch 0.95-1.05
+
+-- Music (one track at a time)
+music_play(bgm)                        -- play once
+music_play(bgm, true)                  -- loop
+music_stop()
+
+-- Volume controls (for options menu sliders)
+sound_set_volume(0.8)                  -- all sound effects
+music_set_volume(0.5)                  -- music
+
+-- Master pitch (for slow-mo, multiplies with per-play pitch)
+audio_set_master_pitch(0.5)            -- all audio plays at half speed/pitch
+audio_set_master_pitch(1.0)            -- back to normal
 ```
 
-**Deliverable:** Audio with pitch shifting.
+---
+
+### Verification Checklist
+
+- [x] Step 1-2: miniaudio initializes without errors
+- [x] Step 3-4: Sound loads and plays with volume/pitch
+- [x] Step 5: Sound master volume affects all sound effects
+- [x] Step 6-7: Music loads, plays, loops, stops
+- [x] Step 8: Music master volume works
+- [x] Step 9: Master pitch affects all playing audio in real-time
+- [x] Step 10: Perceptual volume scaling produces natural-feeling volume changes
+- [x] Step 11: Number keys 1-9 and 0 work correctly
+- [x] Step 12: Web audio context unlock implemented
+- [x] Step 13: Web build tested and verified
+- [x] All steps verified on Windows and Web
+
+**Deliverable:** Audio with pitch shifting, separate volume controls, and perceptual scaling. ✓ Complete
 
 ---
 

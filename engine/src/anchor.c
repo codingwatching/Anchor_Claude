@@ -34,6 +34,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define STB_VORBIS_HEADER_ONLY
+#include <stb_vorbis.c>
+
+#define MA_ENABLE_VORBIS
+#define MINIAUDIO_IMPLEMENTATION
+#include <miniaudio.h>
+
 #define WINDOW_TITLE "Anchor"
 #define GAME_WIDTH 480
 #define GAME_HEIGHT 270
@@ -140,6 +147,16 @@ typedef struct {
     uint8_t current_blend;
 } Layer;
 
+// Audio globals (declared early so Sound functions can use them)
+static ma_engine audio_engine;
+static bool audio_initialized = false;
+static float sound_master_volume = 1.0f;
+static float music_master_volume = 1.0f;
+static float audio_master_pitch = 1.0f;
+#ifdef __EMSCRIPTEN__
+static bool audio_needs_unlock = true;  // Web requires user interaction to start audio
+#endif
+
 // Texture
 typedef struct {
     GLuint id;
@@ -185,6 +202,222 @@ static void texture_destroy(Texture* tex) {
     if (tex->id) glDeleteTextures(1, &tex->id);
     free(tex);
 }
+
+// Sound - stores path for fire-and-forget playback
+// Each play creates a new ma_sound instance that self-destructs when done
+#define MAX_SOUND_PATH 256
+
+typedef struct {
+    char path[MAX_SOUND_PATH];
+} Sound;
+
+static Sound* sound_load(const char* path) {
+    Sound* sound = (Sound*)malloc(sizeof(Sound));
+    if (!sound) return NULL;
+
+    strncpy(sound->path, path, MAX_SOUND_PATH - 1);
+    sound->path[MAX_SOUND_PATH - 1] = '\0';
+
+    // Verify the file can be loaded by attempting to init a sound
+    // This also pre-caches the decoded audio in miniaudio's resource manager
+    if (audio_initialized) {
+        ma_sound test_sound;
+        ma_result result = ma_sound_init_from_file(&audio_engine, path, MA_SOUND_FLAG_DECODE, NULL, NULL, &test_sound);
+        if (result != MA_SUCCESS) {
+            fprintf(stderr, "Failed to load sound: %s (error %d)\n", path, result);
+            free(sound);
+            return NULL;
+        }
+        ma_sound_uninit(&test_sound);
+    }
+
+    printf("Loaded sound: %s\n", path);
+    return sound;
+}
+
+static void sound_destroy(Sound* sound) {
+    if (sound) free(sound);
+}
+
+// Sound instance pool for fire-and-forget playback
+// Cleaned up from main thread to avoid threading issues
+#define MAX_PLAYING_SOUNDS 64
+
+typedef struct {
+    ma_sound sound;
+    bool in_use;
+} PlayingSound;
+
+static PlayingSound playing_sounds[MAX_PLAYING_SOUNDS];
+static bool playing_sounds_initialized = false;
+
+// Clean up finished sounds (call from main thread each frame)
+static void sound_cleanup_finished(void) {
+    if (!audio_initialized) return;
+
+    for (int i = 0; i < MAX_PLAYING_SOUNDS; i++) {
+        if (playing_sounds[i].in_use) {
+            if (!ma_sound_is_playing(&playing_sounds[i].sound)) {
+                ma_sound_uninit(&playing_sounds[i].sound);
+                playing_sounds[i].in_use = false;
+            }
+        }
+    }
+}
+
+// Clean up all playing sounds (call on shutdown)
+static void sound_cleanup_all(void) {
+    for (int i = 0; i < MAX_PLAYING_SOUNDS; i++) {
+        if (playing_sounds[i].in_use) {
+            ma_sound_stop(&playing_sounds[i].sound);
+            ma_sound_uninit(&playing_sounds[i].sound);
+            playing_sounds[i].in_use = false;
+        }
+    }
+}
+
+// Convert linear volume (0-1) to perceptual volume using power curve
+static float linear_to_perceptual(float linear) {
+    return linear * linear;
+}
+
+// Play a sound with volume and pitch
+static void sound_play(Sound* sound, float volume, float pitch) {
+    if (!audio_initialized || !sound) return;
+
+    // Find a free slot
+    int slot = -1;
+    for (int i = 0; i < MAX_PLAYING_SOUNDS; i++) {
+        if (!playing_sounds[i].in_use) {
+            slot = i;
+            break;
+        }
+    }
+
+    if (slot == -1) {
+        // No free slots - try to reclaim finished sounds
+        sound_cleanup_finished();
+        for (int i = 0; i < MAX_PLAYING_SOUNDS; i++) {
+            if (!playing_sounds[i].in_use) {
+                slot = i;
+                break;
+            }
+        }
+    }
+
+    if (slot == -1) {
+        fprintf(stderr, "No free sound slots available\n");
+        return;
+    }
+
+    // Initialize sound in this slot
+    ma_result result = ma_sound_init_from_file(&audio_engine, sound->path, MA_SOUND_FLAG_DECODE, NULL, NULL, &playing_sounds[slot].sound);
+    if (result != MA_SUCCESS) {
+        fprintf(stderr, "Failed to play sound: %s (error %d)\n", sound->path, result);
+        return;
+    }
+
+    // Apply volume: per-play volume * master volume (perceptual scaling)
+    ma_sound_set_volume(&playing_sounds[slot].sound, linear_to_perceptual(volume * sound_master_volume));
+
+    // Apply pitch: per-play pitch * master pitch
+    ma_sound_set_pitch(&playing_sounds[slot].sound, pitch * audio_master_pitch);
+
+    playing_sounds[slot].in_use = true;
+    ma_sound_start(&playing_sounds[slot].sound);
+}
+
+// Music - single streaming track
+typedef struct {
+    ma_sound sound;
+    bool initialized;
+} Music;
+
+static Music* current_music = NULL;
+
+static Music* music_load(const char* path) {
+    if (!audio_initialized) return NULL;
+
+    Music* music = (Music*)malloc(sizeof(Music));
+    if (!music) return NULL;
+
+    // MA_SOUND_FLAG_STREAM for streaming (not fully loaded into memory)
+    ma_result result = ma_sound_init_from_file(&audio_engine, path, MA_SOUND_FLAG_STREAM, NULL, NULL, &music->sound);
+    if (result != MA_SUCCESS) {
+        fprintf(stderr, "Failed to load music: %s (error %d)\n", path, result);
+        free(music);
+        return NULL;
+    }
+
+    music->initialized = true;
+    printf("Loaded music: %s\n", path);
+    return music;
+}
+
+static void music_destroy(Music* music) {
+    if (!music) return;
+    if (music->initialized) {
+        ma_sound_uninit(&music->sound);
+    }
+    free(music);
+}
+
+static void music_play(Music* music, bool loop) {
+    if (!audio_initialized || !music || !music->initialized) return;
+
+    // Stop current music if different
+    if (current_music && current_music != music) {
+        ma_sound_stop(&current_music->sound);
+    }
+
+    current_music = music;
+    ma_sound_set_looping(&music->sound, loop);
+    ma_sound_set_volume(&music->sound, linear_to_perceptual(music_master_volume));
+    ma_sound_seek_to_pcm_frame(&music->sound, 0);  // Restart from beginning
+    ma_sound_start(&music->sound);
+}
+
+static void music_stop(void) {
+    if (current_music && current_music->initialized) {
+        ma_sound_stop(&current_music->sound);
+    }
+}
+
+static void music_set_volume(float volume) {
+    music_master_volume = volume;
+    // Apply to currently playing music (perceptual scaling)
+    if (current_music && current_music->initialized) {
+        ma_sound_set_volume(&current_music->sound, linear_to_perceptual(volume));
+    }
+}
+
+// Master pitch (slow-mo) - affects all currently playing audio
+static void audio_set_master_pitch(float pitch) {
+    audio_master_pitch = pitch;
+
+    // Update all playing sounds
+    for (int i = 0; i < MAX_PLAYING_SOUNDS; i++) {
+        if (playing_sounds[i].in_use) {
+            ma_sound_set_pitch(&playing_sounds[i].sound, pitch);
+        }
+    }
+
+    // Update music
+    if (current_music && current_music->initialized) {
+        ma_sound_set_pitch(&current_music->sound, pitch);
+    }
+}
+
+// Web audio context unlock (browsers require user interaction before audio plays)
+#ifdef __EMSCRIPTEN__
+static void audio_try_unlock(void) {
+    if (audio_needs_unlock && audio_initialized) {
+        ma_engine_start(&audio_engine);
+        audio_needs_unlock = false;
+        printf("Audio context unlocked\n");
+    }
+}
+#endif
 
 // Create a layer with FBO at specified resolution
 static Layer* layer_create(int width, int height) {
@@ -672,7 +905,9 @@ static SDL_Scancode key_name_to_scancode(const char* name) {
         char c = name[0];
         if (c >= 'a' && c <= 'z') return SDL_SCANCODE_A + (c - 'a');
         if (c >= 'A' && c <= 'Z') return SDL_SCANCODE_A + (c - 'A');
-        if (c >= '0' && c <= '9') return SDL_SCANCODE_0 + (c - '0');
+        // SDL scancodes: 1-9 are sequential, then 0 (keyboard layout order)
+        if (c == '0') return SDL_SCANCODE_0;
+        if (c >= '1' && c <= '9') return SDL_SCANCODE_1 + (c - '1');
     }
 
     // Named keys
@@ -969,9 +1204,9 @@ typedef struct {
     char action_names[MAX_ACTIONS_PER_CHORD][MAX_ACTION_NAME];
     int action_count;
     bool was_down;  // For edge detection
-} Chord;
+} InputChord;
 
-static Chord chords[MAX_CHORDS];
+static InputChord chords[MAX_CHORDS];
 static int chord_count = 0;
 
 // Sequence: series of actions that must be pressed in order within time windows
@@ -1238,7 +1473,7 @@ static bool action_is_released(const char* name) {
 }
 
 // Chord functions
-static Chord* chord_find(const char* name) {
+static InputChord* chord_find(const char* name) {
     for (int i = 0; i < chord_count; i++) {
         if (strcmp(chords[i].name, name) == 0) {
             return &chords[i];
@@ -1248,7 +1483,7 @@ static Chord* chord_find(const char* name) {
 }
 
 // Check if chord is currently down (all actions held)
-static bool chord_is_down(Chord* chord) {
+static bool chord_is_down(InputChord* chord) {
     if (!chord || chord->action_count == 0) return false;
     for (int i = 0; i < chord->action_count; i++) {
         if (!action_is_down(chord->action_names[i])) {
@@ -1259,14 +1494,14 @@ static bool chord_is_down(Chord* chord) {
 }
 
 // Check if chord was just pressed (is down now, wasn't before)
-static bool chord_is_pressed(Chord* chord) {
+static bool chord_is_pressed(InputChord* chord) {
     if (!chord) return false;
     bool down_now = chord_is_down(chord);
     return down_now && !chord->was_down;
 }
 
 // Check if chord was just released (was down, isn't now)
-static bool chord_is_released(Chord* chord) {
+static bool chord_is_released(InputChord* chord) {
     if (!chord) return false;
     bool down_now = chord_is_down(chord);
     return !down_now && chord->was_down;
@@ -1288,7 +1523,7 @@ static bool input_bind_chord_internal(const char* name, const char** action_name
     }
 
     // Check if chord already exists
-    Chord* chord = chord_find(name);
+    InputChord* chord = chord_find(name);
     if (chord) {
         printf("Warning: Chord '%s' already exists\n", name);
         return false;
@@ -1543,7 +1778,7 @@ static bool input_is_down(const char* name) {
     // Check actions first
     if (action_is_down(name)) return true;
     // Check chords
-    Chord* chord = chord_find(name);
+    InputChord* chord = chord_find(name);
     if (chord) return chord_is_down(chord);
     // Check sequences
     Sequence* seq = sequence_find(name);
@@ -1558,7 +1793,7 @@ static bool input_is_pressed(const char* name) {
     // Check actions first
     if (action_is_pressed(name)) return true;
     // Check chords
-    Chord* chord = chord_find(name);
+    InputChord* chord = chord_find(name);
     if (chord) return chord_is_pressed(chord);
     // Check sequences
     Sequence* seq = sequence_find(name);
@@ -1573,7 +1808,7 @@ static bool input_is_released(const char* name) {
     // Check actions first
     if (action_is_released(name)) return true;
     // Check chords
-    Chord* chord = chord_find(name);
+    InputChord* chord = chord_find(name);
     if (chord) return chord_is_released(chord);
     // Check sequences
     Sequence* seq = sequence_find(name);
@@ -2284,6 +2519,65 @@ static int l_texture_get_height(lua_State* L) {
     return 1;
 }
 
+// Audio Lua bindings
+static int l_sound_load(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    Sound* sound = sound_load(path);
+    if (!sound) {
+        return luaL_error(L, "Failed to load sound: %s", path);
+    }
+    lua_pushlightuserdata(L, sound);
+    return 1;
+}
+
+static int l_sound_play(lua_State* L) {
+    Sound* sound = (Sound*)lua_touserdata(L, 1);
+    float volume = (float)luaL_optnumber(L, 2, 1.0);
+    float pitch = (float)luaL_optnumber(L, 3, 1.0);
+    sound_play(sound, volume, pitch);
+    return 0;
+}
+
+static int l_sound_set_volume(lua_State* L) {
+    sound_master_volume = (float)luaL_checknumber(L, 1);
+    return 0;
+}
+
+static int l_music_load(lua_State* L) {
+    const char* path = luaL_checkstring(L, 1);
+    Music* music = music_load(path);
+    if (!music) {
+        return luaL_error(L, "Failed to load music: %s", path);
+    }
+    lua_pushlightuserdata(L, music);
+    return 1;
+}
+
+static int l_music_play(lua_State* L) {
+    Music* music = (Music*)lua_touserdata(L, 1);
+    bool loop = lua_toboolean(L, 2);
+    music_play(music, loop);
+    return 0;
+}
+
+static int l_music_stop(lua_State* L) {
+    (void)L;
+    music_stop();
+    return 0;
+}
+
+static int l_music_set_volume(lua_State* L) {
+    float volume = (float)luaL_checknumber(L, 1);
+    music_set_volume(volume);
+    return 0;
+}
+
+static int l_audio_set_master_pitch(lua_State* L) {
+    float pitch = (float)luaL_checknumber(L, 1);
+    audio_set_master_pitch(pitch);
+    return 0;
+}
+
 static int l_layer_draw_texture(lua_State* L) {
     Layer* layer = (Layer*)lua_touserdata(L, 1);
     Texture* tex = (Texture*)lua_touserdata(L, 2);
@@ -2733,6 +3027,15 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "texture_load", l_texture_load);
     lua_register(L, "texture_get_width", l_texture_get_width);
     lua_register(L, "texture_get_height", l_texture_get_height);
+    // Audio
+    lua_register(L, "sound_load", l_sound_load);
+    lua_register(L, "sound_play", l_sound_play);
+    lua_register(L, "sound_set_volume", l_sound_set_volume);
+    lua_register(L, "music_load", l_music_load);
+    lua_register(L, "music_play", l_music_play);
+    lua_register(L, "music_stop", l_music_stop);
+    lua_register(L, "music_set_volume", l_music_set_volume);
+    lua_register(L, "audio_set_master_pitch", l_audio_set_master_pitch);
     lua_register(L, "rgba", l_rgba);
     lua_register(L, "set_shape_filter", l_set_shape_filter);
     lua_register(L, "timing_resync", l_timing_resync);
@@ -3101,7 +3404,7 @@ static int traceback(lua_State* L) {
     return 1;
 }
 
-static void shutdown(void) {
+static void engine_shutdown(void) {
     // Game rendering resources
     if (vbo) { glDeleteBuffers(1, &vbo); vbo = 0; }
     if (vao) { glDeleteVertexArrays(1, &vao); vao = 0; }
@@ -3118,6 +3421,12 @@ static void shutdown(void) {
     if (screen_vbo) { glDeleteBuffers(1, &screen_vbo); screen_vbo = 0; }
     if (screen_vao) { glDeleteVertexArrays(1, &screen_vao); screen_vao = 0; }
     if (screen_shader) { glDeleteProgram(screen_shader); screen_shader = 0; }
+    // Audio
+    if (audio_initialized) {
+        sound_cleanup_all();
+        ma_engine_uninit(&audio_engine);
+        audio_initialized = false;
+    }
     // Other resources
     if (L) { lua_close(L); L = NULL; }
     if (gl_context) { SDL_GL_DeleteContext(gl_context); gl_context = NULL; }
@@ -3130,6 +3439,9 @@ static void main_loop_iteration(void) {
     Uint64 current_time = SDL_GetPerformanceCounter();
     double dt = (double)(current_time - last_time) / (double)perf_freq;
     last_time = current_time;
+
+    // Clean up finished sounds (must be done from main thread)
+    sound_cleanup_finished();
 
     // Clamp delta time to handle anomalies (pauses, debugger, sleep resume)
     if (dt > PHYSICS_RATE * MAX_UPDATES) {
@@ -3171,6 +3483,9 @@ static void main_loop_iteration(void) {
         // Track keyboard state
         if (event.type == SDL_KEYDOWN && !event.key.repeat) {
             last_input_type = INPUT_TYPE_KEYBOARD;
+            #ifdef __EMSCRIPTEN__
+            audio_try_unlock();
+            #endif
             SDL_Scancode sc = event.key.keysym.scancode;
             if (sc < SDL_NUM_SCANCODES) {
                 keys_current[sc] = true;
@@ -3214,6 +3529,9 @@ static void main_loop_iteration(void) {
         // Track mouse buttons
         if (event.type == SDL_MOUSEBUTTONDOWN) {
             last_input_type = INPUT_TYPE_MOUSE;
+            #ifdef __EMSCRIPTEN__
+            audio_try_unlock();
+            #endif
             int btn = event.button.button - 1;  // SDL buttons are 1-indexed
             if (btn >= 0 && btn < MAX_MOUSE_BUTTONS) {
                 mouse_buttons_current[btn] = true;
@@ -3234,6 +3552,12 @@ static void main_loop_iteration(void) {
             mouse_wheel_x += event.wheel.x;
             mouse_wheel_y += event.wheel.y;
         }
+        // Touch events (for web/mobile audio unlock)
+        #ifdef __EMSCRIPTEN__
+        if (event.type == SDL_FINGERDOWN) {
+            audio_try_unlock();
+        }
+        #endif
         // Handle window focus events - resync timing to prevent catch-up stutter
         if (event.type == SDL_WINDOWEVENT) {
             if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
@@ -3438,7 +3762,7 @@ static void main_loop_iteration(void) {
     #ifdef __EMSCRIPTEN__
     if (!running) {
         emscripten_cancel_main_loop();
-        shutdown();
+        engine_shutdown();
     }
     #endif
 }
@@ -3487,14 +3811,14 @@ int main(int argc, char* argv[]) {
     );
     if (!window) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-        shutdown();
+        engine_shutdown();
         return 1;
     }
 
     gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
         fprintf(stderr, "SDL_GL_CreateContext failed: %s\n", SDL_GetError());
-        shutdown();
+        engine_shutdown();
         return 1;
     }
 
@@ -3505,7 +3829,7 @@ int main(int argc, char* argv[]) {
     int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
     if (version == 0) {
         fprintf(stderr, "gladLoadGL failed\n");
-        shutdown();
+        engine_shutdown();
         return 1;
     }
     printf("OpenGL %d.%d loaded\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
@@ -3521,7 +3845,7 @@ int main(int argc, char* argv[]) {
     shader_program = create_shader_program(vertex_shader_source, fragment_shader_source);
     if (!shader_program) {
         fprintf(stderr, "Failed to create shader program\n");
-        shutdown();
+        engine_shutdown();
         return 1;
     }
     printf("Shader program created\n");
@@ -3570,7 +3894,7 @@ int main(int argc, char* argv[]) {
     screen_shader = create_shader_program(screen_vertex_source, screen_fragment_source);
     if (!screen_shader) {
         fprintf(stderr, "Failed to create screen shader\n");
-        shutdown();
+        engine_shutdown();
         return 1;
     }
     printf("Screen shader created\n");
@@ -3609,7 +3933,7 @@ int main(int argc, char* argv[]) {
     L = luaL_newstate();
     if (!L) {
         fprintf(stderr, "luaL_newstate failed\n");
-        shutdown();
+        engine_shutdown();
         return 1;
     }
     luaL_openlibs(L);
@@ -3624,6 +3948,16 @@ int main(int argc, char* argv[]) {
                 break;  // Only use first gamepad
             }
         }
+    }
+
+    // Initialize audio (miniaudio)
+    ma_result result = ma_engine_init(NULL, &audio_engine);
+    if (result != MA_SUCCESS) {
+        fprintf(stderr, "Failed to initialize audio engine: %d\n", result);
+        // Continue without audio - not a fatal error
+    } else {
+        audio_initialized = true;
+        printf("Audio engine initialized\n");
     }
 
     // Load and run script with traceback
@@ -3678,8 +4012,12 @@ int main(int argc, char* argv[]) {
     }
 
     printf("Shutting down...\n");
-    shutdown();
+    engine_shutdown();
     #endif
 
     return 0;
 }
+
+// stb_vorbis implementation - must be at end to avoid macro conflicts with our code
+#undef STB_VORBIS_HEADER_ONLY
+#include <stb_vorbis.c>
