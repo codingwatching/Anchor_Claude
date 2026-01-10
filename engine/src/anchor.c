@@ -1,8 +1,20 @@
 /*
- * Anchor Engine
- * Phase 1: Window + OpenGL + Lua integration
- * Phase 2: Web build (Emscripten/WebGL)
- * Phase 3: Rendering (layers, shapes, sprites, transforms, blend modes)
+ * Anchor Engine - Single-file C implementation
+ * SDL2 + OpenGL 3.3 (WebGL 2.0) + Lua 5.4 + Box2D 3.x
+ *
+ * FILE STRUCTURE:
+ *
+ * [Lines 1-200]      Includes, constants, core structs (DrawCommand, Layer)
+ * [Lines 200-500]    Physics foundation (tags, events, PCG32 random)
+ * [Lines 500-1100]   Resources (Texture, Font, Sound, Music)
+ * [Lines 1100-1550]  Layer system (FBO, transforms, command queue, batching)
+ * [Lines 1550-2750]  Input system (keyboard, mouse, gamepad, actions, chords, sequences, holds)
+ * [Lines 2750-3250]  Rendering pipeline (shader execution, command processing)
+ * [Lines 3250-5250]  Lua bindings: Rendering, Physics
+ * [Lines 5250-5900]  Lua bindings: Random, Input
+ * [Lines 5900-6100]  Lua registration (register_lua_bindings)
+ * [Lines 6100-6350]  Shader sources and compilation
+ * [Lines 6350-6950]  Main loop, initialization, shutdown
  */
 
 #include <stdio.h>
@@ -49,6 +61,10 @@
 
 #include <box2d.h>
 
+// ============================================================================
+// CONFIGURATION & CONSTANTS
+// ============================================================================
+
 #define WINDOW_TITLE "Anchor"
 #define GAME_WIDTH 480
 #define GAME_HEIGHT 270
@@ -63,7 +79,10 @@
 // This prevents accumulator drift from timer jitter
 #define VSYNC_SNAP_TOLERANCE 0.0002
 
-// Forward declaration for timing resync (defined with main loop state)
+// Mathematical constants
+#define PI 3.14159265358979323846
+
+// Forward declaration (defined at ~line 6050 in MAIN LOOP section)
 static void timing_resync(void);
 
 // Transform stack depth
@@ -105,7 +124,11 @@ typedef struct {
     uint8_t _pad[2];        // Padding to align next field to 4 bytes
 
     float transform[6];     // 2D affine matrix (2x3): [m00 m01 m02 m10 m11 m12] (24 bytes)
-    uint32_t color;         // Packed RGBA for multiply/tint; For SET_UNIFORM_*: uniform location (4 bytes)
+
+    union {
+        uint32_t color;           // Packed RGBA for multiply/tint (shapes)
+        uint32_t uniform_location; // Uniform location (SET_UNIFORM_* commands)
+    };
 
     // Shape parameters (meaning depends on type)
     // RECTANGLE: params[0]=x, [1]=y, [2]=w, [3]=h
@@ -118,7 +141,10 @@ typedef struct {
     // SET_UNIFORM_INT: params[0]=value (as float, cast to int)
     float params[6];        // 24 bytes (reduced from 8 to fit 64-byte target)
 
-    GLuint texture_id;      // For SPRITE/GLYPH: texture handle; For APPLY_SHADER: shader handle (4 bytes)
+    union {
+        GLuint texture_id;  // Texture handle (SPRITE, GLYPH)
+        GLuint shader_id;   // Shader handle (APPLY_SHADER, SET_UNIFORM_*)
+    };
     uint32_t flash_color;   // For SPRITE: packed RGB additive flash (GLYPH uses params for UVs instead)
     // Total: 4 + 24 + 4 + 24 + 4 + 4 = 64 bytes
 } DrawCommand;
@@ -156,6 +182,12 @@ typedef struct {
     // Current state
     uint8_t current_blend;
 } Layer;
+
+// ============================================================================
+// PHYSICS & AUDIO GLOBALS
+// Physics: Tag system, event buffers, world state
+// Audio: miniaudio engine, sound pool
+// ============================================================================
 
 // Audio globals (declared early so Sound functions can use them)
 static ma_engine audio_engine;
@@ -212,6 +244,7 @@ static PhysicsTag* physics_tag_get_by_name(const char* name) {
 }
 
 // Physics event buffers
+// See also: Event processing at ~line 370, Lua query functions at ~line 4530
 #define MAX_PHYSICS_EVENTS 256
 
 // Contact begin event (two shapes started touching)
@@ -288,6 +321,7 @@ static int sensor_end_count = 0;
 // Random (PCG32)
 // PCG32 - Permuted Congruential Generator (32-bit output, 64-bit state)
 // Fast, excellent statistical quality, small state for easy replay save/restore
+// See also: Lua bindings at ~line 5220
 typedef struct {
     uint64_t state;      // RNG state (all values are possible)
     uint64_t increment;  // Controls which RNG sequence (stream) is selected (must be odd)
@@ -439,6 +473,11 @@ static void physics_process_events(void) {
         ev->visitor_tag = visitor_tag;
     }
 }
+
+// ============================================================================
+// RESOURCES: TEXTURE, FONT, AUDIO
+// Loading, management, and playback of game assets
+// ============================================================================
 
 // Texture
 typedef struct {
@@ -1004,6 +1043,11 @@ static void audio_try_unlock(void) {
 }
 #endif
 
+// ============================================================================
+// LAYER SYSTEM
+// FBO management, transform stack, command queue, drawing primitives
+// ============================================================================
+
 // Create a layer with FBO at specified resolution
 static Layer* layer_create(int width, int height) {
     Layer* layer = (Layer*)calloc(1, sizeof(Layer));
@@ -1201,7 +1245,7 @@ static void unpack_uv_pair(float packed_float, float* u, float* v) {
     *v = ((packed >> 16) & 0xFFFF) / 65535.0f;
 }
 
-// Forward declarations for transform stack (defined later)
+// Forward declarations for transform stack (defined at ~line 1375)
 static bool layer_push(Layer* layer, float x, float y, float r, float sx, float sy);
 static void layer_pop(Layer* layer);
 
@@ -1282,6 +1326,11 @@ static void layer_draw_text(Layer* layer, const char* text, const char* font_nam
 static void layer_set_blend_mode(Layer* layer, uint8_t mode) {
     layer->current_blend = mode;
 }
+
+// ============================================================================
+// BATCH RENDERING
+// Vertex batching, matrix math, SDF shape rendering
+// ============================================================================
 
 // Batch rendering
 #define MAX_BATCH_VERTICES 6000  // 1000 quads * 6 vertices
@@ -1459,6 +1508,16 @@ static Layer* layer_registry[MAX_LAYERS];
 static char* layer_names[MAX_LAYERS];
 static int layer_count = 0;
 
+// Texture registry (for cleanup on shutdown)
+#define MAX_TEXTURES 256
+static Texture* texture_registry[MAX_TEXTURES];
+static int texture_count = 0;
+
+// Effect shader registry (for cleanup on shutdown)
+#define MAX_EFFECT_SHADERS 64
+static GLuint effect_shader_registry[MAX_EFFECT_SHADERS];
+static int effect_shader_count = 0;
+
 // Screen blit resources
 static GLuint screen_shader = 0;
 static GLuint screen_vao = 0;
@@ -1473,6 +1532,11 @@ typedef struct {
 #define MAX_LAYER_DRAWS 64
 static LayerDrawCommand layer_draw_queue[MAX_LAYER_DRAWS];
 static int layer_draw_count = 0;
+
+// ============================================================================
+// INPUT SYSTEM
+// Keyboard, mouse, gamepad state; action bindings; chords, sequences, holds
+// ============================================================================
 
 // Input state - Keyboard
 static bool keys_current[SDL_NUM_SCANCODES] = {0};
@@ -2629,8 +2693,7 @@ static void input_bind_all_defaults(void) {
 }
 
 // Get axis value from two actions (negative and positive)
-// Returns -1 to 1 for digital inputs
-// Will return analog values when gamepad support is added (Step 6)
+// Returns -1, 0, or 1 based on which actions are held
 static float input_get_axis(const char* negative, const char* positive) {
     float value = 0.0f;
     if (action_is_down(negative)) value -= 1.0f;
@@ -2655,6 +2718,11 @@ static void input_get_vector(const char* left, const char* right, const char* up
     *out_y = y;
 }
 
+// ============================================================================
+// RENDERING PIPELINE
+// Layer draw queue, shader application, command processing
+// ============================================================================
+
 // Queue a layer to be drawn to screen at given offset
 static void layer_queue_draw(Layer* layer, float x, float y) {
     if (layer_draw_count >= MAX_LAYER_DRAWS) return;
@@ -2672,7 +2740,7 @@ static void layer_apply_shader(Layer* layer, GLuint shader) {
     DrawCommand* cmd = &layer->commands[layer->command_count++];
     memset(cmd, 0, sizeof(DrawCommand));
     cmd->type = COMMAND_APPLY_SHADER;
-    cmd->texture_id = shader;  // Reuse texture_id field for shader handle
+    cmd->shader_id = shader;
 }
 
 // Queue uniform setting commands (deferred - applied when processing commands)
@@ -2685,8 +2753,8 @@ static void layer_shader_set_float(Layer* layer, GLuint shader, const char* name
     DrawCommand* cmd = &layer->commands[layer->command_count++];
     memset(cmd, 0, sizeof(DrawCommand));
     cmd->type = COMMAND_SET_UNIFORM_FLOAT;
-    cmd->texture_id = shader;
-    cmd->color = (uint32_t)loc;  // Store uniform location
+    cmd->shader_id = shader;
+    cmd->uniform_location = (uint32_t)loc;
     cmd->params[0] = value;
 }
 
@@ -2699,8 +2767,8 @@ static void layer_shader_set_vec2(Layer* layer, GLuint shader, const char* name,
     DrawCommand* cmd = &layer->commands[layer->command_count++];
     memset(cmd, 0, sizeof(DrawCommand));
     cmd->type = COMMAND_SET_UNIFORM_VEC2;
-    cmd->texture_id = shader;
-    cmd->color = (uint32_t)loc;
+    cmd->shader_id = shader;
+    cmd->uniform_location = (uint32_t)loc;
     cmd->params[0] = x;
     cmd->params[1] = y;
 }
@@ -2714,8 +2782,8 @@ static void layer_shader_set_vec4(Layer* layer, GLuint shader, const char* name,
     DrawCommand* cmd = &layer->commands[layer->command_count++];
     memset(cmd, 0, sizeof(DrawCommand));
     cmd->type = COMMAND_SET_UNIFORM_VEC4;
-    cmd->texture_id = shader;
-    cmd->color = (uint32_t)loc;
+    cmd->shader_id = shader;
+    cmd->uniform_location = (uint32_t)loc;
     cmd->params[0] = x;
     cmd->params[1] = y;
     cmd->params[2] = z;
@@ -2731,8 +2799,8 @@ static void layer_shader_set_int(Layer* layer, GLuint shader, const char* name, 
     DrawCommand* cmd = &layer->commands[layer->command_count++];
     memset(cmd, 0, sizeof(DrawCommand));
     cmd->type = COMMAND_SET_UNIFORM_INT;
-    cmd->texture_id = shader;
-    cmd->color = (uint32_t)loc;
+    cmd->shader_id = shader;
+    cmd->uniform_location = (uint32_t)loc;
     cmd->params[0] = (float)value;  // Store as float, cast back when processing
 }
 
@@ -2896,9 +2964,6 @@ static void process_circle(const DrawCommand* cmd) {
                        0.0f, 0.0f, 0.0f);
 }
 
-// Forward declaration of batch_flush (needed for process_sprite)
-static void batch_flush(void);
-
 // Process a sprite command (texture sampling)
 // Image is centered at (x, y) in local coordinates
 static void process_sprite(const DrawCommand* cmd) {
@@ -3024,19 +3089,19 @@ static void layer_render(Layer* layer) {
             batch_flush();
             current_batch_texture = 0;
 
-            glUseProgram(cmd->texture_id);
+            glUseProgram(cmd->shader_id);
             switch (cmd->type) {
                 case COMMAND_SET_UNIFORM_FLOAT:
-                    glUniform1f((GLint)cmd->color, cmd->params[0]);
+                    glUniform1f((GLint)cmd->uniform_location, cmd->params[0]);
                     break;
                 case COMMAND_SET_UNIFORM_VEC2:
-                    glUniform2f((GLint)cmd->color, cmd->params[0], cmd->params[1]);
+                    glUniform2f((GLint)cmd->uniform_location, cmd->params[0], cmd->params[1]);
                     break;
                 case COMMAND_SET_UNIFORM_VEC4:
-                    glUniform4f((GLint)cmd->color, cmd->params[0], cmd->params[1], cmd->params[2], cmd->params[3]);
+                    glUniform4f((GLint)cmd->uniform_location, cmd->params[0], cmd->params[1], cmd->params[2], cmd->params[3]);
                     break;
                 case COMMAND_SET_UNIFORM_INT:
-                    glUniform1i((GLint)cmd->color, (int)cmd->params[0]);
+                    glUniform1i((GLint)cmd->uniform_location, (int)cmd->params[0]);
                     break;
             }
 
@@ -3052,7 +3117,7 @@ static void layer_render(Layer* layer) {
             current_batch_texture = 0;
 
             // Execute the shader (ping-pong to alternate buffer)
-            execute_apply_shader(layer, cmd->texture_id);
+            execute_apply_shader(layer, cmd->shader_id);
 
             // After ping-pong, bind the NEW current FBO for subsequent draws
             // (execute_apply_shader toggled textures_swapped, so current is now the destination)
@@ -3146,15 +3211,15 @@ static Layer* layer_get_or_create(const char* name) {
     return layer;
 }
 
-// Forward declarations for effect shader functions (defined after shader sources)
+// Forward declarations for effect shaders (defined at ~line 6290 in SHADER SOURCES section)
 static GLuint effect_shader_load_file(const char* path);
 static GLuint effect_shader_load_string(const char* frag_source);
 static void effect_shader_destroy(GLuint shader);
-static void shader_set_float(GLuint shader, const char* name, float value);
-static void shader_set_vec2(GLuint shader, const char* name, float x, float y);
-static void shader_set_vec4(GLuint shader, const char* name, float x, float y, float z, float w);
-static void shader_set_int(GLuint shader, const char* name, int value);
-static void shader_set_texture(GLuint shader, const char* name, GLuint texture, int unit);
+
+// ============================================================================
+// LUA BINDINGS: RENDERING
+// Layer, texture, font, audio, shaders
+// ============================================================================
 
 // Lua bindings
 static int l_layer_create(lua_State* L) {
@@ -3188,7 +3253,7 @@ static int l_layer_circle(lua_State* L) {
     return 0;
 }
 
-static int l_rgba(lua_State* L) {
+static int l_color_rgba(lua_State* L) {
     int r = (int)luaL_checkinteger(L, 1);
     int g = (int)luaL_checkinteger(L, 2);
     int b = (int)luaL_checkinteger(L, 3);
@@ -3246,8 +3311,26 @@ static int l_texture_load(lua_State* L) {
     if (!tex) {
         return luaL_error(L, "Failed to load texture: %s", path);
     }
+    // Register for cleanup on shutdown
+    if (texture_count < MAX_TEXTURES) {
+        texture_registry[texture_count++] = tex;
+    }
     lua_pushlightuserdata(L, tex);
     return 1;
+}
+
+static int l_texture_unload(lua_State* L) {
+    Texture* tex = (Texture*)lua_touserdata(L, 1);
+    if (!tex) return 0;
+    // Remove from registry
+    for (int i = 0; i < texture_count; i++) {
+        if (texture_registry[i] == tex) {
+            texture_registry[i] = texture_registry[--texture_count];
+            break;
+        }
+    }
+    texture_destroy(tex);
+    return 0;
 }
 
 static int l_texture_get_width(lua_State* L) {
@@ -3443,6 +3526,10 @@ static int l_shader_load_file(lua_State* L) {
     if (!shader) {
         return luaL_error(L, "Failed to load effect shader: %s", path);
     }
+    // Register for cleanup on shutdown
+    if (effect_shader_count < MAX_EFFECT_SHADERS) {
+        effect_shader_registry[effect_shader_count++] = shader;
+    }
     lua_pushinteger(L, (lua_Integer)shader);
     return 1;
 }
@@ -3453,12 +3540,23 @@ static int l_shader_load_string(lua_State* L) {
     if (!shader) {
         return luaL_error(L, "Failed to compile effect shader from string");
     }
+    // Register for cleanup on shutdown
+    if (effect_shader_count < MAX_EFFECT_SHADERS) {
+        effect_shader_registry[effect_shader_count++] = shader;
+    }
     lua_pushinteger(L, (lua_Integer)shader);
     return 1;
 }
 
 static int l_shader_destroy(lua_State* L) {
     GLuint shader = (GLuint)luaL_checkinteger(L, 1);
+    // Remove from registry
+    for (int i = 0; i < effect_shader_count; i++) {
+        if (effect_shader_registry[i] == shader) {
+            effect_shader_registry[i] = effect_shader_registry[--effect_shader_count];
+            break;
+        }
+    }
     effect_shader_destroy(shader);
     return 0;
 }
@@ -3532,6 +3630,11 @@ static int l_layer_reset_effects(lua_State* L) {
     layer_reset_effects(layer);
     return 0;
 }
+
+// ============================================================================
+// LUA BINDINGS: PHYSICS
+// World, bodies, shapes, events, spatial queries, raycasting
+// ============================================================================
 
 // Physics Lua bindings
 static int l_physics_init(lua_State* L) {
@@ -4397,7 +4500,8 @@ static int l_physics_debug_events(lua_State* L) {
     return 0;
 }
 
-// Step 9: Event query functions
+// Event query functions
+// See also: Event buffer structs at ~line 250, event processing at ~line 370
 // Helper to check if two tag indices match (in either order)
 static bool tags_match(int event_tag_a, int event_tag_b, int query_tag_a, int query_tag_b) {
     return (event_tag_a == query_tag_a && event_tag_b == query_tag_b) ||
@@ -4926,6 +5030,36 @@ static int l_physics_query_polygon(lua_State* L) {
     return 1;
 }
 
+// Raycast context for finding closest matching hit
+typedef struct {
+    b2ShapeId shape;
+    b2Vec2 point;
+    b2Vec2 normal;
+    float fraction;
+    bool hit;
+    uint64_t tag_mask;
+} RaycastClosestContext;
+
+static float raycast_closest_callback(b2ShapeId shape_id, b2Vec2 point, b2Vec2 normal, float fraction, void* context) {
+    RaycastClosestContext* ctx = (RaycastClosestContext*)context;
+
+    // Check if this shape's tag matches our query
+    int tag_index = (int)(uintptr_t)b2Shape_GetUserData(shape_id);
+    PhysicsTag* tag = physics_tag_get(tag_index);
+    if (!tag) return 1.0f;  // Continue
+
+    if ((tag->category_bit & ctx->tag_mask) == 0) return 1.0f;  // Skip, continue
+
+    // This hit matches - record it and clip the ray to this distance
+    ctx->shape = shape_id;
+    ctx->point = point;
+    ctx->normal = normal;
+    ctx->fraction = fraction;
+    ctx->hit = true;
+
+    return fraction;  // Clip ray to this distance (find closer matches only)
+}
+
 // Raycast context for collecting all hits
 typedef struct {
     b2ShapeId shapes[MAX_QUERY_RESULTS];
@@ -4934,10 +5068,10 @@ typedef struct {
     float fractions[MAX_QUERY_RESULTS];
     int count;
     uint64_t tag_mask;
-} RaycastContext;
+} RaycastAllContext;
 
 static float raycast_all_callback(b2ShapeId shape_id, b2Vec2 point, b2Vec2 normal, float fraction, void* context) {
-    RaycastContext* ctx = (RaycastContext*)context;
+    RaycastAllContext* ctx = (RaycastAllContext*)context;
     if (ctx->count >= MAX_QUERY_RESULTS) return 0.0f;  // Stop
 
     // Check if this shape's tag matches our query
@@ -4957,6 +5091,7 @@ static float raycast_all_callback(b2ShapeId shape_id, b2Vec2 point, b2Vec2 norma
 }
 
 // physics_raycast(x1, y1, x2, y2, tags) -> {body, shape, point_x, point_y, normal_x, normal_y, fraction} or nil
+// Returns the closest hit that matches the tag filter
 static int l_physics_raycast(lua_State* L) {
     float x1 = (float)luaL_checknumber(L, 1) / pixels_per_meter;
     float y1 = (float)luaL_checknumber(L, 2) / pixels_per_meter;
@@ -4970,6 +5105,10 @@ static int l_physics_raycast(lua_State* L) {
         return 1;
     }
 
+    RaycastClosestContext ctx = {0};
+    ctx.tag_mask = mask;
+    ctx.hit = false;
+
     b2Vec2 origin = {x1, y1};
     b2Vec2 translation = {x2 - x1, y2 - y1};
 
@@ -4977,17 +5116,9 @@ static int l_physics_raycast(lua_State* L) {
     filter.categoryBits = UINT64_MAX;
     filter.maskBits = mask;
 
-    b2RayResult result = b2World_CastRayClosest(physics_world, origin, translation, filter);
+    b2World_CastRay(physics_world, origin, translation, filter, raycast_closest_callback, &ctx);
 
-    if (!result.hit) {
-        lua_pushnil(L);
-        return 1;
-    }
-
-    // Check tag match (CastRayClosest doesn't do custom filtering)
-    int tag_index = (int)(uintptr_t)b2Shape_GetUserData(result.shapeId);
-    PhysicsTag* tag = physics_tag_get(tag_index);
-    if (!tag || (tag->category_bit & mask) == 0) {
+    if (!ctx.hit) {
         lua_pushnil(L);
         return 1;
     }
@@ -4995,30 +5126,30 @@ static int l_physics_raycast(lua_State* L) {
     lua_newtable(L);
 
     // body
-    b2BodyId body = b2Shape_GetBody(result.shapeId);
+    b2BodyId body = b2Shape_GetBody(ctx.shape);
     b2BodyId* body_ud = (b2BodyId*)lua_newuserdata(L, sizeof(b2BodyId));
     *body_ud = body;
     lua_setfield(L, -2, "body");
 
     // shape
     b2ShapeId* shape_ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
-    *shape_ud = result.shapeId;
+    *shape_ud = ctx.shape;
     lua_setfield(L, -2, "shape");
 
     // point (convert back to pixels)
-    lua_pushnumber(L, result.point.x * pixels_per_meter);
+    lua_pushnumber(L, ctx.point.x * pixels_per_meter);
     lua_setfield(L, -2, "point_x");
-    lua_pushnumber(L, result.point.y * pixels_per_meter);
+    lua_pushnumber(L, ctx.point.y * pixels_per_meter);
     lua_setfield(L, -2, "point_y");
 
     // normal
-    lua_pushnumber(L, result.normal.x);
+    lua_pushnumber(L, ctx.normal.x);
     lua_setfield(L, -2, "normal_x");
-    lua_pushnumber(L, result.normal.y);
+    lua_pushnumber(L, ctx.normal.y);
     lua_setfield(L, -2, "normal_y");
 
     // fraction
-    lua_pushnumber(L, result.fraction);
+    lua_pushnumber(L, ctx.fraction);
     lua_setfield(L, -2, "fraction");
 
     return 1;
@@ -5038,7 +5169,7 @@ static int l_physics_raycast_all(lua_State* L) {
         return 1;
     }
 
-    RaycastContext ctx = {0};
+    RaycastAllContext ctx = {0};
     ctx.tag_mask = mask;
 
     b2Vec2 origin = {x1, y1};
@@ -5086,9 +5217,13 @@ static int l_physics_raycast_all(lua_State* L) {
     return 1;
 }
 
+// ============================================================================
+// LUA BINDINGS: RANDOM
+// PCG32 RNG, distributions, Perlin noise
+// ============================================================================
+
 // Random Lua bindings
 #define RNG_METATABLE "Anchor.RNG"
-#define PI 3.14159265358979323846
 
 // Helper to get RNG from optional last argument, or global
 static PCG32* get_rng(lua_State* L, int arg) {
@@ -5374,7 +5509,7 @@ static int l_random_weighted(lua_State* L) {
 }
 
 // noise(x, y?, z?) - Perlin noise [-1, 1]
-static int l_noise(lua_State* L) {
+static int l_random_noise(lua_State* L) {
     float x = (float)luaL_checknumber(L, 1);
     float y = (float)luaL_optnumber(L, 2, 0.0);
     float z = (float)luaL_optnumber(L, 3, 0.0);
@@ -5384,6 +5519,11 @@ static int l_noise(lua_State* L) {
     lua_pushnumber(L, result);
     return 1;
 }
+
+// ============================================================================
+// LUA BINDINGS: INPUT
+// Keyboard, mouse, gamepad, actions, chords, sequences, holds, capture
+// ============================================================================
 
 // Input Lua bindings
 static int l_key_is_down(lua_State* L) {
@@ -5499,19 +5639,19 @@ static int l_input_bind(lua_State* L) {
     return 1;
 }
 
-static int l_is_down(lua_State* L) {
+static int l_input_is_down(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
     lua_pushboolean(L, input_is_down(name));  // Checks both actions and chords
     return 1;
 }
 
-static int l_is_pressed(lua_State* L) {
+static int l_input_is_pressed(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
     lua_pushboolean(L, input_is_pressed(name));  // Checks both actions and chords
     return 1;
 }
 
-static int l_is_released(lua_State* L) {
+static int l_input_is_released(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
     lua_pushboolean(L, input_is_released(name));  // Checks both actions and chords
     return 1;
@@ -5702,11 +5842,17 @@ static int l_input_set_deadzone(lua_State* L) {
     return 0;
 }
 
+// ============================================================================
+// LUA REGISTRATION
+// Binds all C functions to Lua global namespace
+// ============================================================================
+
 static void register_lua_bindings(lua_State* L) {
     // Create RNG metatable (for random_create instances)
     luaL_newmetatable(L, RNG_METATABLE);
     lua_pop(L, 1);
 
+    // --- Layer & Texture ---
     lua_register(L, "layer_create", l_layer_create);
     lua_register(L, "layer_rectangle", l_layer_rectangle);
     lua_register(L, "layer_circle", l_layer_circle);
@@ -5715,9 +5861,10 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_draw_texture", l_layer_draw_texture);
     lua_register(L, "layer_set_blend_mode", l_layer_set_blend_mode);
     lua_register(L, "texture_load", l_texture_load);
+    lua_register(L, "texture_unload", l_texture_unload);
     lua_register(L, "texture_get_width", l_texture_get_width);
     lua_register(L, "texture_get_height", l_texture_get_height);
-    // Font
+    // --- Font ---
     lua_register(L, "font_load", l_font_load);
     lua_register(L, "font_unload", l_font_unload);
     lua_register(L, "font_get_height", l_font_get_height);
@@ -5726,7 +5873,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "font_get_glyph_metrics", l_font_get_glyph_metrics);
     lua_register(L, "layer_draw_text", l_layer_draw_text);
     lua_register(L, "layer_draw_glyph", l_layer_draw_glyph);
-    // Audio
+    // --- Audio ---
     lua_register(L, "sound_load", l_sound_load);
     lua_register(L, "sound_play", l_sound_play);
     lua_register(L, "sound_set_volume", l_sound_set_volume);
@@ -5735,25 +5882,23 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "music_stop", l_music_stop);
     lua_register(L, "music_set_volume", l_music_set_volume);
     lua_register(L, "audio_set_master_pitch", l_audio_set_master_pitch);
-    lua_register(L, "rgba", l_rgba);
+    lua_register(L, "rgba", l_color_rgba);
     lua_register(L, "set_filter_mode", l_set_filter_mode);
     lua_register(L, "get_filter_mode", l_get_filter_mode);
     lua_register(L, "timing_resync", l_timing_resync);
-    // Effect shaders
+    // --- Effect Shaders ---
     lua_register(L, "shader_load_file", l_shader_load_file);
     lua_register(L, "shader_load_string", l_shader_load_string);
     lua_register(L, "shader_destroy", l_shader_destroy);
-    // Layer shader uniforms (deferred)
     lua_register(L, "layer_shader_set_float", l_layer_shader_set_float);
     lua_register(L, "layer_shader_set_vec2", l_layer_shader_set_vec2);
     lua_register(L, "layer_shader_set_vec4", l_layer_shader_set_vec4);
     lua_register(L, "layer_shader_set_int", l_layer_shader_set_int);
-    // Layer effects
     lua_register(L, "layer_apply_shader", l_layer_apply_shader);
     lua_register(L, "layer_draw", l_layer_draw);
     lua_register(L, "layer_get_texture", l_layer_get_texture);
     lua_register(L, "layer_reset_effects", l_layer_reset_effects);
-    // Physics
+    // --- Physics: World & Bodies ---
     lua_register(L, "physics_init", l_physics_init);
     lua_register(L, "physics_set_gravity", l_physics_set_gravity);
     lua_register(L, "physics_set_meter_scale", l_physics_set_meter_scale);
@@ -5774,7 +5919,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_add_box", l_physics_add_box);
     lua_register(L, "physics_add_capsule", l_physics_add_capsule);
     lua_register(L, "physics_add_polygon", l_physics_add_polygon);
-    // Physics - Body properties
+    // --- Physics: Body Properties ---
     lua_register(L, "physics_set_position", l_physics_set_position);
     lua_register(L, "physics_set_angle", l_physics_set_angle);
     lua_register(L, "physics_set_transform", l_physics_set_transform);
@@ -5795,7 +5940,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_set_bullet", l_physics_set_bullet);
     lua_register(L, "physics_set_user_data", l_physics_set_user_data);
     lua_register(L, "physics_get_user_data", l_physics_get_user_data);
-    // Physics - Shape properties
+    // --- Physics: Shape Properties ---
     lua_register(L, "physics_shape_set_friction", l_physics_shape_set_friction);
     lua_register(L, "physics_shape_get_friction", l_physics_shape_get_friction);
     lua_register(L, "physics_shape_set_restitution", l_physics_shape_set_restitution);
@@ -5804,20 +5949,19 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_shape_get_body", l_physics_shape_get_body);
     lua_register(L, "physics_shape_set_density", l_physics_shape_set_density);
     lua_register(L, "physics_shape_get_density", l_physics_shape_get_density);
-    // Physics - Additional body queries
+    // --- Physics: Queries ---
     lua_register(L, "physics_get_body_type", l_physics_get_body_type);
     lua_register(L, "physics_get_mass", l_physics_get_mass);
     lua_register(L, "physics_is_awake", l_physics_is_awake);
     lua_register(L, "physics_set_awake", l_physics_set_awake);
-    // Physics - Event debugging (Step 8)
     lua_register(L, "physics_debug_events", l_physics_debug_events);
-    // Physics - Event queries (Step 9)
+    // --- Physics: Events ---
     lua_register(L, "physics_get_collision_begin", l_physics_get_collision_begin);
     lua_register(L, "physics_get_collision_end", l_physics_get_collision_end);
     lua_register(L, "physics_get_hit", l_physics_get_hit);
     lua_register(L, "physics_get_sensor_begin", l_physics_get_sensor_begin);
     lua_register(L, "physics_get_sensor_end", l_physics_get_sensor_end);
-    // Physics - Spatial queries (Step 10)
+    // --- Physics: Spatial Queries & Raycast ---
     lua_register(L, "physics_query_point", l_physics_query_point);
     lua_register(L, "physics_query_circle", l_physics_query_circle);
     lua_register(L, "physics_query_aabb", l_physics_query_aabb);
@@ -5826,7 +5970,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_query_polygon", l_physics_query_polygon);
     lua_register(L, "physics_raycast", l_physics_raycast);
     lua_register(L, "physics_raycast_all", l_physics_raycast_all);
-    // Random
+    // --- Random ---
     lua_register(L, "random_create", l_random_create);
     lua_register(L, "random_seed", l_random_seed);
     lua_register(L, "random_get_seed", l_random_get_seed);
@@ -5840,12 +5984,12 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "random_choice", l_random_choice);
     lua_register(L, "random_choices", l_random_choices);
     lua_register(L, "random_weighted", l_random_weighted);
-    lua_register(L, "noise", l_noise);
-    // Input - Keyboard
+    lua_register(L, "noise", l_random_noise);
+    // --- Input: Keyboard ---
     lua_register(L, "key_is_down", l_key_is_down);
     lua_register(L, "key_is_pressed", l_key_is_pressed);
     lua_register(L, "key_is_released", l_key_is_released);
-    // Input - Mouse
+    // --- Input: Mouse ---
     lua_register(L, "mouse_position", l_mouse_position);
     lua_register(L, "mouse_delta", l_mouse_delta);
     lua_register(L, "mouse_set_visible", l_mouse_set_visible);
@@ -5854,7 +5998,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "mouse_is_pressed", l_mouse_is_pressed);
     lua_register(L, "mouse_is_released", l_mouse_is_released);
     lua_register(L, "mouse_wheel", l_mouse_wheel);
-    // Input - Action binding
+    // --- Input: Action Binding ---
     lua_register(L, "input_bind", l_input_bind);
     lua_register(L, "input_bind_chord", l_input_bind_chord);
     lua_register(L, "input_bind_sequence", l_input_bind_sequence);
@@ -5870,12 +6014,12 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "input_get_axis", l_input_get_axis);
     lua_register(L, "input_get_vector", l_input_get_vector);
     lua_register(L, "input_set_deadzone", l_input_set_deadzone);
-    lua_register(L, "is_down", l_is_down);
-    lua_register(L, "is_pressed", l_is_pressed);
-    lua_register(L, "is_released", l_is_released);
+    lua_register(L, "is_down", l_input_is_down);
+    lua_register(L, "is_pressed", l_input_is_pressed);
+    lua_register(L, "is_released", l_input_is_released);
     lua_register(L, "input_any_pressed", l_input_any_pressed);
     lua_register(L, "input_get_pressed_action", l_input_get_pressed_action);
-    // Input - Gamepad
+    // --- Input: Gamepad ---
     lua_register(L, "gamepad_is_connected", l_gamepad_is_connected);
     lua_register(L, "gamepad_get_axis", l_gamepad_get_axis);
 }
@@ -5911,6 +6055,11 @@ static void timing_resync(void) {
     dt_history_index = 0;
     dt_history_filled = false;
 }
+
+// ============================================================================
+// SHADER SOURCES & COMPILATION
+// GLSL source strings, compile/link utilities, effect shader loading
+// ============================================================================
 
 // Shader headers - prepended to all shaders based on platform
 #ifdef __EMSCRIPTEN__
@@ -6162,38 +6311,10 @@ static void effect_shader_destroy(GLuint shader) {
     }
 }
 
-// Uniform setters
-static void shader_set_float(GLuint shader, const char* name, float value) {
-    glUseProgram(shader);
-    GLint loc = glGetUniformLocation(shader, name);
-    if (loc != -1) glUniform1f(loc, value);
-}
-
-static void shader_set_vec2(GLuint shader, const char* name, float x, float y) {
-    glUseProgram(shader);
-    GLint loc = glGetUniformLocation(shader, name);
-    if (loc != -1) glUniform2f(loc, x, y);
-}
-
-static void shader_set_vec4(GLuint shader, const char* name, float x, float y, float z, float w) {
-    glUseProgram(shader);
-    GLint loc = glGetUniformLocation(shader, name);
-    if (loc != -1) glUniform4f(loc, x, y, z, w);
-}
-
-static void shader_set_int(GLuint shader, const char* name, int value) {
-    glUseProgram(shader);
-    GLint loc = glGetUniformLocation(shader, name);
-    if (loc != -1) glUniform1i(loc, value);
-}
-
-static void shader_set_texture(GLuint shader, const char* name, GLuint texture, int unit) {
-    glUseProgram(shader);
-    glActiveTexture(GL_TEXTURE0 + unit);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    GLint loc = glGetUniformLocation(shader, name);
-    if (loc != -1) glUniform1i(loc, unit);
-}
+// ============================================================================
+// MAIN LOOP & INITIALIZATION
+// Engine lifecycle: startup, frame iteration, shutdown
+// ============================================================================
 
 // Error handler that adds stack trace
 static int traceback(lua_State* L) {
@@ -6215,6 +6336,18 @@ static void engine_shutdown(void) {
         layer_names[i] = NULL;
     }
     layer_count = 0;
+    // Textures
+    for (int i = 0; i < texture_count; i++) {
+        texture_destroy(texture_registry[i]);
+        texture_registry[i] = NULL;
+    }
+    texture_count = 0;
+    // Effect shaders
+    for (int i = 0; i < effect_shader_count; i++) {
+        effect_shader_destroy(effect_shader_registry[i]);
+        effect_shader_registry[i] = 0;
+    }
+    effect_shader_count = 0;
     // Screen blit resources
     if (screen_vbo) { glDeleteBuffers(1, &screen_vbo); screen_vbo = 0; }
     if (screen_vao) { glDeleteVertexArrays(1, &screen_vao); screen_vao = 0; }

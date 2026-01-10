@@ -4,19 +4,30 @@ Guidelines for Claude Code instances working on Anchor and games built with it.
 
 ---
 
+## Engine vs Game
+
+**Engine** — C code in `engine/src/anchor.c` exposing functions to Lua
+**Game** — YueScript code using the engine to build games
+**Engine Mode** — when modifying anchor.c or engine behavior
+**Game Mode** — when writing gameplay code in YueScript
+
+---
+
 ## Read First
 
-Read `docs/ANCHOR_IMPLEMENTATION_PLAN.md` first — it has the phased implementation plan with checkboxes showing what's done and what's next.
+**Source of truth:** `engine/src/anchor.c` — the complete engine implementation (~7000 lines, single file).
 
-Read `docs/ANCHOR.md` for the engine specification. It covers:
-- The object tree model (tree-based ownership, automatic cleanup)
-- How objects, timers, springs, and colliders work
-- The action-based vs rules-based spectrum
-- Technical implementation details (OpenGL rendering, Box2D physics)
+**Engine API:**
+- `docs/ENGINE_API_QUICK.md` — compact function signatures, one per line (for quick lookup)
+- `docs/ENGINE_API.md` — detailed documentation with examples for every function
 
-For speculative API patterns (designed before implementation), see `docs/ANCHOR_API_PATTERNS.md`. These will be revised once the actual API is built.
+**Context:**
+- `docs/ANCHOR_CONTEXT_BRIEF.md` — design reasoning, developer working style, how to evaluate features
 
-For the reasoning behind design decisions — why the engine works the way it does, how to evaluate new features, the developer's working style — see `docs/ANCHOR_CONTEXT_BRIEF.md`.
+**Archived docs** (superseded by anchor.c, kept for historical reference):
+- `reference/archives/ANCHOR_IMPLEMENTATION_PLAN.md` — original phased implementation plan
+- `reference/archives/ANCHOR.md` — original engine specification
+- `reference/archives/ANCHOR_API_PATTERNS.md` — speculative API patterns
 
 ---
 
@@ -105,17 +116,3 @@ When the user asks to end the session, see `docs/SESSION_WORKFLOW.md` for the fu
 ### Long Responses with Code
 
 When providing answers that are long or contain multiple code examples, create a markdown file in `reference/` and open it in NeoVim with MarkdownPreview (see [Commands](#commands)). Use descriptive filenames like `anchor-loop-analysis.md`, `timer-system-notes.md`.
-
-### Comment Style
-
-Use minimal single-line comments. Avoid multi-line decorative banners:
-
-```c
-// Bad
-//----------------------------------------------------------
-// Layer
-//----------------------------------------------------------
-
-// Good
-// Layer
-```
