@@ -78,7 +78,7 @@ The engine takes a game folder as argument (like LÖVE):
   - [x] Lua 5.4
   - [x] glad (OpenGL loading)
   - [x] stb_image (texture loading)
-  - [x] stb_truetype (font loading)
+  - [x] FreeType (font loading, replaced stb_truetype for pixel font support)
 - [x] Static linking (no DLLs):
   - [x] Build SDL2 from source as static library (CMake)
   - [x] Compile Lua to static lib
@@ -1588,42 +1588,65 @@ enemy.visual_x = enemy.x + wobble * 5
 
 ## Phase 9: Text Rendering
 
-**Goal:** Font rendering with per-character effects (handled in YueScript).
+**Goal:** Font loading, metrics, and glyph rendering in C. Per-character effects handled later in YueScript.
 
-### 9.1 Font Loading (C Side)
-- [ ] Support both bitmap fonts (pixel-perfect) and TTF (scalable)
-- [ ] TTF: Load via stb_truetype, bake glyphs to texture atlas
-- [ ] Bitmap: Load from spritesheet with metrics file
-- [ ] Support multiple sizes per font (separate atlases)
-- [ ] Store glyph metrics (advance, bearing, size)
-- [ ] Error screen shows full stack trace (file:line for each call)
+### 9.1 Font Management
+- [x] `font_load(name, path, size)` — Load TTF via FreeType, bake glyphs to texture atlas
+- [x] `font_unload(name)` — Free font resources
+- [x] Font registry by name (like layers)
+- [ ] On-demand glyph baking to atlas (needed for Unicode/CJK support)
 
-### 9.2 Glyph Rendering (C Side)
-- [ ] Draw single glyph at position with transform and color
-- [ ] Return glyph metrics to Lua for layout
+### 9.2 Font Metrics
+- [x] `font_get_height(font_name)` — Returns font line height
+- [x] `font_get_text_width(font_name, text)` — Returns pixel width of UTF-8 string
+- [x] `font_get_char_width(font_name, codepoint)` — Returns advance width for single codepoint
+- [x] `font_get_glyph_metrics(font_name, codepoint)` — Returns full metrics (width, height, advance, x0, y0, x1, y1)
 
-### 9.3 Text Effects (YueScript Side)
-Text effects are computed in YueScript, which calls C to draw individual glyphs:
+### 9.3 Drawing
+- [x] `layer_draw_text(layer, text, font_name, x, y, color)` — Draw UTF-8 string (simple case)
+- [x] `layer_draw_glyph(layer, codepoint, font_name, x, y, r, sx, sy, color, alpha)` — Draw single glyph with transform (for per-character effects)
 
+### 9.4 Implementation Details
+- [x] Use FreeType for TTF loading and glyph rasterization (replaced stb_truetype for pixel font support)
+- [x] Glyphs pre-baked to 512x512 RGBA texture atlas at load time (ASCII 32-127)
+- [x] Glyphs batch with existing sprite system via COMMAND_GLYPH
+- [x] UTF-8 decoding for text width measurement and iteration
+- [x] 16-bit UV packing for atlas precision
+- [x] Filter mode support: rough (1-bit mono, GL_NEAREST) vs smooth (8-bit grayscale, GL_LINEAR)
+
+### 9.5 Filter Mode
+- [x] Renamed `set_shape_filter` → `set_filter_mode` (global setting for shapes and fonts)
+- [x] Added `get_filter_mode()` to query current mode
+- [x] Default changed to "rough" for pixel-perfect rendering
+- [x] Fonts respect filter mode at load time (determines FreeType render mode and GL texture filter)
+
+### 9.6 Lua Bindings
 ```lua
--- C provides:
-an:font_load('default', 'font.ttf', 24)
-local metrics = an:font_get_metrics('default', 'A')  -- {width, height, advance, ...}
-layer:draw_glyph('default', 'A', x, y, r, sx, sy, color)
+-- Filter mode (set before loading fonts)
+set_filter_mode("rough")   -- pixel-perfect, 1-bit mono
+set_filter_mode("smooth")  -- anti-aliased, 8-bit grayscale
+local mode = get_filter_mode()
 
--- YueScript builds text effect system on top:
--- Per-character positioning, wave, shake, color, timing, etc.
+-- Font loading
+font_load('main', 'assets/font.ttf', 24)
+font_unload('main')
+
+-- Font metrics
+local h = font_get_height('main')
+local w = font_get_text_width('main', 'Hello')
+local cw = font_get_char_width('main', 0x0041)  -- 'A'
+local x0, y0, x1, y1, advance = font_get_glyph_metrics('main', 0x0041)
+
+-- Drawing
+layer_draw_text(layer, 'Hello', 'main', x, y, color)
+layer_draw_glyph(layer, 0x0041, 'main', x, y, r, sx, sy, color, alpha)
 ```
 
-### 9.4 Lua Bindings (Simple Text)
-```lua
--- Simple text (no effects)
-layer:draw_text('Hello', 'default', x, y, color)
-layer:draw_text('Score: 100', 'large', x, y, r, sx, sy, color)
-an:font_get_text_width('default', 'Hello')
-```
+### 9.7 Future Work
+- [ ] Dynamic glyph caching for Unicode/CJK support (load glyphs on-demand, evict when atlas full)
+- [ ] Fix smooth mode for fonts and sprites
 
-**Deliverable:** Font loading and glyph rendering. Text effects built in YueScript.
+**Deliverable:** Font loading, metrics, and glyph rendering. Text effects built later in YueScript.
 
 ---
 

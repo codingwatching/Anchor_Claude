@@ -40,6 +40,9 @@
 #define STB_VORBIS_HEADER_ONLY
 #include <stb_vorbis.c>
 
+#include <ft2build.h>
+#include <freetype/freetype.h>
+
 #define MA_ENABLE_VORBIS
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
@@ -75,6 +78,7 @@ enum {
     COMMAND_RECTANGLE = 0,
     COMMAND_CIRCLE,
     COMMAND_SPRITE,
+    COMMAND_GLYPH,              // Font glyph with custom UVs (uses flash_color for packed UVs)
     COMMAND_APPLY_SHADER,       // Post-process layer through a shader
     COMMAND_SET_UNIFORM_FLOAT,  // Set float uniform on shader
     COMMAND_SET_UNIFORM_VEC2,   // Set vec2 uniform on shader
@@ -107,14 +111,15 @@ typedef struct {
     // RECTANGLE: params[0]=x, [1]=y, [2]=w, [3]=h
     // CIRCLE: params[0]=x, [1]=y, [2]=radius
     // SPRITE: params[0]=x, [1]=y, [2]=w, [3]=h, [4]=ox, [5]=oy (+ texture_id)
+    // GLYPH: params[0]=x, [1]=y, [2]=w, [3]=h, [4]=packed(u0,v0), [5]=packed(u1,v1) (+ texture_id)
     // SET_UNIFORM_FLOAT: params[0]=value
     // SET_UNIFORM_VEC2: params[0]=x, [1]=y
     // SET_UNIFORM_VEC4: params[0]=x, [1]=y, [2]=z, [3]=w
     // SET_UNIFORM_INT: params[0]=value (as float, cast to int)
     float params[6];        // 24 bytes (reduced from 8 to fit 64-byte target)
 
-    GLuint texture_id;      // For SPRITE: texture handle; For APPLY_SHADER: shader handle (4 bytes)
-    uint32_t flash_color;   // Packed RGB for additive flash (uses only RGB, alpha ignored)
+    GLuint texture_id;      // For SPRITE/GLYPH: texture handle; For APPLY_SHADER: shader handle (4 bytes)
+    uint32_t flash_color;   // For SPRITE: packed RGB additive flash (GLYPH uses params for UVs instead)
     // Total: 4 + 24 + 4 + 24 + 4 + 4 = 64 bytes
 } DrawCommand;
 
@@ -479,6 +484,308 @@ static void texture_destroy(Texture* tex) {
     if (!tex) return;
     if (tex->id) glDeleteTextures(1, &tex->id);
     free(tex);
+}
+
+// Font - TTF font with baked glyph atlas
+// Global filter mode (smooth = anti-aliased, rough = hard pixel edges)
+// Affects shapes and fonts - must be declared before font code
+enum {
+    FILTER_SMOOTH = 0,
+    FILTER_ROUGH,
+};
+static int filter_mode = FILTER_ROUGH;  // Default to pixel-perfect
+
+#define MAX_FONT_NAME 64
+#define FONT_ATLAS_SIZE 512
+#define FONT_FIRST_CHAR 32
+#define FONT_NUM_CHARS 96
+
+typedef struct {
+    float x0, y0, x1, y1;  // Bounding box in pixels (relative to baseline)
+    float u0, v0, u1, v1;  // UV coordinates in atlas
+    float advance;          // Horizontal advance
+} GlyphInfo;
+
+typedef struct {
+    char name[MAX_FONT_NAME];
+    GLuint atlas_texture;
+    int atlas_width;
+    int atlas_height;
+    float size;             // Font size in pixels
+    float ascent;           // Distance from baseline to top
+    float descent;          // Distance from baseline to bottom (negative)
+    float line_height;      // Recommended line spacing
+    GlyphInfo glyphs[FONT_NUM_CHARS];  // ASCII 32-127
+    int filter;             // Filter mode font was loaded with (FILTER_SMOOTH or FILTER_ROUGH)
+} Font;
+
+// Global FreeType library
+static FT_Library ft_library = NULL;
+
+#define MAX_FONTS 16
+static Font* font_registry[MAX_FONTS];
+static int font_count = 0;
+
+// UTF-8 decoding helper - returns codepoint and advances pointer
+static uint32_t utf8_decode(const char** str) {
+    const unsigned char* s = (const unsigned char*)*str;
+    uint32_t codepoint;
+    int bytes;
+
+    if (s[0] < 0x80) {
+        codepoint = s[0];
+        bytes = 1;
+    } else if ((s[0] & 0xE0) == 0xC0) {
+        codepoint = s[0] & 0x1F;
+        bytes = 2;
+    } else if ((s[0] & 0xF0) == 0xE0) {
+        codepoint = s[0] & 0x0F;
+        bytes = 3;
+    } else if ((s[0] & 0xF8) == 0xF0) {
+        codepoint = s[0] & 0x07;
+        bytes = 4;
+    } else {
+        // Invalid UTF-8, skip byte
+        *str += 1;
+        return 0xFFFD;  // Replacement character
+    }
+
+    for (int i = 1; i < bytes; i++) {
+        if ((s[i] & 0xC0) != 0x80) {
+            *str += 1;
+            return 0xFFFD;
+        }
+        codepoint = (codepoint << 6) | (s[i] & 0x3F);
+    }
+
+    *str += bytes;
+    return codepoint;
+}
+
+// Load a font from TTF file using FreeType
+// Uses global filter_mode: FILTER_ROUGH = 1-bit mono, FILTER_SMOOTH = 8-bit grayscale AA
+static Font* font_load(const char* name, const char* path, float size) {
+    // Check if font already exists
+    for (int i = 0; i < font_count; i++) {
+        if (strcmp(font_registry[i]->name, name) == 0) {
+            fprintf(stderr, "Font '%s' already loaded\n", name);
+            return font_registry[i];
+        }
+    }
+
+    if (font_count >= MAX_FONTS) {
+        fprintf(stderr, "Maximum number of fonts (%d) reached\n", MAX_FONTS);
+        return NULL;
+    }
+
+    // Initialize FreeType if needed
+    if (!ft_library) {
+        if (FT_Init_FreeType(&ft_library)) {
+            fprintf(stderr, "Failed to initialize FreeType\n");
+            return NULL;
+        }
+    }
+
+    // Load font face
+    FT_Face face;
+    if (FT_New_Face(ft_library, path, 0, &face)) {
+        fprintf(stderr, "Failed to load font: %s\n", path);
+        return NULL;
+    }
+
+    // Set pixel size
+    int pixel_size = (int)(size + 0.5f);
+    FT_Set_Pixel_Sizes(face, 0, pixel_size);
+
+    // Create font struct
+    Font* font = (Font*)malloc(sizeof(Font));
+    if (!font) {
+        FT_Done_Face(face);
+        return NULL;
+    }
+    memset(font, 0, sizeof(Font));
+    strncpy(font->name, name, MAX_FONT_NAME - 1);
+    font->size = size;
+    font->filter = filter_mode;  // Store filter mode font was loaded with
+
+    // Get font metrics (in 26.6 fixed point, convert to pixels)
+    font->ascent = face->size->metrics.ascender / 64.0f;
+    font->descent = face->size->metrics.descender / 64.0f;
+    font->line_height = face->size->metrics.height / 64.0f;
+
+    font->atlas_width = FONT_ATLAS_SIZE;
+    font->atlas_height = FONT_ATLAS_SIZE;
+
+    // Create atlas bitmap (RGBA)
+    unsigned char* rgba_bitmap = (unsigned char*)calloc(FONT_ATLAS_SIZE * FONT_ATLAS_SIZE * 4, 1);
+    if (!rgba_bitmap) {
+        free(font);
+        FT_Done_Face(face);
+        return NULL;
+    }
+
+    // Determine FreeType load flags based on filter mode
+    FT_Int32 load_flags = FT_LOAD_RENDER;
+    if (filter_mode == FILTER_ROUGH) {
+        load_flags |= FT_LOAD_TARGET_MONO;  // 1-bit monochrome
+    }
+    // FILTER_SMOOTH uses default grayscale rendering (8-bit)
+
+    // Pack glyphs into atlas
+    int pen_x = 1;  // Start with 1px padding
+    int pen_y = 1;
+    int row_height = 0;
+
+    for (int i = 0; i < FONT_NUM_CHARS; i++) {
+        FT_UInt glyph_index = FT_Get_Char_Index(face, FONT_FIRST_CHAR + i);
+
+        if (FT_Load_Glyph(face, glyph_index, load_flags)) {
+            continue;  // Skip failed glyphs
+        }
+
+        FT_GlyphSlot slot = face->glyph;
+        FT_Bitmap* bmp = &slot->bitmap;
+
+        int glyph_w = bmp->width;
+        int glyph_h = bmp->rows;
+
+        // Check if we need to move to next row
+        if (pen_x + glyph_w + 1 >= FONT_ATLAS_SIZE) {
+            pen_x = 1;
+            pen_y += row_height + 1;
+            row_height = 0;
+        }
+
+        // Check if atlas is full
+        if (pen_y + glyph_h + 1 >= FONT_ATLAS_SIZE) {
+            fprintf(stderr, "Warning: Font atlas full, some glyphs skipped\n");
+            break;
+        }
+
+        // Copy glyph bitmap to atlas
+        for (int y = 0; y < glyph_h; y++) {
+            for (int x = 0; x < glyph_w; x++) {
+                unsigned char alpha;
+
+                if (filter_mode == FILTER_ROUGH) {
+                    // Monochrome: 1-bit packed format
+                    int byte_idx = y * bmp->pitch + (x >> 3);
+                    int bit_idx = 7 - (x & 7);
+                    unsigned char pixel = (bmp->buffer[byte_idx] >> bit_idx) & 1;
+                    alpha = pixel ? 255 : 0;
+                } else {
+                    // Grayscale: 8-bit per pixel
+                    alpha = bmp->buffer[y * bmp->pitch + x];
+                }
+
+                int atlas_x = pen_x + x;
+                int atlas_y = pen_y + y;
+                int atlas_idx = (atlas_y * FONT_ATLAS_SIZE + atlas_x) * 4;
+
+                rgba_bitmap[atlas_idx + 0] = 255;    // R = white
+                rgba_bitmap[atlas_idx + 1] = 255;    // G = white
+                rgba_bitmap[atlas_idx + 2] = 255;    // B = white
+                rgba_bitmap[atlas_idx + 3] = alpha;  // A = coverage
+            }
+        }
+
+        // Store glyph info
+        GlyphInfo* g = &font->glyphs[i];
+        g->x0 = (float)slot->bitmap_left;
+        g->y0 = -(float)slot->bitmap_top;  // FreeType uses upward Y, we use downward
+        g->x1 = g->x0 + glyph_w;
+        g->y1 = g->y0 + glyph_h;
+        g->u0 = (float)pen_x / FONT_ATLAS_SIZE;
+        g->v0 = (float)pen_y / FONT_ATLAS_SIZE;
+        g->u1 = (float)(pen_x + glyph_w) / FONT_ATLAS_SIZE;
+        g->v1 = (float)(pen_y + glyph_h) / FONT_ATLAS_SIZE;
+        g->advance = slot->advance.x / 64.0f;  // 26.6 to pixels
+
+        // Advance pen
+        pen_x += glyph_w + 1;
+        if (glyph_h > row_height) row_height = glyph_h;
+    }
+
+    FT_Done_Face(face);
+
+    // Create OpenGL texture from RGBA atlas
+    // Use appropriate filtering based on mode
+    GLint tex_filter = (filter_mode == FILTER_ROUGH) ? GL_NEAREST : GL_LINEAR;
+    glGenTextures(1, &font->atlas_texture);
+    glBindTexture(GL_TEXTURE_2D, font->atlas_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, FONT_ATLAS_SIZE, FONT_ATLAS_SIZE, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, rgba_bitmap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, tex_filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, tex_filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    free(rgba_bitmap);
+
+    // Register font
+    font_registry[font_count++] = font;
+    printf("Loaded font: %s (%.1fpx, %s) atlas=%dx%d\n", name, size,
+           filter_mode == FILTER_ROUGH ? "rough" : "smooth",
+           FONT_ATLAS_SIZE, FONT_ATLAS_SIZE);
+    return font;
+}
+
+static void font_unload(const char* name) {
+    for (int i = 0; i < font_count; i++) {
+        if (strcmp(font_registry[i]->name, name) == 0) {
+            Font* font = font_registry[i];
+            if (font->atlas_texture) glDeleteTextures(1, &font->atlas_texture);
+            free(font);
+            // Shift remaining fonts
+            for (int j = i; j < font_count - 1; j++) {
+                font_registry[j] = font_registry[j + 1];
+            }
+            font_count--;
+            printf("Unloaded font: %s\n", name);
+            return;
+        }
+    }
+    fprintf(stderr, "Font not found: %s\n", name);
+}
+
+static Font* font_get(const char* name) {
+    for (int i = 0; i < font_count; i++) {
+        if (strcmp(font_registry[i]->name, name) == 0) {
+            return font_registry[i];
+        }
+    }
+    return NULL;
+}
+
+// Font metrics functions
+static float font_get_height(const char* font_name) {
+    Font* font = font_get(font_name);
+    if (!font) return 0.0f;
+    return font->line_height;
+}
+
+static float font_get_text_width(const char* font_name, const char* text) {
+    Font* font = font_get(font_name);
+    if (!font || !text) return 0.0f;
+
+    float width = 0.0f;
+    while (*text) {
+        uint32_t codepoint = utf8_decode(&text);
+        if (codepoint >= FONT_FIRST_CHAR && codepoint < FONT_FIRST_CHAR + FONT_NUM_CHARS) {
+            width += font->glyphs[codepoint - FONT_FIRST_CHAR].advance;
+        }
+    }
+    return width;
+}
+
+static float font_get_char_width(const char* font_name, uint32_t codepoint) {
+    Font* font = font_get(font_name);
+    if (!font) return 0.0f;
+    if (codepoint >= FONT_FIRST_CHAR && codepoint < FONT_FIRST_CHAR + FONT_NUM_CHARS) {
+        return font->glyphs[codepoint - FONT_FIRST_CHAR].advance;
+    }
+    return 0.0f;
 }
 
 // Sound - stores path for fire-and-forget playback
@@ -876,6 +1183,101 @@ static void layer_add_image(Layer* layer, Texture* tex, float x, float y, uint32
     cmd->params[3] = (float)tex->height;
 }
 
+// Pack two UV coordinates (0.0-1.0) into a float via bit reinterpretation (16 bits each)
+static float pack_uv_pair(float u, float v) {
+    uint16_t ui = (uint16_t)(u * 65535.0f);
+    uint16_t vi = (uint16_t)(v * 65535.0f);
+    uint32_t packed = ((uint32_t)ui) | ((uint32_t)vi << 16);
+    float result;
+    memcpy(&result, &packed, sizeof(float));
+    return result;
+}
+
+// Unpack two UV coordinates from a float
+static void unpack_uv_pair(float packed_float, float* u, float* v) {
+    uint32_t packed;
+    memcpy(&packed, &packed_float, sizeof(uint32_t));
+    *u = (packed & 0xFFFF) / 65535.0f;
+    *v = ((packed >> 16) & 0xFFFF) / 65535.0f;
+}
+
+// Forward declarations for transform stack (defined later)
+static bool layer_push(Layer* layer, float x, float y, float r, float sx, float sy);
+static void layer_pop(Layer* layer);
+
+// Record a glyph command (top-left positioned, with custom UVs from font atlas)
+// x, y is top-left corner of glyph; w, h is glyph size; UVs are atlas coordinates
+static void layer_add_glyph(Layer* layer, GLuint atlas_texture, float x, float y, float w, float h,
+                            float u0, float v0, float u1, float v1, uint32_t color) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_GLYPH;
+    cmd->color = color;
+    cmd->texture_id = atlas_texture;
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = w;
+    cmd->params[3] = h;
+    cmd->params[4] = pack_uv_pair(u0, v0);  // 16-bit precision per component
+    cmd->params[5] = pack_uv_pair(u1, v1);
+}
+
+// Draw a single glyph with transform (for per-character effects in YueScript)
+// x, y is baseline position; r, sx, sy are rotation/scale applied at that point
+static void layer_draw_glyph(Layer* layer, const char* font_name, uint32_t codepoint,
+                             float x, float y, float r, float sx, float sy, uint32_t color) {
+    Font* font = font_get(font_name);
+    if (!font) return;
+    if (codepoint < FONT_FIRST_CHAR || codepoint >= FONT_FIRST_CHAR + FONT_NUM_CHARS) return;
+
+    GlyphInfo* g = &font->glyphs[codepoint - FONT_FIRST_CHAR];
+    float glyph_w = g->x1 - g->x0;
+    float glyph_h = g->y1 - g->y0;
+
+    // Position: x is baseline x + glyph offset, y is baseline y + glyph offset
+    float gx = x + g->x0;
+    float gy = y + g->y0;
+
+    // Apply transform at the glyph's center for rotation/scale
+    float cx = gx + glyph_w * 0.5f;
+    float cy = gy + glyph_h * 0.5f;
+
+    layer_push(layer, cx, cy, r, sx, sy);
+    layer_add_glyph(layer, font->atlas_texture,
+                    gx - cx, gy - cy, glyph_w, glyph_h,
+                    g->u0, g->v0, g->u1, g->v1, color);
+    layer_pop(layer);
+}
+
+// Draw text string at position (simple API - no per-character effects)
+// x, y is top-left of text block
+static void layer_draw_text(Layer* layer, const char* text, const char* font_name,
+                            float x, float y, uint32_t color) {
+    Font* font = font_get(font_name);
+    if (!font || !text) return;
+
+    float cursor_x = x;
+    float baseline_y = y + font->ascent;  // Convert top-left to baseline
+
+    while (*text) {
+        uint32_t codepoint = utf8_decode(&text);
+        if (codepoint >= FONT_FIRST_CHAR && codepoint < FONT_FIRST_CHAR + FONT_NUM_CHARS) {
+            GlyphInfo* g = &font->glyphs[codepoint - FONT_FIRST_CHAR];
+            float glyph_w = g->x1 - g->x0;
+            float glyph_h = g->y1 - g->y0;
+            float gx = cursor_x + g->x0;
+            float gy = baseline_y + g->y0;
+
+            if (glyph_w > 0 && glyph_h > 0) {  // Skip space characters with no bitmap
+                layer_add_glyph(layer, font->atlas_texture,
+                                gx, gy, glyph_w, glyph_h,
+                                g->u0, g->v0, g->u1, g->v1, color);
+            }
+            cursor_x += g->advance;
+        }
+    }
+}
+
 // Set the current blend mode for subsequent commands
 static void layer_set_blend_mode(Layer* layer, uint8_t mode) {
     layer->current_blend = mode;
@@ -889,13 +1291,6 @@ static void layer_set_blend_mode(Layer* layer, uint8_t mode) {
 #define SHAPE_TYPE_RECT   0.0f
 #define SHAPE_TYPE_CIRCLE 1.0f
 #define SHAPE_TYPE_SPRITE 2.0f
-
-// Shape filter mode (smooth = anti-aliased, rough = hard pixel edges)
-enum {
-    FILTER_SMOOTH = 0,
-    FILTER_ROUGH,
-};
-static int shape_filter_mode = FILTER_SMOOTH;
 
 static float batch_vertices[MAX_BATCH_VERTICES * VERTEX_FLOATS];
 static int batch_vertex_count = 0;
@@ -1025,6 +1420,26 @@ static void batch_add_sdf_quad(float x0, float y0, float x1, float y1,
     batch_add_vertex(x0, y0, 0.0f, 0.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
     batch_add_vertex(x2, y2, 1.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
     batch_add_vertex(x3, y3, 0.0f, 1.0f, r, g, b, a, type, s0, s1, s2, s3, addR, addG, addB);
+}
+
+// Add a quad with custom UV coordinates (for atlas-based glyph rendering)
+static void batch_add_uv_quad(float x0, float y0, float x1, float y1,
+                              float x2, float y2, float x3, float y3,
+                              float u0, float v0, float u1, float v1,
+                              float r, float g, float b, float a) {
+    // Quad corners:
+    // 0(u0,v0)---1(u1,v0)
+    // |           |
+    // 3(u0,v1)---2(u1,v1)
+
+    // Triangle 1: 0, 1, 2
+    batch_add_vertex(x0, y0, u0, v0, r, g, b, a, SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x1, y1, u1, v0, r, g, b, a, SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x2, y2, u1, v1, r, g, b, a, SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    // Triangle 2: 0, 2, 3
+    batch_add_vertex(x0, y0, u0, v0, r, g, b, a, SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x2, y2, u1, v1, r, g, b, a, SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x3, y3, u0, v1, r, g, b, a, SHAPE_TYPE_SPRITE, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 static SDL_Window* window = NULL;
@@ -2532,6 +2947,48 @@ static void process_sprite(const DrawCommand* cmd) {
                        addR, addG, addB);
 }
 
+// Process a glyph command (font atlas with custom UVs)
+// Glyph is positioned at top-left (x, y)
+static void process_glyph(const DrawCommand* cmd) {
+    float x = cmd->params[0];
+    float y = cmd->params[1];
+    float w = cmd->params[2];
+    float h = cmd->params[3];
+
+    // Flush batch if texture changes
+    if (current_batch_texture != cmd->texture_id && batch_vertex_count > 0) {
+        batch_flush();
+    }
+    current_batch_texture = cmd->texture_id;
+
+    // Glyph is positioned at top-left (x, y)
+    float lx0 = x,     ly0 = y;
+    float lx1 = x + w, ly1 = y;
+    float lx2 = x + w, ly2 = y + h;
+    float lx3 = x,     ly3 = y + h;
+
+    // Transform to world coordinates
+    float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
+    transform_point(cmd->transform, lx0, ly0, &wx0, &wy0);
+    transform_point(cmd->transform, lx1, ly1, &wx1, &wy1);
+    transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
+    transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
+
+    // Unpack color (used for tinting)
+    float r, g, b, a;
+    unpack_color(cmd->color, &r, &g, &b, &a);
+
+    // Unpack UV coordinates from params[4] and params[5] (16-bit precision per component)
+    float u0, v0, u1, v1;
+    unpack_uv_pair(cmd->params[4], &u0, &v0);
+    unpack_uv_pair(cmd->params[5], &u1, &v1);
+
+    // Add glyph quad with custom UVs
+    batch_add_uv_quad(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
+                      u0, v0, u1, v1,
+                      r, g, b, a);
+}
+
 // Apply GL blend state based on blend mode
 static void apply_blend_mode(uint8_t mode) {
     switch (mode) {
@@ -2641,6 +3098,9 @@ static void layer_render(Layer* layer) {
             case COMMAND_SPRITE:
                 process_sprite(cmd);
                 break;
+            case COMMAND_GLYPH:
+                process_glyph(cmd);
+                break;
         }
 
         // Flush if batch is getting full
@@ -2738,16 +3198,21 @@ static int l_rgba(lua_State* L) {
     return 1;
 }
 
-static int l_set_shape_filter(lua_State* L) {
+static int l_set_filter_mode(lua_State* L) {
     const char* mode = luaL_checkstring(L, 1);
     if (strcmp(mode, "smooth") == 0) {
-        shape_filter_mode = FILTER_SMOOTH;
+        filter_mode = FILTER_SMOOTH;
     } else if (strcmp(mode, "rough") == 0) {
-        shape_filter_mode = FILTER_ROUGH;
+        filter_mode = FILTER_ROUGH;
     } else {
         return luaL_error(L, "Invalid filter mode: %s (use 'smooth' or 'rough')", mode);
     }
     return 0;
+}
+
+static int l_get_filter_mode(lua_State* L) {
+    lua_pushstring(L, filter_mode == FILTER_ROUGH ? "rough" : "smooth");
+    return 1;
 }
 
 static int l_timing_resync(lua_State* L) {
@@ -2795,6 +3260,97 @@ static int l_texture_get_height(lua_State* L) {
     Texture* tex = (Texture*)lua_touserdata(L, 1);
     lua_pushinteger(L, tex->height);
     return 1;
+}
+
+// Font Lua bindings
+static int l_font_load(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    const char* path = luaL_checkstring(L, 2);
+    float size = (float)luaL_checknumber(L, 3);
+    Font* font = font_load(name, path, size);
+    if (!font) {
+        return luaL_error(L, "Failed to load font: %s", path);
+    }
+    return 0;
+}
+
+static int l_font_unload(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    font_unload(name);
+    return 0;
+}
+
+static int l_font_get_height(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    float height = font_get_height(name);
+    lua_pushnumber(L, height);
+    return 1;
+}
+
+static int l_font_get_text_width(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    const char* text = luaL_checkstring(L, 2);
+    float width = font_get_text_width(name, text);
+    lua_pushnumber(L, width);
+    return 1;
+}
+
+static int l_font_get_char_width(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    uint32_t codepoint = (uint32_t)luaL_checkinteger(L, 2);
+    float width = font_get_char_width(name, codepoint);
+    lua_pushnumber(L, width);
+    return 1;
+}
+
+static int l_font_get_glyph_metrics(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    uint32_t codepoint = (uint32_t)luaL_checkinteger(L, 2);
+    Font* font = font_get(name);
+    if (!font) {
+        return luaL_error(L, "Font not found: %s", name);
+    }
+    if (codepoint < FONT_FIRST_CHAR || codepoint >= FONT_FIRST_CHAR + FONT_NUM_CHARS) {
+        return luaL_error(L, "Codepoint %d out of range (ASCII 32-127)", codepoint);
+    }
+    GlyphInfo* g = &font->glyphs[codepoint - FONT_FIRST_CHAR];
+    lua_newtable(L);
+    lua_pushnumber(L, g->x1 - g->x0);
+    lua_setfield(L, -2, "width");
+    lua_pushnumber(L, g->y1 - g->y0);
+    lua_setfield(L, -2, "height");
+    lua_pushnumber(L, g->advance);
+    lua_setfield(L, -2, "advance");
+    lua_pushnumber(L, g->x0);
+    lua_setfield(L, -2, "bearingX");
+    lua_pushnumber(L, -g->y0);  // Negate because y0 is offset from baseline going down
+    lua_setfield(L, -2, "bearingY");
+    return 1;
+}
+
+static int l_layer_draw_text(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    const char* text = luaL_checkstring(L, 2);
+    const char* font_name = luaL_checkstring(L, 3);
+    float x = (float)luaL_checknumber(L, 4);
+    float y = (float)luaL_checknumber(L, 5);
+    uint32_t color = (uint32_t)luaL_checkinteger(L, 6);
+    layer_draw_text(layer, text, font_name, x, y, color);
+    return 0;
+}
+
+static int l_layer_draw_glyph(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    uint32_t codepoint = (uint32_t)luaL_checkinteger(L, 2);
+    const char* font_name = luaL_checkstring(L, 3);
+    float x = (float)luaL_checknumber(L, 4);
+    float y = (float)luaL_checknumber(L, 5);
+    float r = (float)luaL_optnumber(L, 6, 0.0);
+    float sx = (float)luaL_optnumber(L, 7, 1.0);
+    float sy = (float)luaL_optnumber(L, 8, 1.0);
+    uint32_t color = (uint32_t)luaL_checkinteger(L, 9);
+    layer_draw_glyph(layer, font_name, codepoint, x, y, r, sx, sy, color);
+    return 0;
 }
 
 // Audio Lua bindings
@@ -5161,6 +5717,15 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "texture_load", l_texture_load);
     lua_register(L, "texture_get_width", l_texture_get_width);
     lua_register(L, "texture_get_height", l_texture_get_height);
+    // Font
+    lua_register(L, "font_load", l_font_load);
+    lua_register(L, "font_unload", l_font_unload);
+    lua_register(L, "font_get_height", l_font_get_height);
+    lua_register(L, "font_get_text_width", l_font_get_text_width);
+    lua_register(L, "font_get_char_width", l_font_get_char_width);
+    lua_register(L, "font_get_glyph_metrics", l_font_get_glyph_metrics);
+    lua_register(L, "layer_draw_text", l_layer_draw_text);
+    lua_register(L, "layer_draw_glyph", l_layer_draw_glyph);
     // Audio
     lua_register(L, "sound_load", l_sound_load);
     lua_register(L, "sound_play", l_sound_play);
@@ -5171,7 +5736,8 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "music_set_volume", l_music_set_volume);
     lua_register(L, "audio_set_master_pitch", l_audio_set_master_pitch);
     lua_register(L, "rgba", l_rgba);
-    lua_register(L, "set_shape_filter", l_set_shape_filter);
+    lua_register(L, "set_filter_mode", l_set_filter_mode);
+    lua_register(L, "get_filter_mode", l_get_filter_mode);
     lua_register(L, "timing_resync", l_timing_resync);
     // Effect shaders
     lua_register(L, "shader_load_file", l_shader_load_file);
@@ -5923,7 +6489,7 @@ static void main_loop_iteration(void) {
 
         // Set AA width based on filter mode (0 = rough/hard edges, 1 = smooth)
         GLint aa_loc = glGetUniformLocation(shader_program, "u_aa_width");
-        float aa_width = (shape_filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
+        float aa_width = (filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
         glUniform1f(aa_loc, aa_width);
 
         // === PASS 1: Render each layer to its FBO ===

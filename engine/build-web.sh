@@ -41,12 +41,13 @@ mkdir -p build-web
     -O2 \
     -DNDEBUG \
     -DBOX2D_DISABLE_SIMD \
-    -I"include" -I"include/SDL2" -I"include/lua" -I"include/stb" -I"include/box2d" \
+    -I"include" -I"include/SDL2" -I"include/lua" -I"include/stb" -I"include/box2d" -I"include/freetype" \
     src/anchor.c \
     include/lua/*.c \
     include/box2d/*.c \
     -o build-web/anchor.html \
     -s USE_SDL=2 \
+    -s USE_FREETYPE=1 \
     -s USE_WEBGL2=1 \
     -s FULL_ES3=1 \
     -s WASM=1 \

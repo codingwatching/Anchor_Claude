@@ -36,7 +36,11 @@
       "WebFetch(domain:docs.godotengine.org)",
       "WebFetch(domain:api.haxeflixel.com)",
       "WebFetch(domain:docs.phaser.io)",
-      "Bash(./build.bat)"
+      "Bash(./build.bat)",
+      "WebFetch(domain:docs.unity3d.com)",
+      "WebFetch(domain:www.renpy.org)",
+      "WebFetch(domain:pixijs.com)",
+      "WebFetch(domain:api.github.com)"
     ]
   }
 }

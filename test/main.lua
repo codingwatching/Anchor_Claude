@@ -1,6 +1,6 @@
 print("main.lua loaded - Phase 8: Random + Physics Test")
 
-set_shape_filter("rough")
+set_filter_mode("rough")
 input_bind_all()
 
 -- Test random determinism: seed and print first 5 values
@@ -121,6 +121,9 @@ local ui_layer = layer_create('ui')  -- No shaders, for overlays like sensor zon
 -- Shaders
 local shadow_shader = shader_load_file("shaders/shadow.frag")
 local outline_shader = shader_load_file("shaders/outline.frag")
+
+-- Font
+font_load('main', 'assets/LanaPixel.ttf', 11)
 
 -- Textures
 local smile_tex = texture_load("assets/slight_smile.png")
@@ -353,6 +356,12 @@ function update(dt)
     -- Draw sensor zone to ui layer (no shaders)
     local zx, zy = physics_get_position(zone_body)
     layer_rectangle(ui_layer, zx - 50, zy - 30, 100, 60, rgba(100, 150, 255, 160))
+
+    -- Draw text
+    local white = rgba(255, 255, 255, 255)
+    local black = rgba(0, 0, 0, 255)
+    layer_draw_text(ui_layer, "Balls: " .. #dynamic_bodies, 'main', 8, 8, black)
+    layer_draw_text(ui_layer, "SPACE: spawn  D: destroy  P: impulse  K: wind", 'main', 8, screen_h - 20, black)
 
     -- Apply shaders
     layer_apply_shader(shadow_layer, shadow_shader)

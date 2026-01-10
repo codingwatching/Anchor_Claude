@@ -82,11 +82,11 @@ if not exist lib\box2d.lib (
 
 :: Build anchor (static linking - no DLLs needed)
 cl.exe /nologo /O2 /W3 ^
-    /I"include" /I"include/SDL2" /I"include/lua" /I"include/glad" /I"include/KHR" /I"include/stb" /I"include/box2d" ^
+    /I"include" /I"include/SDL2" /I"include/lua" /I"include/glad" /I"include/KHR" /I"include/stb" /I"include/box2d" /I"include/freetype" ^
     src/anchor.c include/glad/gl.c ^
     /Fe"build/anchor.exe" ^
     /link /LIBPATH:"lib" ^
-    lua.lib box2d.lib SDL2-static.lib SDL2main.lib ^
+    lua.lib box2d.lib freetype.lib SDL2-static.lib SDL2main.lib ^
     opengl32.lib kernel32.lib user32.lib gdi32.lib winmm.lib imm32.lib ^
     ole32.lib oleaut32.lib version.lib uuid.lib advapi32.lib setupapi.lib shell32.lib ^
     /SUBSYSTEM:CONSOLE
