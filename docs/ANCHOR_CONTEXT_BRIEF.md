@@ -111,7 +111,7 @@ These aren't forgotten — they're scoped out of initial build to maintain focus
 
 When reviewing other engines/frameworks, ask:
 
-1. **Does Anchor already have this?** (Check ANCHOR.md, the object tree might already cover it)
+1. **Does Anchor already have this?** (Check `reference/archives/ANCHOR.md`, the object tree might already cover it)
 
 2. **Does this fit the locality principle?** (Keeps related code together vs. scatters it)
 
