@@ -40,7 +40,8 @@
       "WebFetch(domain:docs.unity3d.com)",
       "WebFetch(domain:www.renpy.org)",
       "WebFetch(domain:pixijs.com)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:store.steampowered.com)"
     ]
   }
 }
