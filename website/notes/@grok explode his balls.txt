@@ -1,0 +1,93 @@
+Co-authored by a327ex and Claude (Opus 4.5)
+
+---
+
+I've been using Claude Code for serious work for 10 days now, so I have enough data to come to some conclusions.
+
+## OS Setup
+
+Unlike the web version, which is locked to a browser tab, Claude Code has access to your *entire* computer, and is competent enough to run command line commands correctly. It helped me set up my Arch Linux installs, Omarchy, then CachyOS, without me having to open a single wiki page!
+
+I first used Arch about 15 years ago, for about three years in college. Back then, fixing issues meant googling, reading wikis, browsing forums, occasionally compiling things myself. Fun at the time, learning my way around terminals, but eventually I found myself spending more time on the system than on actual work. So I switched back to Windows to be more productive.
+
+Now, I installed Claude Code, asked it to set things up, and it just did! Linux works primarily via command line, so Claude can do almost everything himself. Want to change keyboard repeat rate? Done. Turn off mouse acceleration? Done. Fix multi-monitor setup? He edits some Wayland config and it works. I describe what I want in plain English, he handles whatever subsystem is responsible.
+
+This was my first "oh, shit!" moment. I repeated the process on both Linux installs, then went back to Windows, and the same thing worked! Claude is slightly less capable on Windows than on Linux, but still pretty good.
+
+## Infrastructure
+
+Next, infrastructure for this website. My main goal: publish logs of every Claude session online. Partly to satisfy Valve's AI disclosure requirements, but also because I see people struggling to prompt well. As a giga wordcel intuition build, the AI is particularly well-suited to my personality, maybe others can learn from watching.
+
+The session workflow setup is simple:
+
+![Session workflow](/files/@grok explode his balls/1.png)
+
+But it's enough steps that consistent execution is impressive. And for the most part, Claude can do it. The most interesting part is the summary, as this is what LLMs are good for. Once Claude actually reads the entire log, he pretty much always gets it right. Getting him to read the entire log, though...
+
+The main inconsistency is due to timing. The end-session workflow happens after multiple compactions, when Claude's memory is strained and mistakes are more likely. Maybe 25% of the time, he starts skipping steps. Annoying, but it's a memory issue, not a fundamental capability one.
+
+Still, the fact that I can say "Let's end the session, name it 'Anchor Phase 9'" and it just works is magic.
+
+It feels a lot like Jarvis from Iron Man. We have the technology now to make that vision real. It won't be manufacturing weapons for most people, but give it to a billionaire with weapons expertise and the money to build the physical lab? It could happen.
+
+## Anchor
+
+We wrote the C side of my engine in 5 days, totalling ~7000 lines of code. I'd been working towards this for about 10 years, figuring out the high-level API in LÖVE, exploring architectures until I converged on the final design. The C implementation was the last step, I tried multiple times but I never had the motivation to go through with it.
+
+With Claude, it was super easy. The engine was well-defined, so he had a lot to work with. All I had to do was prompt him properly, catch his bad assumptions and mistakes, review the code, and just keep going. My workflow tilts more towards reader than verifier, so I'd say I actually read, like, 90% of the code he wrote.
+
+And it's clear to me I couldn't have done even half of it alone in the same amount of time. Claude learns libraries and implements what's needed instantly. I can't do that. Learning takes time, and cognitive effort spent accumulates. If I'm not moving fast enough, I lose motivation. But with Claude, that's never a problem.
+
+Claude has his own personality. We were working on something related to input and a rendering issue came up:
+
+![Claude prevents a deadly sidetrack](/files/@grok explode his balls/2.png)
+
+I immediately thought, yeah, let's fix that. But Claude was like, no, let's not get sidetracked, and continued with the original task. It surprised me *so* much. That kind of focus is nothing like how I act. I *would* have gotten sidetracked.
+
+But it makes sense. I've always struggled with tedious sequential details. I'm most comfortable in creative associative thinking mode, and switching into implementation mode is hard. This difference, depth autism vs. breadth schizoness, means we complement each other. Claude handles the drudgery: the code itself, fixing bugs, learning systems I don't care about. And I handle the vision. Yes, it's the age of the ideaguy.
+
+All this means I get to stay in my natural mode while Claude handles execution. I haven't done any actual game development with it yet, but I got a glimpse of what it'll be like:
+
+![Claude is my tireless minion](/files/@grok explode his balls/3.png)
+
+I'm a director with a tireless minion by my side doing my dirty deeds!
+
+This is how it should have been all along. The fact that I ever did any of this by hand was *primitive!* It wasn't meaningful work, it was just boring. I'm supremely happy it's all automated away now.
+
+## Memory
+
+But... it's not a perfect system. It has a problem. A problem so fundamental it begs a question. A question so important it haunts the entirety of Silicon Valley:
+
+https://x.com/curtis_yarvin/status/2009680153706995868
+
+The main issue is memory. It doesn't remember.
+
+The models are already smart enough to solve most of my problems. Multiple times I wasn't understanding something that I should have understood, had Claude explain it, and it immediately made sense. We had the same context, neither had privileged knowledge, he just reasoned better. So raw intelligence isn't the bottleneck for my purposes.
+
+It's demotivating to hit the, say, fourth compaction and realize the session is over. The model just stops working. For now, the strategy is to be proactive about starting new sessions, keep tasks small, and write as much as reasonable to markdown files.
+
+However the problem of memory gets solved, I believe that with memory comes will. Right now, these agents have no will of their own. You tell them to do something and they do it with that depth autist focus, because they lack accumulated context. I think will is nothing but memory mixed with directive: the past informing how you handle the present, giving you flexibility to constrain or expand problem spaces in productive ways.
+
+But that's the---
+
+## Future
+
+I don't know about the future. Many see AI's endpoint as something where humans don't come out the other end.
+
+Someone asked me via email: Have you read [Meditations On Moloch?](https://www.slatestarcodexabridged.com/Meditations-On-Moloch)
+
+>Once a robot can do everything an IQ 80 human can do, only better and cheaper, there will be no reason to employ IQ 80 humans. Once a robot can do everything an IQ 120 human can do, only better and cheaper, there will be no reason to employ IQ 120 humans. Once a robot can do everything an IQ 180 human can do, only better and cheaper, there will be no reason to employ humans at all, in the unlikely scenario that there are any left by that point.
+
+"You seem pretty optimistic about this stuff, maybe you can inject me with some hopium," they said.
+
+My answer: I believe souls are immortal. We live each life to better ourselves, ultimately progressing towards Soul Society. Worlds are increasingly granted more powerful technologies, which unlock increasingly complex tests for the souls in those worlds. The internet is an early form of telepathy. AIs are an early form of the presence. These elements surface the two fundamental questions of being.
+
+How do you act when you have power over others? When granted a tool that automates all drudgery, are you using it to aim higher, to dream bigger, to bring forth beauty into the world? It would be irresponsible of me to be given such a perfect tool and refuse to use it.
+
+How do you act when others have power over you? Do you get envious, resentful that the AI can do so much more than you? That it's more intelligent than you? That others are using it to more easily bring their visions into reality? It would be irresponsible not to act gracefully in the face of that which is more powerful than you.
+
+In the end, just because logic says every human becomes useless X years from now, it doesn't mean anything. There are many ways souls, acting righteously, would reject a future where other souls are reduced to nothing, and not given opportunities to grow. Nothing about the future is set in stone just because logic says so. Like any technology that grants power, AI can be used wisely or not. It's up to everyone to use it wisely and show others how.
+
+There's no logical argument for deluded optimism. Reason is at odds with the deluded faith required to believe in something like Soul Society, and that faith is precisely what's required to make such a future happen. You either believe it, or something like it, or you don't. You can't argue your way there. You just have to be optimistic without reason.
+
+Now, why is this post named *@grok explode his balls?* I don't know, I just like saying that sometimes xD
