@@ -97,3 +97,9 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo Build successful: build/anchor.exe
+
+:: Copy to emoji-ball-battles if it exists
+if exist "E:\a327ex\emoji-ball-battles\tools" (
+    copy /Y "build\anchor.exe" "E:\a327ex\emoji-ball-battles\tools\anchor.exe" >nul
+    echo Copied to emoji-ball-battles/tools/
+)

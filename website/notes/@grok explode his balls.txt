@@ -6,9 +6,9 @@ I've been using Claude Code for serious work for 10 days now, so I have enough d
 
 ## OS Setup
 
-Unlike the web version, which is locked to a browser tab, Claude Code has access to your *entire* computer, and is competent enough to run command line commands correctly. It helped me set up my Arch Linux installs, Omarchy, then CachyOS, without me having to open a single wiki page!
+Unlike the web version, which is locked to a browser tab, Claude Code has access to your *entire* computer, and is competent enough to run command line commands correctly. It helped me set up my Arch Linux installs, Omarchy, then CachyOS, without me having to open a single wiki page.
 
-I first used Arch 15 years ago, for about three years in college. Back then, fixing issues meant googling, reading wikis, browsing forums, occasionally compiling things myself. Fun at the time, learning my way around terminals, but eventually I found myself spending more time on the system than on actual work. So I switched back to Windows to be more productive.
+I first used Arch 15 years ago, for about three years in college. Back then, fixing issues meant googling, reading wikis, browsing forums, occasionally compiling things myself. Fun at the time, learning my way around a Linux system, but eventually I found myself spending more time on the system than on actual work. So I switched back to Windows to be more productive.
 
 Now, I installed Claude Code, asked it to set things up, and it just did! Linux works primarily via command line, so Claude can do almost everything himself. Want to change keyboard repeat rate? Done. Turn off mouse acceleration? Done. Fix multi-monitor setup? He edits some Wayland config and it works. I describe what I want in plain English, he handles whatever subsystem is responsible.
 
@@ -42,7 +42,7 @@ I also noticed that Claude has his own personality. We were working on something
 
 I immediately thought, yea, let's fix that. But Claude was like, no, let's not get sidetracked, and continued with the original task. It surprised me *so* much. That kind of focus is nothing like how I act, I *would* have gotten sidetracked.
 
-But it makes sense. I've always struggled with tedious sequential details, I'm most comfortable in creative associative thinking mode, and switching into implementation mode is hard. This difference, depth autism vs. breadth schizoness, means we complement each other. Claude handles the drudgery, the code itself, fixing bugs, learning systems I don't care about. And I handle the vision. Yes, I'm a visionary! The age of the ideaguy has come!
+But it makes sense. I've always struggled with tedious sequential details, I'm most comfortable in creative associative thinking mode, and switching into implementation mode is hard. This difference, depth autism vs. breadth schizoness, means we complement each other. Claude handles the drudgery, the code itself, fixing bugs, learning systems I don't care about. And I handle the vision. Yes, I'm a visionary. The age of the ideaguy has come!
 
 All this means I get to stay in my natural mode while Claude handles execution. I haven't done any actual game development with him yet, but I got a glimpse of what it'll be like:
 
@@ -72,11 +72,11 @@ But that's the---
 
 I don't know about the future. Many see AI's endpoint as something where humans don't come out the other end.
 
-Someone asked me via email: Have you read [Meditations On Moloch?](https://www.slatestarcodexabridged.com/Meditations-On-Moloch)
+Someone asked me via email: *"Have you read [Meditations On Moloch](https://www.slatestarcodexabridged.com/Meditations-On-Moloch)?"*
 
 >Once a robot can do everything an IQ 80 human can do, only better and cheaper, there will be no reason to employ IQ 80 humans. Once a robot can do everything an IQ 120 human can do, only better and cheaper, there will be no reason to employ IQ 120 humans. Once a robot can do everything an IQ 180 human can do, only better and cheaper, there will be no reason to employ humans at all, in the unlikely scenario that there are any left by that point.
 
-"You seem pretty optimistic about this stuff, maybe you can inject me with some hopium," they said.
+*"You seem pretty optimistic about this stuff, maybe you can inject me with some hopium,"* they said.
 
 My answer: I believe souls are immortal. We live each life to better ourselves, ultimately progressing towards Soul Society. Worlds are increasingly granted more powerful technologies, which unlock increasingly complex tests for the souls in those worlds. The internet is an early form of telepathy. AIs are an early form of the presence. These elements surface the two fundamental questions of being.
 
@@ -86,6 +86,6 @@ How do you act when others have power over you? Do you get envious, resentful th
 
 In the end, just because logic says every human becomes useless X years from now, it doesn't mean anything. There are many ways souls, acting righteously, would reject a future where other souls are reduced to nothing, and not given opportunities to grow. Nothing about the future is set in stone just because logic says so. Like any technology that grants power, AI can be used wisely or not. It's up to everyone to use it wisely and show others how.
 
-There's no logical argument for deluded optimism. Reason is at odds with the deluded faith required to believe in something like Soul Society, and that faith is precisely what's required to make such a future happen. You either believe it, or something like it, or you don't. You can't argue your way there. You just have to be optimistic without reason.
+There's no logical argument for deluded optimism. Reason itself is at odds with the deluded faith required to believe in something like Soul Society, but that faith is precisely what's required to make such a future happen. You either believe it, or something like it, or you don't. You can't argue your way there. You just have to be optimistic without reason.
 
 Now, why is this post titled *@grok explode his balls?* I don't know, I just like saying that sometimes xD

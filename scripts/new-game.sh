@@ -2,23 +2,23 @@
 #
 # new-game.sh - Create a new Anchor game project
 #
-# This script creates a new game folder with Anchor as a submodule,
-# sets up the yue junction for framework access, creates a private
-# GitHub repo, and pushes the initial commit.
-#
 # USAGE:
-#   ./scripts/new-game.sh <game-name>
+#   ./scripts/new-game.sh <game-name> [--from <previous-game>]
 #
-# EXAMPLE:
+# EXAMPLES:
 #   ./scripts/new-game.sh my-awesome-game
+#   ./scripts/new-game.sh my-new-game --from emoji-ball-battles
 #
 # This creates:
 #   E:/a327ex/my-awesome-game/
-#   ├── anchor/          (submodule → Anchor repo)
-#   ├── yue/             (junction → anchor/engine/yue)
-#   ├── main.yue         (game entry point template)
-#   ├── assets/          (empty assets folder)
-#   └── setup.bat        (for other devs after cloning)
+#   ├── tools/
+#   │   ├── anchor.exe    (copied from Anchor/engine/build/)
+#   │   └── yue.exe       (copied from previous game or downloaded)
+#   ├── anchor/           (framework: copied from Anchor/game/ or previous game)
+#   │   ├── init.yue
+#   │   └── object.yue
+#   ├── main.yue          (game entry point template)
+#   └── assets/           (empty assets folder)
 #
 # And a private GitHub repo at: github.com/a327ex/my-awesome-game
 #
@@ -27,18 +27,7 @@
 # ============================================================================
 #
 # 1. Git with SSH key configured for GitHub
-#    - Generate key: ssh-keygen -t ed25519 -C "your_email@example.com"
-#    - Add to agent: eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519
-#    - Add public key to GitHub: Settings → SSH and GPG keys → New SSH key
-#    - Test: ssh -T git@github.com
-#
-# 2. GitHub CLI (gh) for creating repos programmatically
-#    - Download: https://cli.github.com/
-#    - After install, authenticate: gh auth login
-#      - Select: GitHub.com
-#      - Select: SSH
-#      - Select your SSH key
-#      - Select: Login with a web browser (or paste token)
+# 2. GitHub CLI (gh) for creating repos: https://cli.github.com/
 #
 # ============================================================================
 
@@ -48,22 +37,41 @@ set -e  # Exit on any error
 # Configuration
 # ----------------------------------------------------------------------------
 
-GAMES_ROOT="E:/a327ex"                          # Where game folders live
-ANCHOR_REPO="git@github.com:a327ex/Anchor.git"  # Anchor repo (SSH)
-GITHUB_USER="a327ex"                            # GitHub username for new repos
-GH_CMD="/c/Program Files/GitHub CLI/gh.exe"     # GitHub CLI path on Windows
+GAMES_ROOT="E:/a327ex"
+ANCHOR_ROOT="E:/a327ex/Anchor"
+GITHUB_USER="a327ex"
+GH_CMD="/c/Program Files/GitHub CLI/gh.exe"
+YUE_URL="https://github.com/IppClub/YueScript/releases/download/v0.30.4/yue-windows-x64.7z"
 
 # ----------------------------------------------------------------------------
-# Validate arguments
+# Parse arguments
 # ----------------------------------------------------------------------------
 
-if [ -z "$1" ]; then
-    echo "Usage: $0 <game-name>"
+GAME_NAME=""
+FROM_GAME=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --from)
+            FROM_GAME="$2"
+            shift 2
+            ;;
+        *)
+            if [ -z "$GAME_NAME" ]; then
+                GAME_NAME="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$GAME_NAME" ]; then
+    echo "Usage: $0 <game-name> [--from <previous-game>]"
     echo "Example: $0 my-awesome-game"
+    echo "Example: $0 my-new-game --from emoji-ball-battles"
     exit 1
 fi
 
-GAME_NAME="$1"
 GAME_PATH="$GAMES_ROOT/$GAME_NAME"
 
 # Check if folder already exists
@@ -72,106 +80,94 @@ if [ -d "$GAME_PATH" ]; then
     exit 1
 fi
 
-# Check if gh is available
-if [ ! -f "$GH_CMD" ]; then
-    echo "Error: GitHub CLI not found at: $GH_CMD"
-    echo "Install from: https://cli.github.com/"
-    echo "Then run: gh auth login"
-    exit 1
+# If --from specified, check it exists
+if [ -n "$FROM_GAME" ]; then
+    FROM_PATH="$GAMES_ROOT/$FROM_GAME"
+    if [ ! -d "$FROM_PATH" ]; then
+        echo "Error: Source game not found: $FROM_PATH"
+        exit 1
+    fi
+    echo "Creating new game: $GAME_NAME (copying framework from $FROM_GAME)"
+else
+    echo "Creating new game: $GAME_NAME (using master framework from Anchor/game/)"
 fi
-
-echo "Creating new Anchor game: $GAME_NAME"
 echo "Location: $GAME_PATH"
 echo ""
 
 # ----------------------------------------------------------------------------
-# Step 1: Create game folder and initialize git
+# Step 1: Create game folder structure
 # ----------------------------------------------------------------------------
 
-echo "[1/6] Creating game folder..."
-mkdir -p "$GAME_PATH"
+echo "[1/5] Creating game folder..."
+mkdir -p "$GAME_PATH/tools"
+mkdir -p "$GAME_PATH/anchor"
+mkdir -p "$GAME_PATH/assets"
 cd "$GAME_PATH"
 
-echo "[2/6] Initializing git repository..."
-git init
-git branch -M main  # Ensure main branch (not master)
-
 # ----------------------------------------------------------------------------
-# Step 2: Add Anchor as submodule
+# Step 2: Copy tools (anchor.exe, yue.exe)
 # ----------------------------------------------------------------------------
 
-echo "[3/6] Adding Anchor as submodule..."
-# This clones Anchor into the 'anchor' folder and sets up .gitmodules
-git submodule add "$ANCHOR_REPO" anchor
+echo "[2/5] Copying tools..."
+
+# Copy anchor.exe from Anchor build
+if [ -f "$ANCHOR_ROOT/engine/build/anchor.exe" ]; then
+    cp "$ANCHOR_ROOT/engine/build/anchor.exe" tools/
+else
+    echo "Warning: anchor.exe not found at $ANCHOR_ROOT/engine/build/"
+    echo "Run build.bat in Anchor/engine/ first."
+fi
+
+# Copy yue.exe from previous game or download
+if [ -n "$FROM_GAME" ] && [ -f "$FROM_PATH/tools/yue.exe" ]; then
+    cp "$FROM_PATH/tools/yue.exe" tools/
+elif [ -f "$GAMES_ROOT/emoji-ball-battles/tools/yue.exe" ]; then
+    # Fallback: try emoji-ball-battles
+    cp "$GAMES_ROOT/emoji-ball-battles/tools/yue.exe" tools/
+else
+    echo "Downloading yue.exe..."
+    curl -L -o tools/yue-windows-x64.7z "$YUE_URL"
+    "/c/Program Files/7-Zip/7z.exe" x tools/yue-windows-x64.7z -otools -y
+    rm tools/yue-windows-x64.7z
+fi
 
 # ----------------------------------------------------------------------------
-# Step 3: Create yue junction (Windows directory symlink alternative)
+# Step 3: Copy framework (anchor/*.yue)
 # ----------------------------------------------------------------------------
 
-echo "[4/6] Creating yue junction..."
-# Junctions work without admin rights on Windows (unlike symlinks)
-# This allows: require 'yue.object' to find anchor/engine/yue/object.lua
-cmd //c "mklink /J yue anchor\\engine\\yue"
+echo "[3/5] Copying framework..."
+
+if [ -n "$FROM_GAME" ]; then
+    # Copy from previous game
+    cp "$FROM_PATH/anchor/"*.yue anchor/
+else
+    # Copy from Anchor/game/ (master copy)
+    cp "$ANCHOR_ROOT/game/"*.yue anchor/
+fi
 
 # ----------------------------------------------------------------------------
 # Step 4: Create template files
 # ----------------------------------------------------------------------------
 
-echo "[5/6] Creating template files..."
-
-# setup.bat - For other developers after cloning
-cat > setup.bat << 'SETUP_EOF'
-@echo off
-REM Setup script for this game
-REM Run this after cloning: git clone --recursive <repo>
-
-REM Initialize and update submodule (in case --recursive was forgotten)
-git submodule update --init
-
-REM Create junction to framework (works without admin on Windows)
-if not exist yue (
-    mklink /J yue anchor\engine\yue
-    echo Junction created: yue -^> anchor\engine\yue
-) else (
-    echo yue junction already exists
-)
-
-echo Setup complete!
-SETUP_EOF
+echo "[4/5] Creating template files..."
 
 # main.yue - Game entry point template
 cat > main.yue << 'MAIN_EOF'
--- Main entry point for the game
--- This file is compiled to main.lua by YueScript
+require 'anchor'
 
--- Framework imports
--- object = require 'yue.object'
--- timer = require 'yue.timer'
+-- Game initialization here
 
--- Called once at startup
-export init = ->
-  print "Game initialized!"
-
--- Called every frame (dt = delta time in seconds)
-export update = (dt) ->
-  nil
-
--- Called every frame for rendering
-export draw = ->
-  nil
 MAIN_EOF
 
-# Create empty assets folder with .gitkeep
-mkdir -p assets
+# .gitkeep for assets
 touch assets/.gitkeep
 
-# .gitignore for the game
+# .gitignore
 cat > .gitignore << 'GITIGNORE_EOF'
 # Compiled Lua (generated from .yue)
 *.lua
 
 # Build artifacts
-*.exe
 *.obj
 *.o
 
@@ -185,32 +181,37 @@ cat > .gitignore << 'GITIGNORE_EOF'
 # OS files
 .DS_Store
 Thumbs.db
+
+# Temp files
+tmpclaude-*
 GITIGNORE_EOF
 
 # ----------------------------------------------------------------------------
-# Step 5: Create GitHub repo and push
+# Step 5: Initialize git and create GitHub repo
 # ----------------------------------------------------------------------------
 
-echo "[6/6] Creating private GitHub repo and pushing..."
+echo "[5/5] Creating git repo..."
 
-# Create private repo on GitHub using gh CLI
-"$GH_CMD" repo create "$GITHUB_USER/$GAME_NAME" --private --source=. --remote=origin
+git init
+git branch -M main
 
-# Stage all files
-git add -A
+# Check if gh is available
+if [ -f "$GH_CMD" ]; then
+    "$GH_CMD" repo create "$GITHUB_USER/$GAME_NAME" --private --source=. --remote=origin
 
-# Initial commit
-git commit -m "Initial commit: Anchor game scaffold
-
-- Add Anchor engine as submodule
-- Add setup.bat for yue junction creation
-- Add main.yue template
-- Add assets folder
+    git add -A
+    git commit -m "Initial commit: Anchor game scaffold
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
-# Push to GitHub
-git push -u origin main
+    git push -u origin main
+
+    echo ""
+    echo "GitHub repo created: https://github.com/$GITHUB_USER/$GAME_NAME"
+else
+    echo "GitHub CLI not found, skipping repo creation."
+    echo "You can create the repo manually later."
+fi
 
 # ----------------------------------------------------------------------------
 # Done!
@@ -222,10 +223,11 @@ echo "Game created successfully!"
 echo "=========================================="
 echo ""
 echo "Location: $GAME_PATH"
-echo "GitHub:   https://github.com/$GITHUB_USER/$GAME_NAME"
 echo ""
 echo "Next steps:"
 echo "  cd $GAME_PATH"
 echo "  # Edit main.yue"
-echo "  # Run with: ./anchor/engine/build/anchor.exe ."
+echo "  tools/yue.exe -r anchor        # Compile framework"
+echo "  tools/yue.exe -r main.yue      # Compile game"
+echo "  tools/anchor.exe .             # Run game"
 echo ""

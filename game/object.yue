@@ -1,0 +1,34 @@
+global *
+
+class object
+  new: (name) =>
+    @name = name
+    @parent = nil
+    @children = {}
+    @dead = false
+    @tags = {}
+
+  add: (child) =>
+    @children[] = child
+    child.parent = @
+    if child.name
+      @[child.name] = child
+    if @name
+      child[@name] = @
+    @
+
+  all: (tag) =>
+    nodes = {}
+    stack = {}
+    for i = #@children, 1, -1
+      stack[] = @children[i]
+    while #stack > 0
+      node = table.remove stack
+      if not node.dead
+        if tag
+          nodes[] = node if node.tags[tag]
+        else
+          nodes[] = node
+        for i = #node.children, 1, -1
+          stack[] = node.children[i]
+    nodes

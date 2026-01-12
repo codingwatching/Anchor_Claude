@@ -41,7 +41,8 @@
       "WebFetch(domain:www.renpy.org)",
       "WebFetch(domain:pixijs.com)",
       "WebFetch(domain:api.github.com)",
-      "WebFetch(domain:store.steampowered.com)"
+      "WebFetch(domain:store.steampowered.com)",
+      "Bash(E:/a327ex/Anchor/engine/tools/yue.exe:*)"
     ]
   }
 }
