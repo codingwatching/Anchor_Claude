@@ -4,14 +4,17 @@ Guidelines for Claude Code instances working on the Anchor engine.
 
 ---
 
-## Engine vs Game
+## Engine vs Game vs Framework
 
-**Engine** — C code in `engine/src/anchor.c` exposing functions to Lua  
-**Game** — YueScript code using the engine to build games  
-**Engine Mode** — when modifying anchor.c or engine behavior  
-**Game Mode** — when writing gameplay code in YueScript  
+**Engine** — C code in `engine/src/anchor.c` exposing functions to Lua
+**Game** — YueScript code using the engine to build games
+**Framework** — YueScript framework classes in `Anchor/game/` (object.yue, init.yue, etc.)
 
-This is the **Engine** repository. For Game Mode, work from a game's repository (e.g., `emoji-ball-battles/`).
+**Engine Mode** — when modifying anchor.c or engine behavior
+**Game Mode** — when writing gameplay code in YueScript (from a game's repository)
+**Framework Mode** — when editing the YueScript framework classes in `Anchor/game/`
+
+This is the **Engine** and **Framework** repository. For Game Mode, work from a game's repository (e.g., `emoji-ball-battles/`).
 
 ---
 
@@ -27,7 +30,7 @@ This is the **Engine** repository. For Game Mode, work from a game's repository 
 - `docs/ANCHOR_CONTEXT_BRIEF.md` — design reasoning, developer working style, how to evaluate features
 
 **YueScript Framework:**
-- `engine/yue/` — framework classes (object, timer, spring, collider, etc.)
+- `game/` — framework classes (object, timer, spring, collider, etc.)
 - `reference/phase-10-implementation-plan.md` — Phase 10 implementation details
 
 **Archived docs** (superseded by anchor.c, kept for historical reference):
@@ -123,3 +126,32 @@ Use the `AskUserQuestion` tool liberally. The developer prefers being asked over
 ### Long Responses with Code
 
 When providing answers that are long or contain multiple code examples, create a markdown file in `reference/` and open it in NeoVim with MarkdownPreview (see [Commands](#commands)). Use descriptive filenames like `anchor-loop-analysis.md`, `timer-system-notes.md`.
+
+---
+
+## Framework Mode
+
+When editing YueScript framework classes in `Anchor/game/`:
+
+- Present code for user review before writing — show the code snippet, ask "Does this look right?"
+- One method at a time — small incremental changes, not batching multiple features
+- Use the `AskUserQuestion` tool liberally — for questions, tradeoffs, anything you have doubts about. Implementation details matter.
+- Think through edge cases when asked, but don't over-engineer preemptively
+
+### Naming
+
+Prefer verbose names over abbreviations. Code should read like English.
+
+- **Bad:** `obj`, `idx`, `fn`, `name_or_fn`
+- **Good:** `object`, `index`, `function`, `name_or_function`
+
+If a verbose name conflicts with a reserved keyword or one that's already in the global namespace, use a different descriptive word instead.
+
+### YueScript Idioms
+
+- Use `list[] = item` instead of `table.insert list, item`
+- Use `global *` at top of file to make all definitions global
+- Use `for item in *list` for array iteration (values only)
+- Use `for i, item in ipairs list` for index-value pairs
+- Use `\method!` for method calls (compiles to `obj:method()`)
+- Use `@\method!` for self method calls in class methods

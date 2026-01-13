@@ -1,11 +1,13 @@
 global *
 
-require 'anchor.object'
+require 'game.object'
 
 an = object 'an'
 
 update = (dt) ->
-  all_objects = an\all!
-  for obj in *all_objects
-    continue if obj.dead
-    obj\update dt if obj.update
+  all_objects = {an}
+  all_objects[] = obj for obj in *an\all!
+  obj\_early_update dt for obj in *all_objects
+  obj\_update dt for obj in *all_objects
+  obj\_late_update dt for obj in *all_objects
+  an\cleanup!
