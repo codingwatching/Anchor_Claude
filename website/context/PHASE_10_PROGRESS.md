@@ -134,6 +134,14 @@ The object class is now fully documented with comments for each method. Key meth
 - `tag(...)` — Adds one or more tags (set semantics: `@tags[t] = true`)
 - `is(name_or_tag)` — Returns truthy if name matches OR tag exists
 
+**Horizontal Links:**
+- `link(target, callback)` — When target dies, callback runs (or self dies if no callback)
+
+**Initialization:**
+- `set(properties)` — Assigns properties from a table to the object
+- `build(build_function)` — Runs a build function with self as argument
+- `flow_to(parent)` — Adds self to parent (reverse of add, for fluent chaining)
+
 **Actions:**
 - `early_action(name_or_fn, fn)` — Adds action for early phase
 - `action(name_or_fn, fn)` — Adds action for main phase
@@ -206,18 +214,103 @@ Each object can have custom `early_update`, `update`, `late_update` methods that
 
 ---
 
+## Horizontal Links
+
+Horizontal links create death notification relationships between objects (typically siblings or unrelated objects).
+
+### API
+
+```yuescript
+@\link target                -- kill self when target dies (default)
+@\link target, => @\kill!    -- same as above, explicit
+@\link target, => @homing = false  -- callback runs, object survives
+```
+
+### Behavior
+
+1. When target dies (`target\kill!`), callbacks run **immediately** (before `target.dead = true` propagates)
+2. If no callback provided, linker is killed (default behavior)
+3. Callback receives `self` as argument — target is not passed (use closures if needed)
+4. Links don't create named references — store references yourself if needed
+
+### Storage
+
+Links are stored bidirectionally for efficient lookup and cleanup:
+- `@links` — Array of outgoing links `{target, callback}`
+- `target.linked_from` — Array of incoming links `{source, callback}`
+
+### Circular Links
+
+Circular links (A links to B, B links to A) are safe:
+1. `@dead = true` is set **before** processing `linked_from`
+2. When notifying linked objects, dead sources are skipped
+3. Both objects end up dead, no infinite recursion
+
+### Cleanup
+
+When an object is removed from the tree:
+1. Remove self from each target's `linked_from` (outgoing links)
+2. Remove self from each source's `links` (incoming links)
+
+---
+
 ## Cleanup
 
-The `cleanup` method handles two tasks:
+The `cleanup` method handles three tasks:
 
 1. **Remove marked actions** — For each object, remove actions that returned `true`
-2. **Remove dead children** — Iterate in reverse (children-first) for proper destroy order
+2. **Clean up links** — Remove dead objects from link arrays (both directions)
+3. **Remove dead children** — Iterate in reverse (children-first) for proper destroy order
 
 When removing dead children:
 - Calls `child\destroy!` if child has a destroy method
 - Clears `parent[child.name]` reference
 - Clears `child[parent.name]` reference
 - Clears `child.parent` reference
+
+---
+
+## Short Aliases
+
+Single-letter aliases provide a compact API for common operations. A global `T` function creates objects, and single-letter methods handle initialization and tree operations.
+
+### Reference
+
+| Alias | Method | Purpose |
+|-------|--------|---------|
+| `T` | `object` | Create object (global function) |
+| `Y` | `set` | Set properties from table |
+| `U` | `build` | Run build function |
+| `E` | `early_action` | Early phase action |
+| `X` | `action` | Main phase action |
+| `L` | `late_action` | Late phase action |
+| `A` | `add` | Add child |
+| `F` | `flow_to` | Add self to parent |
+| `K` | `link` | Link to target |
+
+### Usage Example
+
+```yuescript
+-- Create a player with properties and actions
+p = T 'player'
+p\Y {x: 100, y: 200, hp: 50}
+p\U =>
+  @speed = @x + @y
+p\X 'move', (dt) =>
+  @x += @vx * dt
+p\L 'draw', (dt) =>
+  game\circle @x, @y, 10, colors.white
+p\A timer!
+p\F arena
+```
+
+### Why Not Operators?
+
+We initially explored custom operators (`^`, `/`, `+`, `>>`) but abandoned them because:
+
+1. **Expression context only** — YueScript doesn't allow standalone operator expressions as statements
+2. **Right-associativity** — Lua's `^` operator is right-associative, breaking chaining patterns
+3. **Short methods are nearly as compact** — Single letters achieve similar brevity without language limitations
 
 ---
 
@@ -236,8 +329,9 @@ an\action ->
   -- etc.
 ```
 
-### Test Coverage (21 tests)
+### Test Coverage (42 tests)
 
+**Tree & Tags (1-8):**
 1. Complex tree (4 levels deep)
 2. Bidirectional named links
 3. Tags and is() method
@@ -246,6 +340,8 @@ an\action ->
 6. Named child replacement
 7. Kill by tag
 8. After tag kill cleanup
+
+**Actions (9-20):**
 9. One-shot action (returns true)
 10. After one-shot (removed)
 11. Named action
@@ -258,7 +354,34 @@ an\action ->
 18. Named early/late run each frame
 19. One-shot early/late actions
 20. After one-shot early/late
-21. Final state
+
+**Horizontal Links (21-31):**
+21. Link with callback (object survives)
+22. After link callback (bullet still alive)
+23. Link with callback that kills self
+24. After callback kill (both removed)
+25. Link without callback (default kill)
+26. After default kill (both removed)
+27. Circular links (no infinite loop)
+28. After circular kill (both removed)
+29. Link cleanup when linker dies
+30. After linker cleanup (linked_from cleaned)
+31. After linker cleanup verify
+
+**Short Aliases (32-41):**
+32. T alias (object creation)
+33. Y alias (set properties)
+34. U alias (build function)
+35. A alias (add child)
+36. E, X, L aliases (action phases)
+37. After action aliases (waiting)
+38. After action aliases (order check)
+39. F alias (flow_to)
+40. K alias (link)
+41. After K alias (cleanup)
+
+**Final:**
+42. Final state
 
 ---
 
@@ -288,6 +411,12 @@ an\action ->
 10. **`false` for anonymous action names** — Preserves array iteration
 11. **`all()` returns dead objects** — Dead check is caller's responsibility
 12. **Children-first destroy order** — Iterate objects in reverse for cleanup
+13. **Link callbacks run immediately** — During `kill()`, not deferred to cleanup
+14. **Default link behavior is kill** — No callback means linker dies when target dies
+15. **Link callback receives only self** — Target not passed; use closures if needed
+16. **Links don't create named refs** — Unlike `add()`, links are just death notifications
+17. **No custom operators** — YueScript limitations make operators impractical; short methods used instead
+18. **Single-letter aliases** — T, Y, U, E, X, L, A, F, K provide compact API without language hacks
 
 ---
 
@@ -306,8 +435,11 @@ an\action ->
 | Action system (early/main/late, named/anonymous) | Done |
 | Three-phase update loop | Done |
 | End-of-frame cleanup | Done |
+| Horizontal links (`link(target, callback)`) | Done |
+| Initialization methods (`set`, `build`, `flow_to`) | Done |
+| Short aliases (T, Y, U, E, X, L, A, F, K) | Done |
 | Documentation comments in object.yue | Done |
-| Test suite (21 tests) | Done |
+| Test suite (42 tests) | Done |
 
 ---
 
@@ -315,8 +447,6 @@ an\action ->
 
 | Feature | Status |
 |---------|--------|
-| Operators (`^`, `/`, `+`, `>>`) | Not started |
-| Operator inheritance (`__inherited`) | Not started |
-| Phase helpers (`U`, `L`, `X`, `E`) | Not started |
-| Horizontal links (`link(target, callback)`) | Not started |
 | Built-in objects (Timer, Spring, Collider) | Not started |
+| Input handling helpers | Not started |
+| Drawing/graphics integration | Not started |

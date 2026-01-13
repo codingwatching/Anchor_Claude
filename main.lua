@@ -202,6 +202,205 @@ test_after_oneshot_early_late = function()
 		return log("early_count=" .. tostring(an.p.early_count) .. ", late_count=" .. tostring(an.p.late_count))
 	end)
 end
+test_link_callback = function()
+	return test("Link with callback (object survives)", function()
+		an:add(object('shooter'))
+		an:add(object('bullet'))
+		an.bullet.homing = true
+		an.bullet:link(an.shooter, function(self)
+			self.homing = false
+			return log("Callback ran, homing=" .. tostring(self.homing))
+		end)
+		log("bullet linked to shooter")
+		an.shooter:kill()
+		return log("shooter killed, bullet.dead=" .. tostring(an.bullet.dead) .. ", bullet.homing=" .. tostring(an.bullet.homing))
+	end)
+end
+test_after_link_callback = function()
+	return test("After link callback (bullet still alive)", function()
+		log("bullet exists: " .. tostring(an.bullet ~= nil))
+		log("bullet.dead: " .. tostring(an.bullet.dead))
+		return log("shooter removed: " .. tostring(an.shooter == nil))
+	end)
+end
+test_link_callback_kills = function()
+	return test("Link with callback that kills self", function()
+		an:add(object('owner'))
+		an:add(object('pet'))
+		an.pet.said_goodbye = false
+		an.pet:link(an.owner, function(self)
+			self.said_goodbye = true
+			log("Pet says goodbye")
+			return self:kill()
+		end)
+		log("pet linked to owner")
+		an.owner:kill()
+		return log("owner killed, pet.dead=" .. tostring(an.pet.dead) .. ", pet.said_goodbye=" .. tostring(an.pet.said_goodbye))
+	end)
+end
+test_after_callback_kill = function()
+	return test("After callback kill (both removed)", function()
+		log("owner exists: " .. tostring(an.owner))
+		return log("pet exists: " .. tostring(an.pet))
+	end)
+end
+test_link_default = function()
+	return test("Link without callback (default kill)", function()
+		an:add(object('parent_obj'))
+		an:add(object('child_obj'))
+		an.child_obj:link(an.parent_obj)
+		log("child_obj linked to parent_obj (no callback)")
+		an.parent_obj:kill()
+		return log("parent_obj killed, child_obj.dead=" .. tostring(an.child_obj.dead))
+	end)
+end
+test_after_default_kill = function()
+	return test("After default kill (both removed)", function()
+		log("parent_obj exists: " .. tostring(an.parent_obj))
+		return log("child_obj exists: " .. tostring(an.child_obj))
+	end)
+end
+test_circular_links = function()
+	return test("Circular links", function()
+		an:add(object('node_a'))
+		an:add(object('node_b'))
+		an.node_a:link(an.node_b)
+		an.node_b:link(an.node_a)
+		log("node_a and node_b linked to each other")
+		an.node_a:kill()
+		return log("node_a killed, node_a.dead=" .. tostring(an.node_a.dead) .. ", node_b.dead=" .. tostring(an.node_b.dead))
+	end)
+end
+test_after_circular = function()
+	return test("After circular kill (both removed)", function()
+		log("node_a exists: " .. tostring(an.node_a))
+		return log("node_b exists: " .. tostring(an.node_b))
+	end)
+end
+test_link_cleanup = function()
+	return test("Link cleanup when linker dies", function()
+		an:add(object('target'))
+		an:add(object('linker'))
+		an.linker:link(an.target, function(self)
+			return log("This should not run")
+		end)
+		log("target.linked_from count: " .. tostring(#an.target.linked_from))
+		an.linker:kill()
+		return log("linker killed (not target)")
+	end)
+end
+test_after_linker_cleanup = function()
+	return test("After linker cleanup (linked_from cleaned)", function()
+		log("target exists: " .. tostring(an.target ~= nil))
+		log("target.linked_from count: " .. tostring(an.target.linked_from and #an.target.linked_from or 0))
+		return an.target:kill()
+	end)
+end
+test_T_alias = function()
+	return test("T alias (object)", function()
+		local o = T('alias_test')
+		an:add(o)
+		log("T created object: " .. tostring(an.alias_test ~= nil))
+		return log("name: " .. tostring(an.alias_test.name))
+	end)
+end
+test_Y_alias = function()
+	return test("Y alias (set)", function()
+		an.alias_test:Y({
+			x = 100,
+			y = 200,
+			hp = 50
+		})
+		return log("x=" .. tostring(an.alias_test.x) .. ", y=" .. tostring(an.alias_test.y) .. ", hp=" .. tostring(an.alias_test.hp))
+	end)
+end
+test_U_alias = function()
+	return test("U alias (build)", function()
+		an.alias_test:U(function(self)
+			self.speed = self.x + self.y
+			self.ready = true
+		end)
+		return log("speed=" .. tostring(an.alias_test.speed) .. ", ready=" .. tostring(an.alias_test.ready))
+	end)
+end
+test_A_alias = function()
+	return test("A alias (add)", function()
+		an.alias_test:A(object('child_a'))
+		return log("child added: " .. tostring(an.alias_test.child_a ~= nil))
+	end)
+end
+test_action_aliases = function()
+	return test("E, X, L aliases (actions)", function()
+		an:add(object('action_alias_test'))
+		an.action_alias_test.order = { }
+		an.action_alias_test:E(function()
+			do
+				local _obj_0 = an.action_alias_test.order
+				_obj_0[#_obj_0 + 1] = 'E'
+			end
+			return true
+		end)
+		an.action_alias_test:X(function()
+			do
+				local _obj_0 = an.action_alias_test.order
+				_obj_0[#_obj_0 + 1] = 'X'
+			end
+			return true
+		end)
+		an.action_alias_test:L(function()
+			do
+				local _obj_0 = an.action_alias_test.order
+				_obj_0[#_obj_0 + 1] = 'L'
+			end
+			return true
+		end)
+		return log("Actions added via aliases")
+	end)
+end
+test_after_action_aliases_wait = function()
+	return test("After action aliases (waiting)", function()
+		return log("Letting E, X, L run...")
+	end)
+end
+test_after_action_aliases = function()
+	return test("After action aliases (order check)", function()
+		log("Order: " .. tostring(table.concat(an.action_alias_test.order, ', ')))
+		log("Expected: E, X, L")
+		return an.action_alias_test:kill()
+	end)
+end
+test_F_alias = function()
+	return test("F alias (flow_to)", function()
+		local o = T('flow_test')
+		o:Y({
+			x = 50
+		})
+		o:F(an)
+		log("flow_to worked: " .. tostring(an.flow_test ~= nil))
+		return log("x=" .. tostring(an.flow_test.x))
+	end)
+end
+test_K_alias = function()
+	return test("K alias (link)", function()
+		an:add(object('link_target'))
+		an:add(object('link_source'))
+		an.link_source.survived = false
+		an.link_source:K(an.link_target, function(self)
+			self.survived = true
+		end)
+		an.link_target:kill()
+		return log("link callback ran: " .. tostring(an.link_source.survived))
+	end)
+end
+test_after_K_alias = function()
+	return test("After K alias (cleanup)", function()
+		log("link_target removed: " .. tostring(an.link_target == nil))
+		log("link_source survived: " .. tostring(an.link_source ~= nil))
+		an.link_source:kill()
+		an.alias_test:kill()
+		return an.flow_test:kill()
+	end)
+end
 test_final = function()
 	return test("Final state", function()
 		log("All: " .. tostring(names(an:all())))
@@ -246,6 +445,39 @@ return an:action(function()
 	elseif frame == 15 then
 		return test_after_oneshot_early_late()
 	elseif frame == 16 then
+		return test_link_callback()
+	elseif frame == 17 then
+		test_after_link_callback()
+		return test_link_callback_kills()
+	elseif frame == 18 then
+		test_after_callback_kill()
+		return test_link_default()
+	elseif frame == 19 then
+		test_after_default_kill()
+		return test_circular_links()
+	elseif frame == 20 then
+		test_after_circular()
+		return test_link_cleanup()
+	elseif frame == 21 then
+		return test_after_linker_cleanup()
+	elseif frame == 22 then
+		test_T_alias()
+		test_Y_alias()
+		return test_U_alias()
+	elseif frame == 23 then
+		test_A_alias()
+		return test_action_aliases()
+	elseif frame == 24 then
+		return test_after_action_aliases_wait()
+	elseif frame == 25 then
+		return test_after_action_aliases()
+	elseif frame == 26 then
+		return test_F_alias()
+	elseif frame == 27 then
+		return test_K_alias()
+	elseif frame == 28 then
+		return test_after_K_alias()
+	elseif frame == 29 then
 		return test_final()
 	end
 end)

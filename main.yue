@@ -183,7 +183,183 @@ test_after_oneshot_early_late = ->
     log "One-shots should have run once and been removed"
     log "early_count=#{an.p.early_count}, late_count=#{an.p.late_count}"
 
--- Test 21: Final
+-- Test 22: Link with callback (survives)
+test_link_callback = ->
+  test "Link with callback (object survives)", ->
+    an\add object 'shooter'
+    an\add object 'bullet'
+    an.bullet.homing = true
+    an.bullet\link an.shooter, =>
+      @homing = false
+      log "Callback ran, homing=#{@homing}"
+    log "bullet linked to shooter"
+    an.shooter\kill!
+    log "shooter killed, bullet.dead=#{an.bullet.dead}, bullet.homing=#{an.bullet.homing}"
+
+-- Test 23: After link callback
+test_after_link_callback = ->
+  test "After link callback (bullet still alive)", ->
+    log "bullet exists: #{an.bullet != nil}"
+    log "bullet.dead: #{an.bullet.dead}"
+    log "shooter removed: #{an.shooter == nil}"
+
+-- Test 24: Link with callback that kills self
+test_link_callback_kills = ->
+  test "Link with callback that kills self", ->
+    an\add object 'owner'
+    an\add object 'pet'
+    an.pet.said_goodbye = false
+    an.pet\link an.owner, =>
+      @said_goodbye = true
+      log "Pet says goodbye"
+      @\kill!
+    log "pet linked to owner"
+    an.owner\kill!
+    log "owner killed, pet.dead=#{an.pet.dead}, pet.said_goodbye=#{an.pet.said_goodbye}"
+
+-- Test 25: After callback kill
+test_after_callback_kill = ->
+  test "After callback kill (both removed)", ->
+    log "owner exists: #{an.owner}"
+    log "pet exists: #{an.pet}"
+
+-- Test 26: Link without callback (default kill)
+test_link_default = ->
+  test "Link without callback (default kill)", ->
+    an\add object 'parent_obj'
+    an\add object 'child_obj'
+    an.child_obj\link an.parent_obj
+    log "child_obj linked to parent_obj (no callback)"
+    an.parent_obj\kill!
+    log "parent_obj killed, child_obj.dead=#{an.child_obj.dead}"
+
+-- Test 27: After default kill
+test_after_default_kill = ->
+  test "After default kill (both removed)", ->
+    log "parent_obj exists: #{an.parent_obj}"
+    log "child_obj exists: #{an.child_obj}"
+
+-- Test 28: Circular links
+test_circular_links = ->
+  test "Circular links", ->
+    an\add object 'node_a'
+    an\add object 'node_b'
+    an.node_a\link an.node_b
+    an.node_b\link an.node_a
+    log "node_a and node_b linked to each other"
+    an.node_a\kill!
+    log "node_a killed, node_a.dead=#{an.node_a.dead}, node_b.dead=#{an.node_b.dead}"
+
+-- Test 29: After circular kill
+test_after_circular = ->
+  test "After circular kill (both removed)", ->
+    log "node_a exists: #{an.node_a}"
+    log "node_b exists: #{an.node_b}"
+
+-- Test 30: Link cleanup when linker dies
+test_link_cleanup = ->
+  test "Link cleanup when linker dies", ->
+    an\add object 'target'
+    an\add object 'linker'
+    an.linker\link an.target, =>
+      log "This should not run"
+    log "target.linked_from count: #{#an.target.linked_from}"
+    an.linker\kill!
+    log "linker killed (not target)"
+
+-- Test 31: After linker cleanup
+test_after_linker_cleanup = ->
+  test "After linker cleanup (linked_from cleaned)", ->
+    log "target exists: #{an.target != nil}"
+    log "target.linked_from count: #{an.target.linked_from and #an.target.linked_from or 0}"
+    an.target\kill!
+
+-- Test 32: T alias (object)
+test_T_alias = ->
+  test "T alias (object)", ->
+    o = T 'alias_test'
+    an\add o
+    log "T created object: #{an.alias_test != nil}"
+    log "name: #{an.alias_test.name}"
+
+-- Test 33: Y alias (set)
+test_Y_alias = ->
+  test "Y alias (set)", ->
+    an.alias_test\Y {x: 100, y: 200, hp: 50}
+    log "x=#{an.alias_test.x}, y=#{an.alias_test.y}, hp=#{an.alias_test.hp}"
+
+-- Test 34: U alias (build)
+test_U_alias = ->
+  test "U alias (build)", ->
+    an.alias_test\U =>
+      @speed = @x + @y
+      @ready = true
+    log "speed=#{an.alias_test.speed}, ready=#{an.alias_test.ready}"
+
+-- Test 35: A alias (add)
+test_A_alias = ->
+  test "A alias (add)", ->
+    an.alias_test\A object 'child_a'
+    log "child added: #{an.alias_test.child_a != nil}"
+
+-- Test 36: E, X, L aliases (actions)
+test_action_aliases = ->
+  test "E, X, L aliases (actions)", ->
+    an\add object 'action_alias_test'
+    an.action_alias_test.order = {}
+    an.action_alias_test\E ->
+      an.action_alias_test.order[] = 'E'
+      true  -- one-shot
+    an.action_alias_test\X ->
+      an.action_alias_test.order[] = 'X'
+      true  -- one-shot
+    an.action_alias_test\L ->
+      an.action_alias_test.order[] = 'L'
+      true  -- one-shot
+    log "Actions added via aliases"
+
+-- Test 37: After action aliases (wait one frame for all phases to complete)
+test_after_action_aliases_wait = ->
+  test "After action aliases (waiting)", ->
+    log "Letting E, X, L run..."
+
+-- Test 38: After action aliases (check order)
+test_after_action_aliases = ->
+  test "After action aliases (order check)", ->
+    log "Order: #{table.concat an.action_alias_test.order, ', '}"
+    log "Expected: E, X, L"
+    an.action_alias_test\kill!
+
+-- Test 39: F alias (flow_to)
+test_F_alias = ->
+  test "F alias (flow_to)", ->
+    o = T 'flow_test'
+    o\Y {x: 50}
+    o\F an
+    log "flow_to worked: #{an.flow_test != nil}"
+    log "x=#{an.flow_test.x}"
+
+-- Test 40: K alias (link)
+test_K_alias = ->
+  test "K alias (link)", ->
+    an\add object 'link_target'
+    an\add object 'link_source'
+    an.link_source.survived = false
+    an.link_source\K an.link_target, =>
+      @survived = true
+    an.link_target\kill!
+    log "link callback ran: #{an.link_source.survived}"
+
+-- Test 41: After K alias
+test_after_K_alias = ->
+  test "After K alias (cleanup)", ->
+    log "link_target removed: #{an.link_target == nil}"
+    log "link_source survived: #{an.link_source != nil}"
+    an.link_source\kill!
+    an.alias_test\kill!
+    an.flow_test\kill!
+
+-- Test 42: Final
 test_final = ->
   test "Final state", ->
     log "All: #{names an\all!}"
@@ -227,4 +403,37 @@ an\action ->
   elseif frame == 15
     test_after_oneshot_early_late!
   elseif frame == 16
+    test_link_callback!
+  elseif frame == 17
+    test_after_link_callback!
+    test_link_callback_kills!
+  elseif frame == 18
+    test_after_callback_kill!
+    test_link_default!
+  elseif frame == 19
+    test_after_default_kill!
+    test_circular_links!
+  elseif frame == 20
+    test_after_circular!
+    test_link_cleanup!
+  elseif frame == 21
+    test_after_linker_cleanup!
+  elseif frame == 22
+    test_T_alias!
+    test_Y_alias!
+    test_U_alias!
+  elseif frame == 23
+    test_A_alias!
+    test_action_aliases!
+  elseif frame == 24
+    test_after_action_aliases_wait!
+  elseif frame == 25
+    test_after_action_aliases!
+  elseif frame == 26
+    test_F_alias!
+  elseif frame == 27
+    test_K_alias!
+  elseif frame == 28
+    test_after_K_alias!
+  elseif frame == 29
     test_final!

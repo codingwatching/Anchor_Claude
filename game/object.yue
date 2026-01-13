@@ -113,6 +113,13 @@ class object
           obj\kill!
     else
       @dead = true
+      if @linked_from
+        for link in *@linked_from
+          continue if link.source.dead
+          if link.callback
+            link.callback link.source
+          else
+            link.source\kill!
       for obj in *@\all!
         obj.dead = true
     @
@@ -146,6 +153,80 @@ class object
   ]]
   is: (name_or_tag) =>
     @name == name_or_tag or @tags[name_or_tag]
+
+  --[[
+    Creates a horizontal link to another object for death notification.
+
+    Usage:
+      @\link target                      -- kill self when target dies
+      @\link target, => @homing = false  -- run callback when target dies
+
+    Behavior:
+      - When target dies (kill! is called), callback runs with self as argument
+      - If no callback provided, self is killed when target dies
+      - Links are bidirectional internally: @links stores outgoing, target.linked_from stores incoming
+      - Both are cleaned up when either object is removed from tree
+
+    Returns: @ (for chaining)
+  ]]
+  link: (target, callback) =>
+    @links = {} unless @links
+    @links[] = {target: target, callback: callback}
+    target.linked_from = {} unless target.linked_from
+    target.linked_from[] = {source: @, callback: callback}
+    @
+
+  --[[
+    Assigns properties from a table to this object.
+
+    Usage:
+      @\set {x: 100, y: 200, hp: 50}
+
+    Behavior:
+      - Iterates over key-value pairs in the table
+      - Assigns each key-value pair to @
+
+    Returns: @ (for chaining)
+  ]]
+  set: (properties) =>
+    for key, value in pairs properties
+      @[key] = value
+    @
+
+  --[[
+    Runs a build function with this object as the argument.
+
+    Usage:
+      @\build =>
+        @x = 100
+        @y = 200
+        @hp = @x + @y
+
+    Behavior:
+      - Calls the function with @ as argument
+      - Useful for complex initialization that can't be done with a simple table
+
+    Returns: @ (for chaining)
+  ]]
+  build: (build_function) =>
+    build_function @
+    @
+
+  --[[
+    Adds this object to a parent (reverse of add).
+
+    Usage:
+      player\flow_to arena    -- equivalent to: arena\add player
+
+    Behavior:
+      - Calls parent\add @ internally
+      - Useful for fluent chaining when creating objects inline
+
+    Returns: @ (for chaining)
+  ]]
+  flow_to: (parent) =>
+    parent\add @
+    @
 
   --[[
     Adds an action to run during the early phase (before main update).
@@ -253,6 +334,40 @@ class object
       @late_actions[] = name_or_fn
       @late_action_names[] = false
     @
+
+  --[[
+    Short single-letter aliases for compact API.
+
+      T = object (global)
+      Y = set
+      U = build
+      E = early_action
+      X = action
+      L = late_action
+      A = add
+      F = flow_to
+      K = link
+
+    Usage:
+      p = T 'player'
+      p\Y {x: 100, y: 200}
+      p\U => @hp = 100
+      p\X 'move', (dt) => @x += dt
+      p\L 'draw', (dt) => draw @x, @y
+      p\A timer!
+      p\F arena
+      p\K target
+  ]]
+
+  -- Aliases
+  E: (name_or_fn, fn) => @\early_action name_or_fn, fn
+  X: (name_or_fn, fn) => @\action name_or_fn, fn
+  L: (name_or_fn, fn) => @\late_action name_or_fn, fn
+  A: (child) => @\add child
+  K: (target, callback) => @\link target, callback
+  Y: (properties) => @\set properties
+  U: (build_function) => @\build build_function
+  F: (parent) => @\flow_to parent
 
   --[[
     Internal: runs early phase for this object.
@@ -364,6 +479,20 @@ class object
       while j <= #parent.children
         child = parent.children[j]
         if child.dead
+          -- Clean up child's outgoing links (remove from targets' linked_from)
+          if child.links
+            for link in *child.links
+              if link.target.linked_from
+                for k = #link.target.linked_from, 1, -1
+                  if link.target.linked_from[k].source == child
+                    table.remove link.target.linked_from, k
+          -- Clean up child's incoming links (remove from sources' links)
+          if child.linked_from
+            for entry in *child.linked_from
+              if entry.source.links
+                for k = #entry.source.links, 1, -1
+                  if entry.source.links[k].target == child
+                    table.remove entry.source.links, k
           child\destroy! if child.destroy
           parent[child.name] = nil if child.name
           child[parent.name] = nil if parent.name
@@ -371,3 +500,6 @@ class object
           table.remove parent.children, j
         else
           j += 1
+
+-- Global alias: T = object
+T = object
