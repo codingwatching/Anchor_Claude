@@ -1,0 +1,15 @@
+global *
+
+class font
+  new: (@name, path, @size) =>
+    font_load @name, path, @size
+    @height = font_get_height @name
+
+  text_width: (text) =>
+    font_get_text_width @name, text
+
+  char_width: (codepoint) =>
+    font_get_char_width @name, codepoint
+
+  glyph_metrics: (codepoint) =>
+    font_get_glyph_metrics @name, codepoint

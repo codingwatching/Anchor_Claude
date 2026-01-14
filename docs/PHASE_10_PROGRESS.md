@@ -16,24 +16,30 @@ Anchor/
 │   ├── src/anchor.c
 │   ├── build/
 │   │   └── anchor.exe
-│   └── build.bat
-├── game/                   # Master framework (YueScript source)
-│   ├── init.yue
-│   ├── init.lua
-│   ├── object.yue
-│   └── object.lua
-├── main.yue                # Test file (runs from Anchor/ root)
-├── main.lua
-├── yue.exe                 # YueScript compiler
-├── assets/                 # Test assets
+│   ├── build.bat           # Build C code (desktop)
+│   ├── build-web.sh        # Build C code (web)
+│   └── run.bat             # Run engine with framework/ (no yue compile)
+├── framework/              # Framework testing environment
+│   ├── anchor/             # Master framework (YueScript source)
+│   │   ├── init.yue
+│   │   ├── object.yue
+│   │   ├── layer.yue
+│   │   ├── image.yue
+│   │   └── font.yue
+│   ├── assets/             # Test assets
+│   ├── main.yue            # Test file
+│   ├── yue.exe             # YueScript compiler
+│   ├── run.bat             # Compile .yue + run desktop
+│   └── run-web.bat         # Compile .yue + build web + run browser
 ├── docs/
 ├── reference/
 └── scripts/
 ```
 
-- `engine/` contains only C code and build artifacts
-- `game/` contains the master copy of the YueScript framework
-- Test files live in Anchor/ root, using `require 'game.init'`
+- `engine/` contains C code, build artifacts, and engine-level scripts
+- `framework/` contains the master framework and test environment
+- `framework/anchor/` is the master copy of framework classes
+- Test files use `require 'anchor'` (same as games)
 
 ### Game Repository
 
@@ -42,51 +48,46 @@ emoji-ball-battles/         # (or any game)
 ├── tools/
 │   ├── anchor.exe          # Copied from Anchor/engine/build/
 │   └── yue.exe             # YueScript compiler
-├── anchor/                 # Framework (copied from Anchor/game/ or previous game)
+├── anchor/                 # Framework (copied from Anchor/framework/anchor/)
 │   ├── init.yue
-│   ├── init.lua
 │   ├── object.yue
-│   └── object.lua
+│   ├── layer.yue
+│   └── ...
 ├── main.yue                # Game code
-├── main.lua
 └── assets/
 ```
 
 - Each game is self-contained
 - No submodules, no symlinks
 - Framework files are copied, not linked
-- Games use `require 'anchor.object'`, framework uses `require 'game.object'`
+- Both games and Anchor use `require 'anchor'` (same require path)
 
 ---
 
 ## Build and Run Workflow
 
-### Compiling YueScript
+### Framework Development (YueScript)
 
-From Anchor/:
+From `Anchor/framework/`:
 ```bash
-./yue.exe -r game/init.yue
-./yue.exe -r game/object.yue
-./yue.exe -r main.yue
+./run.bat           # Compile .yue + run desktop
+./run-web.bat       # Compile .yue + build web + run browser
 ```
 
-The `-r` flag preserves line numbers for error reporting.
+The `run.bat` script:
+1. Compiles `main.yue` and `anchor/*.yue` with `-r` flag (preserves line numbers)
+2. Runs `../engine/build/anchor.exe .`
 
-### Running
-
-From Anchor/:
-```bash
-./engine/build/anchor.exe .
-```
-
-The C engine calls a global `update(dt)` function in Lua each frame.
-
-### Engine Build
+### Engine Development (C)
 
 From `Anchor/engine/`:
 ```bash
-./build.bat
+./build.bat         # Build engine for desktop
+./run.bat           # Run engine with ../framework (no yue compile)
+./build-web.sh ../framework   # Build for web with framework folder
 ```
+
+The C engine calls a global `update(dt)` function in Lua each frame.
 
 ---
 
@@ -101,9 +102,20 @@ The C engine calls a single global `update(dt)` function. Everything else happen
 ```yuescript
 global *
 
-require 'game.object'
+require 'anchor.object'
+require 'anchor.layer'
+require 'anchor.image'
+require 'anchor.font'
 
 an = object 'an'
+an.layers = {}
+an.images = {}
+an.fonts = {}
+
+-- Resource registration methods
+an.layer = (name) => ...
+an.image = (name, path) => ...
+an.font = (name, path, size) => ...
 
 update = (dt) ->
   all_objects = {an}
@@ -316,7 +328,7 @@ We initially explored custom operators (`^`, `/`, `+`, `>>`) but abandoned them 
 
 ## Testing
 
-Tests run from Anchor/ root using `main.yue`. The test runner is an action on `an`:
+Tests run from `Anchor/framework/` using `main.yue`. The test runner is an action on `an`:
 
 ```yuescript
 an\action ->
@@ -402,7 +414,7 @@ an\action ->
 1. **No submodules** — Too much friction updating during active development
 2. **No symlinks/junctions** — Complicated, not flexible
 3. **Copy-based framework** — Each game has its own copy of the framework
-4. **Master framework in Anchor/game/** — New games copy from here, or from previous game
+4. **Master framework in Anchor/framework/anchor/** — New games copy from here, or from previous game
 5. **Single update entry point** — C only calls `update(dt)`, Lua handles phases internally
 6. **Root object named `an`** — May change later, works for now
 7. **Iterative DFS** — Easier to reason about than recursive
@@ -440,6 +452,10 @@ an\action ->
 | Short aliases (T, Y, U, E, X, L, A, F, K) | Done |
 | Documentation comments in object.yue | Done |
 | Test suite (42 tests) | Done |
+| `layer` class (rectangle, circle, image, text, push/pop, draw) | Done |
+| `image` class (width, height, handle wrapper) | Done |
+| `font` class (text_width, char_width, glyph_metrics) | Done |
+| Resource registration on `an` (layer, image, font) | Done |
 
 ---
 
@@ -544,6 +560,6 @@ Implementation order for remaining Phase 10 work:
 |----------|-------|--------|
 | **Pure utilities** | math (lerp, angle, easing), array, string | Not started |
 | **Value objects** | color | Not started |
-| **Resource manager** | sounds, music, images, layers, fonts on `an` | Not started |
+| **Resource manager** | sounds, music on `an` | Not started |
 | **Child objects** | random, input, timer, spring, collider, camera, animation, shake | Not started |
 | **External libs** | Integrate lua-geo2d for collision utilities | Not started |

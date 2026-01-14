@@ -1,0 +1,6 @@
+global *
+
+class image
+  new: (@handle) =>
+    @width = texture_get_width @handle
+    @height = texture_get_height @handle

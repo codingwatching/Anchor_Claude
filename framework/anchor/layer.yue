@@ -1,0 +1,30 @@
+global *
+
+class layer
+  new: (@name) =>
+    @handle = layer_create @name
+
+  rectangle: (x, y, w, h, color) =>
+    layer_rectangle @handle, x, y, w, h, color
+
+  circle: (x, y, radius, color) =>
+    layer_circle @handle, x, y, radius, color
+
+  image: (image, x, y, color, flash) =>
+    layer_draw_texture @handle, image.handle, x, y, color or 0xFFFFFFFF, flash or 0
+
+  text: (text, font, x, y, color) =>
+    font_name = if type(font) == 'string' then font else font.name
+    layer_draw_text @handle, text, font_name, x, y, color
+
+  push: (x, y, r, sx, sy) =>
+    layer_push @handle, x, y, r, sx, sy
+
+  pop: =>
+    layer_pop @handle
+
+  set_blend_mode: (mode) =>
+    layer_set_blend_mode @handle, mode
+
+  draw: (x, y) =>
+    layer_draw @handle, x or 0, y or 0

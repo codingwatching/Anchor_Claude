@@ -8,11 +8,11 @@ Guidelines for Claude Code instances working on the Anchor engine.
 
 **Engine** — C code in `engine/src/anchor.c` exposing functions to Lua
 **Game** — YueScript code using the engine to build games
-**Framework** — YueScript framework classes in `Anchor/game/` (object.yue, init.yue, etc.)
+**Framework** — YueScript framework classes in `Anchor/framework/anchor/` (object.yue, init.yue, etc.)
 
 **Engine Mode** — when modifying anchor.c or engine behavior
 **Game Mode** — when writing gameplay code in YueScript (from a game's repository)
-**Framework Mode** — when editing the YueScript framework classes in `Anchor/game/`
+**Framework Mode** — when editing the YueScript framework classes in `Anchor/framework/anchor/`
 
 This is the **Engine** and **Framework** repository. For Game Mode, work from a game's repository (e.g., `emoji-ball-battles/`).
 
@@ -30,7 +30,8 @@ This is the **Engine** and **Framework** repository. For Game Mode, work from a 
 - `docs/ANCHOR_CONTEXT_BRIEF.md` — design reasoning, developer working style, how to evaluate features
 
 **YueScript Framework:**
-- `game/` — framework classes (object, timer, spring, collider, etc.)
+- `framework/anchor/` — framework classes (object, layer, image, font, etc.)
+- `framework/main.yue` — test file for framework development
 - `reference/phase-10-implementation-plan.md` — Phase 10 implementation details
 
 **Archived docs** (superseded by anchor.c, kept for historical reference):
@@ -45,7 +46,15 @@ This is the **Engine** and **Framework** repository. For Game Mode, work from a 
 ### Development
 
 ```bash
-cd E:/a327ex/Anchor/engine && ./build.bat    # Build engine (always after C changes)
+# Engine (C code)
+cd E:/a327ex/Anchor/engine && ./build.bat    # Build engine for desktop
+cd E:/a327ex/Anchor/engine && ./run.bat      # Run engine with framework/ (no yue compile)
+
+# Framework (YueScript)
+cd E:/a327ex/Anchor/framework && ./run.bat       # Compile .yue + run desktop
+cd E:/a327ex/Anchor/framework && ./run-web.bat   # Compile .yue + build web + run browser
+
+# Utilities
 ./scripts/new-game.sh <name>                  # Create new game project
 ./scripts/patch-claude-code.sh               # Fix Windows timestamp bug (after CC updates)
 ```
@@ -85,7 +94,7 @@ When the user asks to end the session, see `docs/SESSION_WORKFLOW.md` for the fu
 
 ## The Engine
 
-**Anchor** — a game engine written in C with Lua scripting, SDL2, OpenGL, and Box2D. Games are written in YueScript using the framework classes in `engine/yue/`.
+**Anchor** — a game engine written in C with Lua scripting, SDL2, OpenGL, and Box2D. Games are written in YueScript using the framework classes in `framework/anchor/`.
 
 ---
 
@@ -131,7 +140,7 @@ When providing answers that are long or contain multiple code examples, create a
 
 ## Framework Mode
 
-When editing YueScript framework classes in `Anchor/game/`:
+When editing YueScript framework classes in `Anchor/framework/anchor/`:
 
 - Present code for user review before writing — show the code snippet, ask "Does this look right?"
 - One method at a time — small incremental changes, not batching multiple features
@@ -155,3 +164,5 @@ If a verbose name conflicts with a reserved keyword or one that's already in the
 - Use `for i, item in ipairs list` for index-value pairs
 - Use `\method!` for method calls (compiles to `obj:method()`)
 - Use `@\method!` for self method calls in class methods
+- Use `@` prefix in constructor parameters for auto-assignment: `new: (@name, @x, @y) =>` automatically sets `@name = name`, etc.
+- Default values work with auto-assignment: `new: (@name='default', @size=16) =>`

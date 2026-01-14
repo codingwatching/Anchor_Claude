@@ -1,0 +1,32 @@
+global *
+
+require 'anchor.object'
+require 'anchor.layer'
+require 'anchor.image'
+require 'anchor.font'
+
+an = object 'an'
+an.layers = {}
+an.images = {}
+an.fonts = {}
+
+an.layer = (name) =>
+  @layers[name] = layer name
+  @layers[name]
+
+an.image = (name, path) =>
+  handle = texture_load path
+  @images[name] = image handle
+  @images[name]
+
+an.font = (name, path, size) =>
+  @fonts[name] = font name, path, size
+  @fonts[name]
+
+update = (dt) ->
+  all_objects = {an}
+  all_objects[] = obj for obj in *an\all!
+  obj\_early_update dt for obj in *all_objects
+  obj\_update dt for obj in *all_objects
+  obj\_late_update dt for obj in *all_objects
+  an\cleanup!

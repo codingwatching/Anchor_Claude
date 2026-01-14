@@ -14,7 +14,7 @@
 #   ├── tools/
 #   │   ├── anchor.exe    (copied from Anchor/engine/build/)
 #   │   └── yue.exe       (copied from previous game or downloaded)
-#   ├── anchor/           (framework: copied from Anchor/game/ or previous game)
+#   ├── anchor/           (framework: copied from Anchor/framework/anchor/ or previous game)
 #   │   ├── init.yue
 #   │   └── object.yue
 #   ├── main.yue          (game entry point template)
@@ -89,7 +89,7 @@ if [ -n "$FROM_GAME" ]; then
     fi
     echo "Creating new game: $GAME_NAME (copying framework from $FROM_GAME)"
 else
-    echo "Creating new game: $GAME_NAME (using master framework from Anchor/game/)"
+    echo "Creating new game: $GAME_NAME (using master framework from Anchor/framework/anchor/)"
 fi
 echo "Location: $GAME_PATH"
 echo ""
@@ -118,9 +118,12 @@ else
     echo "Run build.bat in Anchor/engine/ first."
 fi
 
-# Copy yue.exe from previous game or download
+# Copy yue.exe from previous game, Anchor/framework/, or download
 if [ -n "$FROM_GAME" ] && [ -f "$FROM_PATH/tools/yue.exe" ]; then
     cp "$FROM_PATH/tools/yue.exe" tools/
+elif [ -f "$ANCHOR_ROOT/framework/yue.exe" ]; then
+    # Use Anchor's yue.exe
+    cp "$ANCHOR_ROOT/framework/yue.exe" tools/
 elif [ -f "$GAMES_ROOT/emoji-ball-battles/tools/yue.exe" ]; then
     # Fallback: try emoji-ball-battles
     cp "$GAMES_ROOT/emoji-ball-battles/tools/yue.exe" tools/
@@ -141,8 +144,8 @@ if [ -n "$FROM_GAME" ]; then
     # Copy from previous game
     cp "$FROM_PATH/anchor/"*.yue anchor/
 else
-    # Copy from Anchor/game/ (master copy)
-    cp "$ANCHOR_ROOT/game/"*.yue anchor/
+    # Copy from Anchor/framework/anchor/ (master copy)
+    cp "$ANCHOR_ROOT/framework/anchor/"*.yue anchor/
 fi
 
 # ----------------------------------------------------------------------------
