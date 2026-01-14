@@ -443,10 +443,107 @@ an\action ->
 
 ---
 
+## Module Architecture
+
+The remaining framework modules fall into four categories, each requiring a different implementation strategy. **Not everything should be an object in the tree.** Each module should be self-contained and not leak into other systems.
+
+### Resource Manager (`an`)
+
+The root object `an` manages all loaded resources. Resources are created through methods on `an` and stored in registries for later access. The C engine handles the actual resource data; Lua tracks handles and provides convenient access by name.
+
+| Resource | Load Method | Storage | Usage |
+|----------|-------------|---------|-------|
+| **sounds** | `an\sound 'name', 'path'` | `an.sounds.name` | `an.sounds.jump\play 1, 1.05` |
+| **music** | `an\music 'name', 'path'` | `an.music.name` | `an\music_play 'bgm'` |
+| **images** | `an\image 'name', 'path'` | `an.images.name` | `game\draw_texture an.images.player, x, y` |
+| **layers** | `an\layer 'name'` | `an.layers.name` | `game\circle x, y, r, color` |
+| **fonts** | `an\font 'name', 'path', size` | `an.fonts.name` | `game\draw_text 'hello', 'main', x, y` |
+
+**Why resources on `an`:**
+- Resources need handles tracked somewhere (C returns handles, Lua stores them)
+- Centralized registry allows access by name (`an.sounds.jump` instead of raw handles)
+- Layers are typically assigned to globals for convenience: `game = an\layer 'game'`
+
+**Physics** is also configured through `an`:
+- `an\physics_init!` — Initialize the Box2D world
+- `an\physics_set_gravity gx, gy` — Configure gravity
+- The physics world itself lives in C; Lua configures and queries it
+
+### Child Objects (Tree Lifecycle)
+
+These are proper tree objects added as children to other objects. Their lifecycle is tied to their parent — when the parent dies, they die automatically. They benefit from the tree's automatic cleanup.
+
+| Object | Description | Usage |
+|--------|-------------|-------|
+| **input** | Input bindings context | `@\add input!` then `@input\is_pressed 'jump'` |
+| **random** | Seeded RNG instance | `@\add random seed` then `@random\float 0, 1` |
+| **timer** | Delays, repeating callbacks, tweens | `@\add timer!` then `@timer\after 2, -> ...` |
+| **spring** | Damped spring animation | `@\add spring 1, 200, 10` then `@spring\pull 0.5` |
+| **collider** | Box2D physics body | `@\add collider 'enemy', 'dynamic', 'circle', 16` |
+| **camera** | Viewport with position, zoom, rotation | `an\add camera!` then `an.camera\follow player` |
+| **animation** | Sprite animation | `@\add animation 'walk', 0.1` |
+| **shake** | Shake effect | `@\add shake!` then `@shake\shake 10, 0.5` |
+
+**Child object design principles:**
+- Extend `object` class (or are created by factory functions that return configured objects)
+- Are added via `parent\add child`
+- Die automatically when parent dies
+- Use `destroy()` method for cleanup when removed from tree (e.g., destroy physics body in C)
+- Are self-contained — internal state doesn't leak into tree semantics
+
+**input** as a child object enables:
+- Multiple input contexts (Player 1 keyboard, Player 2 gamepad)
+- Per-object bindings: `@input\bind 'jump', 'key:space'`
+- Queries raw input from C, manages bindings in Lua
+
+**random** as a child object enables:
+- Seeded RNG for deterministic replays
+- Multiple RNGs (gameplay vs cosmetic effects)
+- Encapsulates seed: `@random\get_seed!` for replay storage
+
+**camera** is typically added to `an`, but the object design supports multiple cameras if needed.
+
+**timer** internal design:
+- Stores timers in internal table keyed by name
+- Named timers automatically replace previous timers with same name
+- No `:kill()` exposed on timer entries — just `@timer\cancel 'name'`
+- Timer entries don't leak into tree semantics
+
+### Value Objects (Stateful, Not in Tree)
+
+These are objects with state and methods, but they're not part of the tree hierarchy. You don't add them as children — you create them and use them directly.
+
+| Object | Description | Usage |
+|--------|-------------|-------|
+| **color** | Color with variations and operations | `red = color 1, 0, 0` then `game\circle x, y, 10, red[0]` |
+
+**color** provides:
+- Base color storage (RGBA)
+- Indexed variations: `red[0]` (base), `red[3]` (lighter), `red[-2]` (darker)
+- Alpha variations: `red.alpha[-3]` (semi-transparent)
+- Operations: `red\blend blue, 0.5`, `red\darken 0.2`
+
+### Pure Utilities (Stateless Global Functions)
+
+These are just functions. No object wrapping, no state, no tree integration.
+
+| Module | Description |
+|--------|-------------|
+| **math** | `math.lerp`, `math.angle`, `math.distance`, easing functions |
+| **array** | Array manipulation functions |
+| **string** | String utilities |
+| **collision** | Geometric tests via [lua-geo2d](https://github.com/eigenbom/lua-geo2d) |
+
+---
+
 ## What's Next
 
-| Feature | Status |
-|---------|--------|
-| Built-in objects (Timer, Spring, Collider) | Not started |
-| Input handling helpers | Not started |
-| Drawing/graphics integration | Not started |
+Implementation order for remaining Phase 10 work:
+
+| Category | Items | Status |
+|----------|-------|--------|
+| **Pure utilities** | math (lerp, angle, easing), array, string | Not started |
+| **Value objects** | color | Not started |
+| **Resource manager** | sounds, music, images, layers, fonts on `an` | Not started |
+| **Child objects** | random, input, timer, spring, collider, camera, animation, shake | Not started |
+| **External libs** | Integrate lua-geo2d for collision utilities | Not started |
