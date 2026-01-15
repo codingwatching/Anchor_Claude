@@ -19,6 +19,7 @@ require 'anchor.image'
 require 'anchor.font'
 require 'anchor.timer'
 require 'anchor.math'
+require 'anchor.collider'
 
 --[[
   Root object for the framework.
@@ -90,6 +91,476 @@ an.image = (name, path) =>
 an.font = (name, path, size) =>
   @fonts[name] = font name, path, size
   @fonts[name]
+
+-- Physics world state
+an.colliders = {}        -- body_handle -> collider (internal registry)
+an.collision_pairs = {}  -- tracks enabled pairs for queries
+an.sensor_pairs = {}
+an.hit_pairs = {}
+
+--[[
+  Initializes the physics world.
+
+  Usage:
+    an\physics_init!
+
+  Must be called before creating any colliders or setting physics properties.
+]]
+an.physics_init = =>
+  physics_init!
+
+--[[
+  Sets the gravity vector for the physics world.
+
+  Usage:
+    an\physics_set_gravity 0, 500   -- down
+    an\physics_set_gravity 0, -500  -- up
+]]
+an.physics_set_gravity = (gx, gy) =>
+  physics_set_gravity gx, gy
+
+--[[
+  Sets the meter scale (pixels per meter) for physics simulation.
+
+  Usage:
+    an\physics_set_meter_scale 32
+]]
+an.physics_set_meter_scale = (scale) =>
+  physics_set_meter_scale scale
+
+--[[
+  Enables or disables physics simulation.
+
+  Usage:
+    an\physics_set_enabled false  -- pause physics
+    an\physics_set_enabled true   -- resume physics
+]]
+an.physics_set_enabled = (enabled) =>
+  physics_set_enabled enabled
+
+--[[
+  Registers a physics tag for collision filtering.
+
+  Usage:
+    an\physics_tag 'player'
+    an\physics_tag 'enemy'
+    an\physics_tag 'wall'
+
+  Tags must be registered before enabling collisions between them.
+]]
+an.physics_tag = (name) =>
+  physics_register_tag name
+
+--[[
+  Enables solid collision between two tags.
+
+  Usage:
+    an\physics_collision 'player', 'wall'
+    an\physics_collision 'enemy', 'wall'
+
+  Both tags must be registered first via physics_tag.
+]]
+an.physics_collision = (tag_a, tag_b) =>
+  physics_enable_collision tag_a, tag_b
+  @collision_pairs[] = {a: tag_a, b: tag_b}
+
+--[[
+  Enables sensor (overlap) detection between two tags.
+
+  Usage:
+    an\physics_sensor 'player', 'pickup'
+
+  Sensors detect overlap without physical response.
+  Both tags must be registered first via physics_tag.
+]]
+an.physics_sensor = (tag_a, tag_b) =>
+  physics_enable_sensor tag_a, tag_b
+  @sensor_pairs[] = {a: tag_a, b: tag_b}
+
+--[[
+  Enables hit events (collision with contact info) between two tags.
+
+  Usage:
+    an\physics_hit 'bullet', 'enemy'
+
+  Hit events include contact point, normal, and approach speed.
+  Both tags must be registered first via physics_tag.
+]]
+an.physics_hit = (tag_a, tag_b) =>
+  physics_enable_hit tag_a, tag_b
+  @hit_pairs[] = {a: tag_a, b: tag_b}
+
+--[[
+  Returns collision begin events between two tags this frame.
+
+  Usage:
+    for event in *an\collision_begin_events 'player', 'enemy'
+      event.a\take_damage 10
+      spawn_particles event.point_x, event.point_y
+
+  Returns array of:
+    {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>,
+     point_x, point_y, normal_x, normal_y}
+]]
+an.collision_begin_events = (tag_a, tag_b) =>
+  result = {}
+  for event in *physics_get_collision_begin tag_a, tag_b
+    id_a = physics_get_user_data event.body_a
+    id_b = physics_get_user_data event.body_b
+    collider_a = @colliders[id_a]
+    collider_b = @colliders[id_b]
+    if collider_a and collider_b
+      -- Normalize order: a should have tag_a, b should have tag_b
+      if collider_a.tag == tag_a
+        result[] = {
+          a: collider_a.parent
+          b: collider_b.parent
+          shape_a: event.shape_a
+          shape_b: event.shape_b
+          point_x: event.point_x
+          point_y: event.point_y
+          normal_x: event.normal_x
+          normal_y: event.normal_y
+        }
+      else
+        result[] = {
+          a: collider_b.parent
+          b: collider_a.parent
+          shape_a: event.shape_b
+          shape_b: event.shape_a
+          point_x: event.point_x
+          point_y: event.point_y
+          normal_x: -event.normal_x
+          normal_y: -event.normal_y
+        }
+  result
+
+--[[
+  Returns collision end events between two tags this frame.
+
+  Usage:
+    for event in *an\collision_end_events 'player', 'platform'
+      event.a.on_ground = false
+
+  Returns array of:
+    {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>}
+]]
+an.collision_end_events = (tag_a, tag_b) =>
+  result = {}
+  for event in *physics_get_collision_end tag_a, tag_b
+    id_a = physics_get_user_data event.body_a
+    id_b = physics_get_user_data event.body_b
+    collider_a = @colliders[id_a]
+    collider_b = @colliders[id_b]
+    if collider_a and collider_b
+      -- Normalize order: a should have tag_a, b should have tag_b
+      if collider_a.tag == tag_a
+        result[] = {
+          a: collider_a.parent
+          b: collider_b.parent
+          shape_a: event.shape_a
+          shape_b: event.shape_b
+        }
+      else
+        result[] = {
+          a: collider_b.parent
+          b: collider_a.parent
+          shape_a: event.shape_b
+          shape_b: event.shape_a
+        }
+  result
+
+--[[
+  Returns sensor begin events between two tags this frame.
+
+  Usage:
+    for event in *an\sensor_begin_events 'player', 'pickup'
+      event.a\collect event.b
+      event.b\kill!
+
+  Returns array of:
+    {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>}
+]]
+an.sensor_begin_events = (tag_a, tag_b) =>
+  result = {}
+  for event in *physics_get_sensor_begin tag_a, tag_b
+    id_a = physics_get_user_data event.sensor_body
+    id_b = physics_get_user_data event.visitor_body
+    collider_a = @colliders[id_a]
+    collider_b = @colliders[id_b]
+    if collider_a and collider_b
+      -- Normalize order: a should have tag_a, b should have tag_b
+      if collider_a.tag == tag_a
+        result[] = {
+          a: collider_a.parent
+          b: collider_b.parent
+          shape_a: event.sensor_shape
+          shape_b: event.visitor_shape
+        }
+      else
+        result[] = {
+          a: collider_b.parent
+          b: collider_a.parent
+          shape_a: event.visitor_shape
+          shape_b: event.sensor_shape
+        }
+  result
+
+--[[
+  Returns sensor end events between two tags this frame.
+
+  Usage:
+    for event in *an\sensor_end_events 'player', 'zone'
+      event.b\on_player_exit!
+
+  Returns array of:
+    {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>}
+]]
+an.sensor_end_events = (tag_a, tag_b) =>
+  result = {}
+  for event in *physics_get_sensor_end tag_a, tag_b
+    id_a = physics_get_user_data event.sensor_body
+    id_b = physics_get_user_data event.visitor_body
+    collider_a = @colliders[id_a]
+    collider_b = @colliders[id_b]
+    if collider_a and collider_b
+      -- Normalize order: a should have tag_a, b should have tag_b
+      if collider_a.tag == tag_a
+        result[] = {
+          a: collider_a.parent
+          b: collider_b.parent
+          shape_a: event.sensor_shape
+          shape_b: event.visitor_shape
+        }
+      else
+        result[] = {
+          a: collider_b.parent
+          b: collider_a.parent
+          shape_a: event.visitor_shape
+          shape_b: event.sensor_shape
+        }
+  result
+
+--[[
+  Returns hit events between two tags this frame.
+
+  Usage:
+    for hit in *an\hit_events 'bullet', 'enemy'
+      hit.a\kill!
+      hit.b\take_damage 10
+      spawn_particles hit.point_x, hit.point_y
+
+  Returns array of:
+    {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>,
+     point_x, point_y, normal_x, normal_y, approach_speed}
+]]
+an.hit_events = (tag_a, tag_b) =>
+  result = {}
+  for event in *physics_get_hit tag_a, tag_b
+    id_a = physics_get_user_data event.body_a
+    id_b = physics_get_user_data event.body_b
+    collider_a = @colliders[id_a]
+    collider_b = @colliders[id_b]
+    if collider_a and collider_b
+      -- Normalize order: a should have tag_a, b should have tag_b
+      if collider_a.tag == tag_a
+        result[] = {
+          a: collider_a.parent
+          b: collider_b.parent
+          shape_a: event.shape_a
+          shape_b: event.shape_b
+          point_x: event.point_x
+          point_y: event.point_y
+          normal_x: event.normal_x
+          normal_y: event.normal_y
+          approach_speed: event.approach_speed
+        }
+      else
+        result[] = {
+          a: collider_b.parent
+          b: collider_a.parent
+          shape_a: event.shape_b
+          shape_b: event.shape_a
+          point_x: event.point_x
+          point_y: event.point_y
+          normal_x: -event.normal_x
+          normal_y: -event.normal_y
+          approach_speed: event.approach_speed
+        }
+  result
+
+--[[
+  Queries for objects at a point.
+
+  Usage:
+    for object in *an\query_point x, y, 'enemy'
+      object\highlight!
+    for object in *an\query_point x, y, {'enemy', 'pickup'}
+      object\highlight!
+
+  Returns array of objects whose colliders contain the point.
+]]
+an.query_point = (x, y, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for body in *physics_query_point x, y, tags
+    id = physics_get_user_data body
+    collider = @colliders[id]
+    if collider
+      result[] = collider.parent
+  result
+
+--[[
+  Queries for objects within a circle.
+
+  Usage:
+    for object in *an\query_circle x, y, 50, 'enemy'
+      object\take_damage 10
+
+  Returns array of objects whose colliders overlap the circle.
+]]
+an.query_circle = (x, y, radius, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for body in *physics_query_circle x, y, radius, tags
+    id = physics_get_user_data body
+    collider = @colliders[id]
+    if collider
+      result[] = collider.parent
+  result
+
+--[[
+  Queries for objects within an axis-aligned bounding box.
+
+  Usage:
+    for object in *an\query_aabb x, y, width, height, 'enemy'
+      object\alert!
+
+  Returns array of objects whose colliders overlap the AABB.
+]]
+an.query_aabb = (x, y, width, height, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for body in *physics_query_aabb x, y, width, height, tags
+    id = physics_get_user_data body
+    collider = @colliders[id]
+    if collider
+      result[] = collider.parent
+  result
+
+--[[
+  Queries for objects within a rotated box.
+
+  Usage:
+    for object in *an\query_box x, y, width, height, angle, 'enemy'
+      object\alert!
+
+  Returns array of objects whose colliders overlap the box.
+]]
+an.query_box = (x, y, width, height, angle, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for body in *physics_query_box x, y, width, height, angle, tags
+    id = physics_get_user_data body
+    collider = @colliders[id]
+    if collider
+      result[] = collider.parent
+  result
+
+--[[
+  Queries for objects within a capsule shape.
+
+  Usage:
+    for object in *an\query_capsule x1, y1, x2, y2, radius, 'enemy'
+      object\stun!
+
+  Returns array of objects whose colliders overlap the capsule.
+]]
+an.query_capsule = (x1, y1, x2, y2, radius, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for body in *physics_query_capsule x1, y1, x2, y2, radius, tags
+    id = physics_get_user_data body
+    collider = @colliders[id]
+    if collider
+      result[] = collider.parent
+  result
+
+--[[
+  Queries for objects within a polygon shape.
+
+  Usage:
+    verts = {{0, 0}, {100, 0}, {50, 100}}
+    for object in *an\query_polygon x, y, verts, 'enemy'
+      object\damage!
+
+  Returns array of objects whose colliders overlap the polygon.
+]]
+an.query_polygon = (x, y, vertices, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for body in *physics_query_polygon x, y, vertices, tags
+    id = physics_get_user_data body
+    collider = @colliders[id]
+    if collider
+      result[] = collider.parent
+  result
+
+--[[
+  Casts a ray and returns the first hit.
+
+  Usage:
+    hit = an\raycast x1, y1, x2, y2, 'wall'
+    if hit
+      spawn_impact hit.point_x, hit.point_y
+      hit.object\take_damage 10
+
+  Returns: {object, shape, point_x, point_y, normal_x, normal_y, fraction} or nil
+]]
+an.raycast = (x1, y1, x2, y2, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  hit = physics_raycast x1, y1, x2, y2, tags
+  if hit
+    id = physics_get_user_data hit.body
+    collider = @colliders[id]
+    if collider
+      return {
+        object: collider.parent
+        shape: hit.shape
+        point_x: hit.point_x
+        point_y: hit.point_y
+        normal_x: hit.normal_x
+        normal_y: hit.normal_y
+        fraction: hit.fraction
+      }
+  nil
+
+--[[
+  Casts a ray and returns all hits.
+
+  Usage:
+    for hit in *an\raycast_all x1, y1, x2, y2, 'enemy'
+      hit.object\take_damage 5
+
+  Returns array of: {object, shape, point_x, point_y, normal_x, normal_y, fraction}
+]]
+an.raycast_all = (x1, y1, x2, y2, tags) =>
+  tags = {tags} if type(tags) == 'string'
+  result = {}
+  for hit in *physics_raycast_all x1, y1, x2, y2, tags
+    id = physics_get_user_data hit.body
+    collider = @colliders[id]
+    if collider
+      result[] = {
+        object: collider.parent
+        shape: hit.shape
+        point_x: hit.point_x
+        point_y: hit.point_y
+        normal_x: hit.normal_x
+        normal_y: hit.normal_y
+        fraction: hit.fraction
+      }
+  result
 
 --[[
   Global update function called by the C engine each physics tick (144Hz).

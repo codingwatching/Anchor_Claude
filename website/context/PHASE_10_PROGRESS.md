@@ -490,6 +490,7 @@ The `math.yue` module provides easing functions for tweens:
 - Use `\method!` for method calls (compiles to `obj:method()`)
 - Use `@\method!` for self method calls in class methods
 - Use `false` instead of `nil` in arrays to preserve iteration
+- Use explicit `local` inside functions when variable name matches a global (with `global *`, assignments to existing globals update them instead of creating locals)
 
 ---
 
@@ -517,6 +518,9 @@ The `math.yue` module provides easing functions for tweens:
 20. **Array-based timer storage** — Deterministic iteration order for reproducible replays
 21. **`trigger` for immediate fire** — Rejected `_now` suffix variants; separate method is clearer
 22. **`watch` and `when` as edge triggers** — Fire once when state changes, not continuously while condition holds
+23. **Event normalization** — `collision_begin_events 'a', 'b'` guarantees `event.a` has tag 'a' and `event.b` has tag 'b'; Box2D returns bodies in arbitrary order
+24. **Collider IDs via integers** — Use `physics_set_user_data` with incrementing integers; Lua userdata comparison fails because new objects are created each time
+25. **Explicit `local` with `global *`** — When using `global *`, explicitly declare `local` for variables inside functions that share names with top-level globals
 
 ---
 
@@ -546,6 +550,12 @@ The `math.yue` module provides easing functions for tweens:
 | Resource registration on `an` (layer, image, font) | Done |
 | `timer` class (after, every, during, tween, watch, when, cooldown, every_step, during_step, cancel, trigger, set_multiplier, get_time_left) | Done |
 | `math` module (lerp, easing functions: linear, sine, quad, cubic, quart, quint, expo, circ, bounce, back, elastic) | Done |
+| Physics world on `an` (physics_init, physics_set_gravity, physics_tag, physics_collision, physics_sensor, physics_hit) | Done |
+| Collision query methods on `an` (collision_begin_events, collision_end_events, sensor_begin_events, sensor_end_events, hit_events) | Done |
+| `collider` class (body creation, shapes, position/velocity, forces, properties, destroy) | Done |
+| `collider` sensor shape support via opts table `{sensor: true}` | Done |
+| Event normalization (a/b match query tag order) | Done |
+| Spatial queries on `an` (query_point, query_circle, query_aabb, query_box, query_capsule, query_polygon, raycast, raycast_all) | Done |
 
 ---
 
@@ -642,6 +652,59 @@ These are just functions. No object wrapping, no state, no tree integration.
 
 ---
 
+## Physics Event System Testing
+
+This session focused on testing and fixing the physics event system with a visual demo.
+
+### Fixes Applied
+
+**Event Normalization:**
+- All event query functions (`collision_begin_events`, `collision_end_events`, `sensor_begin_events`, `sensor_end_events`, `hit_events`) now normalize the returned `a` and `b` objects to match the query order
+- When you call `collision_begin_events 'ball', 'wall'`, `event.a` is guaranteed to be the ball and `event.b` the wall
+- Previously, Box2D could return bodies in either order, causing bugs when applying effects to the wrong object
+
+**Collider ID Registration:**
+- Fixed body lookup using unique integer IDs instead of body handles
+- Lua creates new userdata objects for `b2BodyId` each time, so direct comparison fails
+- Now uses `physics_set_user_data` / `physics_get_user_data` with incrementing integer IDs
+
+**Sensor Shape Support:**
+- Added opts table support to collider class: `collider 'tag', 'static', 'box', w, h, {sensor: true}`
+- Last argument can be an options table with `sensor`, `offset_x`, `offset_y`, `angle`
+
+### Visual Test (main.yue)
+
+The test demonstrates all physics event types:
+
+1. **Collision Events (impulse_block):**
+   - Blue block at bottom-left applies rightward impulse to balls on first contact
+   - Uses `collision_begin_events 'ball', 'impulse_block'`
+
+2. **Sensor Events (slowing_zone):**
+   - Blue transparent zone slows balls to 10% speed and reduces gravity to 10%
+   - On exit, restores original speed (maintaining current direction) and normal gravity
+   - Uses `sensor_begin_events` and `sensor_end_events`
+
+3. **Hit Events (wall flash):**
+   - Balls flash white for 0.15 seconds when hitting walls above approach_speed threshold (300)
+   - Uses `hit_events 'ball', 'wall'` with `event.approach_speed`
+   - Integrates with timer module for flash duration
+
+### YueScript Scoping Discovery
+
+Discovered that `global *` at the top of a file makes ALL variable assignments global, including those inside nested functions. This caused a bug where `ball = event.a` inside a for loop overwrote the global `ball` class.
+
+**Solution:** Use explicit `local` for variables inside functions that share names with globals:
+```yuescript
+for event in *an\collision_begin_events 'ball', 'wall'
+  local ball = event.a  -- explicit local to avoid shadowing global class
+  ball.collider\set_velocity 0, 0
+```
+
+This behavior is documented in the [YueScript source code](https://github.com/pigpigyyy/Yuescript) - variable assignments check if the name exists in outer scopes and update the existing variable rather than creating a new local.
+
+---
+
 ## What's Next
 
 Implementation order for remaining Phase 10 work:
@@ -653,5 +716,7 @@ Implementation order for remaining Phase 10 work:
 | **Value objects** | color | Not started |
 | **Resource manager** | sounds, music on `an` | Not started |
 | **Child objects** | timer | Done |
-| **Child objects** | random, input, spring, collider, camera, animation, shake | Not started |
+| **Child objects** | collider | Done |
+| **Child objects** | random, input, spring, camera, animation, shake | Not started |
+| **Physics** | Spatial queries on `an` (query_point, query_circle, raycast, etc.) | Done |
 | **External libs** | Integrate lua-geo2d for collision utilities | Not started |

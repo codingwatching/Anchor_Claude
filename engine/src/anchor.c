@@ -255,6 +255,10 @@ typedef struct {
     b2ShapeId shape_b;
     int tag_a;  // Tag index of shape_a
     int tag_b;  // Tag index of shape_b
+    float point_x;      // Contact point (pixels)
+    float point_y;
+    float normal_x;     // Normal from A to B
+    float normal_y;
 } PhysicsContactBeginEvent;
 
 // Contact end event (two shapes stopped touching)
@@ -394,6 +398,23 @@ static void physics_process_events(void) {
         ev->body_b = b2Shape_GetBody(e->shapeIdB);
         ev->tag_a = tag_a;
         ev->tag_b = tag_b;
+
+        // Get contact manifold for contact point and normal
+        b2ContactData contact_data;
+        int contact_count = b2Shape_GetContactData(e->shapeIdA, &contact_data, 1);
+        if (contact_count > 0 && contact_data.manifold.pointCount > 0) {
+            // Use first contact point (there can be up to 2 for polygon-polygon)
+            ev->point_x = contact_data.manifold.points[0].point.x * pixels_per_meter;
+            ev->point_y = contact_data.manifold.points[0].point.y * pixels_per_meter;
+            ev->normal_x = contact_data.manifold.normal.x;
+            ev->normal_y = contact_data.manifold.normal.y;
+        } else {
+            // Fallback: no contact data available
+            ev->point_x = 0;
+            ev->point_y = 0;
+            ev->normal_x = 0;
+            ev->normal_y = 0;
+        }
     }
 
     // Process contact end events
@@ -4508,7 +4529,7 @@ static bool tags_match(int event_tag_a, int event_tag_b, int query_tag_a, int qu
            (event_tag_a == query_tag_b && event_tag_b == query_tag_a);
 }
 
-// physics_get_collision_begin(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b}
+// physics_get_collision_begin(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y}
 static int l_physics_get_collision_begin(lua_State* L) {
     const char* tag_a_name = luaL_checkstring(L, 1);
     const char* tag_b_name = luaL_checkstring(L, 2);
@@ -4545,6 +4566,16 @@ static int l_physics_get_collision_begin(lua_State* L) {
             b2ShapeId* shape_b_ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
             *shape_b_ud = e->shape_b;
             lua_setfield(L, -2, "shape_b");
+
+            // Contact point and normal
+            lua_pushnumber(L, e->point_x);
+            lua_setfield(L, -2, "point_x");
+            lua_pushnumber(L, e->point_y);
+            lua_setfield(L, -2, "point_y");
+            lua_pushnumber(L, e->normal_x);
+            lua_setfield(L, -2, "normal_x");
+            lua_pushnumber(L, e->normal_y);
+            lua_setfield(L, -2, "normal_y");
 
             lua_rawseti(L, -2, result_index++);
         }

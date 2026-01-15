@@ -2,86 +2,226 @@ global *
 
 require 'anchor'
 
-an\layer 'game'
+-- Setup layers (bottom to top: background, shadow, outline, game, ui)
+bg = an\layer 'bg'
+shadow = an\layer 'shadow'
+outline = an\layer 'outline'
+game = an\layer 'game'
+ui = an\layer 'ui'
+
+-- Resources
 an\font 'main', 'assets/LanaPixel.ttf', 11
-an\image 'smile', 'assets/slight_smile.png'
+an\image 'ball', 'assets/slight_smile.png'
 
--- Timer tests
-test_obj = object 'test'
-test_obj\add timer!
-an\add test_obj
+-- Shaders
+shadow_shader = shader_load_file 'shaders/shadow.frag'
+outline_shader = shader_load_file 'shaders/outline.frag'
 
--- Test 1: anonymous after
-test_obj.timer\after 0.5, -> print '[0.5s] anonymous after fired'
+-- Screen dimensions
+W, H = 480, 270
 
--- Test 2: named after
-test_obj.timer\after 1, 'named_after', -> print '[1.0s] named after fired'
+-- Initialize physics
+an\physics_init!
+an\physics_set_gravity 0, 500
+an\physics_set_meter_scale 64
 
--- Test 3: anonymous every (3 times)
-test_obj.timer\every 0.3, (-> print '[every 0.3s] tick'), 3, -> print '[every 0.3s] done after 3 times'
+-- Register tags and collisions
+an\physics_tag 'ball'
+an\physics_tag 'wall'
+an\physics_tag 'impulse_block'
+an\physics_tag 'slowing_zone'
+an\physics_collision 'ball', 'wall'
+an\physics_collision 'ball', 'ball'
+an\physics_collision 'ball', 'impulse_block'
+an\physics_sensor 'ball', 'slowing_zone'
+an\physics_hit 'ball', 'wall'
 
--- Test 4: named every (will be cancelled)
-test_obj.timer\every 0.2, 'to_cancel', -> print '[every 0.2s] this should only print twice'
+-- Colors (twitter emoji theme)
+bg_color = rgba 231, 232, 233, 255
+green = rgba 122, 179, 87, 255
+blue = rgba 85, 172, 238, 255
+blue_transparent = rgba 85, 172, 238, 100
+yellow = rgba 255, 204, 77, 255
+red = rgba 221, 46, 68, 255
+orange = rgba 244, 144, 12, 255
+purple = rgba 170, 142, 214, 255
+black = rgba 0, 0, 0, 255
+white = rgba 255, 255, 255, 255
 
--- Test 5: cancel the named every after 0.5s
-test_obj.timer\after 0.5, 'do_cancel', ->
-  print '[0.5s] cancelling to_cancel timer'
-  test_obj.timer\cancel 'to_cancel'
+-- Wall dimensions
+ground_width = W * 0.9
+ground_height = 12
+ground_x = (W - ground_width) / 2
+ground_y = H - 20 - ground_height / 2
 
--- Test 6: replace named timer (second should win)
-test_obj.timer\after 2, 'replaceable', -> print '[2.0s] FAIL - first timer should have been replaced'
-test_obj.timer\after 2, 'replaceable', -> print '[2.0s] replaced timer fired (expected)'
+wall_width = 12
+wall_top = H * 0.1
+wall_height = ground_y - wall_top
+left_wall_x = ground_x
+right_wall_x = ground_x + ground_width - wall_width
 
--- Test 7: during (runs every frame for duration)
-during_count = 0
-test_obj.timer\during 0.5, ((dt, progress) -> during_count += 1), -> print "[during 0.5s] done, ran #{during_count} times"
+-- Create wall colliders (static bodies)
+class wall extends object
+  new: (x, y, @w, @h, @color=green, @rounded_top=false, @rounded_left=false) =>
+    super!
+    @\tag 'drawable'
+    @\add collider 'wall', 'static', 'box', @w, @h
+    @collider\set_position x, y
+    @collider\set_friction 1
 
--- Test 8: tween (interpolate properties)
-tween_obj = {x: 0, y: 0}
-test_obj.timer\tween 1, tween_obj, {x: 100, y: 50}, math.cubic_out, -> print "[tween 1s] done, x=#{tween_obj.x}, y=#{tween_obj.y}"
+  draw: (layer) =>
+    if @rounded_top
+      radius = @w / 2
+      layer\circle @x, @y - @h/2 + radius, radius, @color
+      layer\rectangle @x - @w/2, @y - @h/2 + radius, @w, @h - radius, @color
+    elseif @rounded_left
+      radius = @h / 2
+      layer\circle @x - @w/2 + radius, @y, radius, @color
+      layer\rectangle @x - @w/2 + radius, @y - @h/2, @w - radius, @h, @color
+    else
+      layer\rectangle @x - @w/2, @y - @h/2, @w, @h, @color
 
--- Test 9: tween with named timer
-tween_obj2 = {scale: 1}
-test_obj.timer\tween 0.5, 'scale_tween', tween_obj2, {scale: 2}, math.quad_in_out, -> print "[tween 0.5s] scale done, scale=#{tween_obj2.scale}"
+-- Physics positions are center-based
+an\add wall ground_x + ground_width/2, ground_y + ground_height/2, ground_width, ground_height
+an\add wall left_wall_x + wall_width/2, wall_top + wall_height/2, wall_width, wall_height, green, true
+an\add wall right_wall_x + wall_width/2, wall_top + wall_height/2, wall_width, wall_height
 
--- Test 10: watch (field changes)
-test_obj.hp = 100
-test_obj.timer\watch 'hp', (current, previous) -> print "[watch] hp changed: #{previous} -> #{current}"
-test_obj.timer\after 0.3, -> test_obj.hp = 80
-test_obj.timer\after 0.6, -> test_obj.hp = 50
+-- Ceiling (half width, right-aligned, rounded left)
+ceiling_width = ground_width / 2
+ceiling_height = ground_height
+ceiling_x = right_wall_x + wall_width - ceiling_width/2
+ceiling_y = wall_top + ceiling_height/2
+an\add wall ceiling_x, ceiling_y, ceiling_width, ceiling_height, green, false, true
 
--- Test 11: when (condition becomes true)
-test_obj.danger = false
-test_obj.timer\when (-> test_obj.danger), -> print "[when] danger became true!"
-test_obj.timer\after 0.4, -> test_obj.danger = true
+-- Impulse block (blue rectangle at bottom left corner, standing on ground)
+impulse_width = ground_width * 0.1
+impulse_height = ground_height
+impulse_x = left_wall_x + wall_width
+impulse_y = ground_y - impulse_height
 
--- Test 12: every_step (varying delays, 5 calls from 0.1s to 0.3s)
-every_step_count = 0
-test_obj.timer\every_step 0.1, 0.3, 5, ->
-  every_step_count += 1
-  print "[every_step] tick #{every_step_count}"
+class impulse_block extends object
+  new: (x, y, @w, @h) =>
+    super!
+    @\tag 'drawable'
+    @\add collider 'impulse_block', 'static', 'box', @w, @h
+    @collider\set_position x + @w/2, y + @h/2
+    @collider\set_friction 1
+    @collider\set_restitution 1
 
--- Test 13: trigger (fire immediately)
-test_obj.timer\every 10, 'trigger_test', -> print "[trigger] fired!"
-test_obj.timer\after 0.2, ->
-  print "[0.2s] triggering trigger_test"
-  test_obj.timer\trigger 'trigger_test'
+  draw: (layer) =>
+    layer\rectangle @x - @w/2, @y - @h/2, @w, @h, blue
 
--- Test 14: get_time_left
-test_obj.timer\after 1.5, 'time_check', -> print "[1.5s] time_check fired"
-test_obj.timer\after 0.7, ->
-  remaining = test_obj.timer\get_time_left 'time_check'
-  print "[0.7s] time_check has #{remaining}s left"
+an\add impulse_block impulse_x, impulse_y, impulse_width, impulse_height
 
-an.angle = 0
+-- Slowing zone (under ceiling left edge, 1/3 height)
+box_interior_width = ground_width - 2 * wall_width
+box_interior_height = wall_height
+slowing_zone_width = box_interior_width / 6
+slowing_zone_height = box_interior_height / 3
+ceiling_left_edge = ceiling_x - ceiling_width / 2
+slowing_zone_x = ceiling_left_edge
+slowing_zone_y = wall_top + ceiling_height + slowing_zone_height / 2
 
-an\action (dt) =>
-  @angle += dt * 2
-  game = an.layers.game
-  game\rectangle 80, 80, 50, 50, rgba(255, 0, 0, 255)
-  game\circle 400, 80, 25, rgba(0, 255, 0, 255)
-  game\push 240, 135, @angle, 0.1, 0.1
-  game\image an.images.smile, 0, 0
-  game\pop!
-  game\text "Hello!", an.fonts.main, 240, 220, rgba(255, 255, 255, 255)
+class slowing_zone extends object
+  new: (x, y, @w, @h) =>
+    super!
+    @\tag 'slowing_zone'
+    @\add collider 'slowing_zone', 'static', 'box', @w, @h, {sensor: true}
+    @collider\set_position x, y
+
+  draw: =>
+    game\rectangle @x - @w/2, @y - @h/2, @w, @h, blue_transparent
+
+an\add slowing_zone slowing_zone_x, slowing_zone_y, slowing_zone_width, slowing_zone_height
+
+-- Ball class
+ball_radius = 10
+ball_scale = ball_radius * 2 / an.images.ball.width
+
+class ball extends object
+  new: (@x, @y) =>
+    super!
+    @\tag 'ball'
+    @\tag 'drawable'
+    @impulsed = false
+    @original_speed = 0
+    @flash = false
+    @\add timer!
+    @\add collider 'ball', 'dynamic', 'circle', ball_radius
+    @collider\set_position @x, @y
+    @collider\set_restitution 1
+    @collider\set_friction 1
+
+  draw: (layer) =>
+    local angle = @collider\get_angle!
+    layer\push @x, @y, angle, ball_scale, ball_scale
+    layer\image an.images.ball, 0, 0, nil, @flash and white or nil
+    layer\pop!
+
+-- Spawn ball on K, impulse on P
+an\action =>
+  if key_is_pressed 'k'
+    spawn_x = left_wall_x + wall_width + ball_radius + 20
+    spawn_y = wall_top - ball_radius - 5
+    an\add ball spawn_x, spawn_y
+
+  if key_is_pressed 'p'
+    for b in *an\all 'ball'
+      b.collider\apply_impulse 200, 0
+
+-- Handle collisions
+an\early_action 'handle_collisions', =>
+  for event in *an\collision_begin_events 'ball', 'impulse_block'
+    local ball = event.a
+    unless ball.impulsed
+      ball.impulsed = true
+      ball.collider\apply_impulse random_float(20, 40), 0
+
+  for event in *an\sensor_begin_events 'ball', 'slowing_zone'
+    local ball = event.a
+    local vx, vy = ball.collider\get_velocity!
+    ball.original_speed = math.sqrt(vx*vx + vy*vy)
+    ball.collider\set_velocity vx * 0.1, vy * 0.1
+    ball.collider\set_gravity_scale 0.1
+
+  for event in *an\sensor_end_events 'ball', 'slowing_zone'
+    local ball = event.a
+    local vx, vy = ball.collider\get_velocity!
+    local current_speed = math.sqrt(vx*vx + vy*vy)
+    if current_speed > 0
+      local scale = ball.original_speed / current_speed
+      ball.collider\set_velocity vx * scale, vy * scale
+    ball.collider\set_gravity_scale 1
+
+  for event in *an\hit_events 'ball', 'wall'
+    local ball = event.a
+    if event.approach_speed > 300
+      ball.flash = true
+      ball.timer\after 0.15, 'flash', -> ball.flash = false
+
+-- Composite layers
+an\late_action 'draw', =>
+  -- Draw background
+  bg\rectangle 0, 0, W, H, bg_color
+
+  -- Draw slowing zone to game layer only (no shadow/outline)
+  for zone in *an\all 'slowing_zone'
+    zone\draw!
+
+  -- Draw all drawable objects to shadow, outline, and game layers
+  for obj in *an\all 'drawable'
+    obj\draw shadow
+    obj\draw outline
+    obj\draw game
+
+  -- Apply shaders
+  layer_apply_shader shadow.handle, shadow_shader
+  layer_shader_set_vec2 outline.handle, outline_shader, "u_pixel_size", 1/W, 1/H
+  layer_apply_shader outline.handle, outline_shader
+
+  -- Composite layers (shadow at offset for drop shadow effect)
+  bg\draw!
+  shadow\draw 4, 4
+  outline\draw!
   game\draw!
+  ui\draw!

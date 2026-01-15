@@ -145,7 +145,7 @@ physics_debug_events()
 ## Physics: Events
 
 ```
-physics_get_collision_begin(tag_a, tag_b) -> [{body_a, body_b, shape_a, shape_b}, ...]
+physics_get_collision_begin(tag_a, tag_b) -> [{body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y}, ...]
 physics_get_collision_end(tag_a, tag_b) -> [{body_a, body_b, shape_a, shape_b}, ...]
 physics_get_hit(tag_a, tag_b) -> [{body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y, approach_speed}, ...]
 physics_get_sensor_begin(tag_a, tag_b) -> [{sensor_body, visitor_body, sensor_shape, visitor_shape}, ...]

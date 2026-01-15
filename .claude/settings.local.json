@@ -42,7 +42,8 @@
       "WebFetch(domain:pixijs.com)",
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:store.steampowered.com)",
-      "Bash(E:/a327ex/Anchor/engine/tools/yue.exe:*)"
+      "Bash(E:/a327ex/Anchor/engine/tools/yue.exe:*)",
+      "WebFetch(domain:yuescript.org)"
     ]
   }
 }

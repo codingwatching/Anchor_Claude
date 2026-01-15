@@ -21,10 +21,10 @@ local ui_layer = layer_create("ui")
 
 `layer_rectangle(layer, x, y, w, h, color)`
 
-Draws a filled rectangle centered at (x, y).
+Draws a filled rectangle with top-left corner at (x, y).
 
 ```lua
-layer_rectangle(layer, 100, 100, 50, 30, rgba(255, 0, 0))
+layer_rectangle(layer, 100, 100, 50, 30, rgba(255, 0, 0))  -- top-left at (100, 100)
 ```
 
 ### layer_circle
@@ -1035,15 +1035,16 @@ physics_debug_events()
 
 ### physics_get_collision_begin
 
-`physics_get_collision_begin(tag_a, tag_b) -> [{body_a, body_b, shape_a, shape_b}, ...]`
+`physics_get_collision_begin(tag_a, tag_b) -> [{body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y}, ...]`
 
-Returns all new collision contacts this frame between the given tags.
+Returns all new collision contacts this frame between the given tags. Includes contact point and normal.
 
 ```lua
 for _, event in ipairs(physics_get_collision_begin("player", "enemy")) do
     local player_id = physics_get_user_data(event.body_a)
     local enemy_id = physics_get_user_data(event.body_b)
-    -- handle collision
+    -- event.point_x, event.point_y: contact point in pixels
+    -- event.normal_x, event.normal_y: normal from A to B
 end
 ```
 

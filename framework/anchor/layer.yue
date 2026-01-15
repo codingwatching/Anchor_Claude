@@ -33,13 +33,13 @@ class layer
     @handle = layer_create @name
 
   --[[
-    Queues a filled rectangle centered at (x, y).
+    Queues a filled rectangle at (x, y).
 
     Usage:
       layer\rectangle 100, 100, 50, 30, rgba(255, 0, 0, 255)
 
     Parameters:
-      x, y  - center position
+      x, y  - top-left position
       w, h  - width and height
       color - packed RGBA (use rgba() helper)
   ]]

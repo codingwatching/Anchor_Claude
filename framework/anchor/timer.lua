@@ -2,7 +2,35 @@
 
 require('anchor.object')do
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local _class_0;local _parent_0 = object;local _base_0 = { uid = function(self)local id = 
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -16,9 +44,26 @@ id end, find = function(self, name)for index, entry in
 
 
 
+
+
+
+
 ipairs(self.entries) do if 
 entry.name == name then return index end end;return 
 nil end, after = function(self, delay, name_or_callback, callback_function)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -26,12 +71,30 @@ local name,callback;if type(name_or_callback) == 'string' then
 name, callback = name_or_callback, callback_function else
 
 name, callback = self:uid(), name_or_callback end;local entry = { name = 
-name, mode = 'after', time = 0, delay = delay, callback = callback }local index = 
-self:find(name)if 
-index then
-self.entries[index] = entry else local _obj_0 = 
+name, mode = 'after', time = 0, delay = delay, callback = callback }if 
+self:find(name) then
+self.entries[self:find(name)] = entry else local _obj_0 = 
 
 self.entries;_obj_0[#_obj_0 + 1] = entry end end, every = function(self, delay, name_or_callback, callback_or_times, times_or_after, after_function)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -39,12 +102,28 @@ local name,callback,times,after;if type(name_or_callback) == 'string' then
 name, callback, times, after = name_or_callback, callback_or_times, times_or_after, after_function else
 
 name, callback, times, after = self:uid(), name_or_callback, callback_or_times, times_or_after end;local entry = { name = 
-name, mode = 'every', time = 0, delay = delay, callback = callback, times = times, after = after, count = 0 }local index = 
-self:find(name)if 
-index then
-self.entries[index] = entry else local _obj_0 = 
+name, mode = 'every', time = 0, delay = delay, callback = callback, times = times, after = after, count = 0 }if 
+self:find(name) then
+self.entries[self:find(name)] = entry else local _obj_0 = 
 
 self.entries;_obj_0[#_obj_0 + 1] = entry end end, during = function(self, duration, name_or_callback, callback_or_after, after_function)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -53,12 +132,32 @@ local name,callback,after;if type(name_or_callback) == 'string' then
 name, callback, after = name_or_callback, callback_or_after, after_function else
 
 name, callback, after = self:uid(), name_or_callback, callback_or_after end;local entry = { name = 
-name, mode = 'during', time = 0, duration = duration, callback = callback, after = after }local index = 
-self:find(name)if 
-index then
-self.entries[index] = entry else local _obj_0 = 
+name, mode = 'during', time = 0, duration = duration, callback = callback, after = after }if 
+self:find(name) then
+self.entries[self:find(name)] = entry else local _obj_0 = 
 
 self.entries;_obj_0[#_obj_0 + 1] = entry end end, tween = function(self, duration, name_or_target, target_or_values, values_or_easing, easing_or_after, after_function)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -67,16 +166,33 @@ name, target, values, easing, after = name_or_target, target_or_values, values_o
 
 name, target, values, easing, after = self:uid(), name_or_target, target_or_values, values_or_easing, easing_or_after end
 easing = easing or math.linear;local initial_values = 
-
 {  }for key, _ in 
 pairs(values) do
 initial_values[key] = target[key]end;local entry = { name = 
-name, mode = 'tween', time = 0, duration = duration, target = target, values = values, initial_values = initial_values, easing = easing, after = after }local index = 
-self:find(name)if 
-index then
-self.entries[index] = entry else local _obj_0 = 
+name, mode = 'tween', time = 0, duration = duration, target = target, values = values, initial_values = initial_values, easing = easing, after = after }if 
+self:find(name) then
+self.entries[self:find(name)] = entry else local _obj_0 = 
 
 self.entries;_obj_0[#_obj_0 + 1] = entry end end, watch = function(self, field, name_or_callback, callback_or_times, times_or_after, after_function)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -95,6 +211,25 @@ self.entries;_obj_0[#_obj_0 + 1] = entry end end, when = function(self, conditio
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local name,callback,times,after;if type(name_or_callback) == 'string' then
 name, callback, times, after = name_or_callback, callback_or_times, times_or_after, after_function else
 
@@ -104,6 +239,26 @@ self:find(name) then
 self.entries[self:find(name)] = entry else local _obj_0 = 
 
 self.entries;_obj_0[#_obj_0 + 1] = entry end end, cooldown = function(self, delay, condition_fn, name_or_callback, callback_or_times, times_or_after, after_function)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -122,12 +277,30 @@ self.entries;_obj_0[#_obj_0 + 1] = entry end end, every_step = function(self, st
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local name,callback,step_method,after;if type(name_or_callback) == 'string' then
 name, callback, step_method, after = name_or_callback, callback_or_step, step_or_after, after_function else
 
 name, callback, step_method, after = self:uid(), name_or_callback, callback_or_step, step_or_after end
 step_method = step_method or math.linear;local delays = 
-
 {  }for i = 
 1, times do local t = (
 i - 1) / (times - 1)
@@ -143,15 +316,31 @@ self.entries;_obj_0[#_obj_0 + 1] = entry end end, during_step = function(self, d
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local name,callback,step_method,after;if type(name_or_callback) == 'string' then
 name, callback, step_method, after = name_or_callback, callback_or_step, step_or_after, after_function else
 
 name, callback, step_method, after = self:uid(), name_or_callback, callback_or_step, step_or_after end
 step_method = step_method or math.linear;local times = 
-
 math.ceil(2 * duration / (start_delay + end_delay))
 times = math.max(times, 2)local delays = 
-
 {  }for i = 
 1, times do local t = (
 i - 1) / (times - 1)
@@ -164,8 +353,36 @@ self.entries[self:find(name)] = entry else local _obj_0 =
 self.entries;_obj_0[#_obj_0 + 1] = entry end end, cancel = function(self, name)local index = 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 self:find(name)if 
 index then self.entries[index].cancelled = true end end, trigger = function(self, name)local index = 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -194,10 +411,40 @@ entry.callback(entry.current, entry.previous)elseif
 entry.callback()end end, set_multiplier = function(self, name, multiplier)if 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 multiplier == nil then multiplier = 1 end;local index = 
 self:find(name)if not 
 index then return end
 self.entries[index].multiplier = multiplier end, get_time_left = function(self, name)local index = 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -215,6 +462,11 @@ duration - entry.time elseif
 entry.delays[entry.step_index] - entry.time else return 
 
 nil end end, update = function(self, dt)local to_remove = 
+
+
+
+
+
 
 
 {  }for index, entry in 
@@ -285,10 +537,8 @@ entry.last_condition = current_condition elseif
 'cooldown' == _exp_0 then local delay = 
 entry.delay * (entry.multiplier or 1)local current_condition = 
 entry.condition()if 
-
 current_condition and not entry.last_condition then
 entry.time = 0 end;if 
-
 entry.time >= delay and current_condition then
 entry.callback()
 entry.time = 0;if 
@@ -316,7 +566,6 @@ entry.step_index = entry.step_index + 1;if
 entry.step_index > #entry.delays then if 
 entry.after then entry.after()end
 to_remove[#to_remove + 1] = index end end end::_continue_0::end;for i = #
-
 
 to_remove, 1, -1 do
 table.remove(self.entries, to_remove[i])end end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self)_class_0.__parent.__init(self, 'timer')self.entries = {  }self.next_id = 1 end, __base = _base_0, __name = "timer", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;timer = _class_0;return _class_0 end
