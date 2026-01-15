@@ -1,0 +1,571 @@
+global *
+
+require 'anchor.object'
+
+--[[
+  Timer child object for scheduling delayed, repeating, and conditional callbacks.
+
+  Usage:
+    @\add timer!
+    @timer\after 1, -> print 'fired after 1s'
+    @timer\every 0.5, 'attack', -> @attack!
+
+  Timer is added as a child object. When the parent dies, the timer dies automatically.
+  All timer methods support optional naming - named timers can be cancelled, triggered,
+  and automatically replace previous timers with the same name.
+
+  Timer methods:
+    Delayed:     after, every, during, tween
+    Conditional: watch, when, cooldown
+    Varying:     every_step, during_step
+    Utility:     cancel, trigger, set_multiplier, get_time_left
+]]
+class timer extends object
+  --[[
+    Creates a new timer.
+
+    Usage:
+      @\add timer!
+
+    The timer is automatically named 'timer' and accessible as @timer on the parent.
+  ]]
+  new: =>
+    super 'timer'
+    @entries = {}
+    @next_id = 1
+
+  --[[
+    Internal: generates unique ID for anonymous timers.
+  ]]
+  uid: =>
+    id = "_anon_#{@next_id}"
+    @next_id += 1
+    id
+
+  --[[
+    Internal: finds entry index by name.
+
+    Returns: index or nil
+  ]]
+  find: (name) =>
+    for index, entry in ipairs @entries
+      return index if entry.name == name
+    nil
+
+  --[[
+    Calls callback once after delay seconds.
+
+    Usage:
+      @timer\after 2, -> print 'fired'
+      @timer\after 2, 'explosion', -> @explode!
+
+    Behavior:
+      - Anonymous timers get auto-generated names
+      - Named timers replace previous timers with same name
+      - Removed after firing
+
+    Returns: nothing
+  ]]
+  after: (delay, name_or_callback, callback_function) =>
+    name, callback = if type(name_or_callback) == 'string'
+      name_or_callback, callback_function
+    else
+      @\uid!, name_or_callback
+    entry = {:name, mode: 'after', time: 0, :delay, :callback}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Calls callback repeatedly every delay seconds.
+
+    Usage:
+      @timer\every 0.5, -> print 'tick'
+      @timer\every 0.5, 'spawn', (-> @spawn!), 10, -> print 'done'
+
+    Parameters:
+      delay    - seconds between calls
+      name     - (optional) timer name for cancellation/replacement
+      callback - function to call
+      times    - (optional) limit number of calls, then stop
+      after    - (optional) callback when times limit reached
+
+    Behavior:
+      - Fires indefinitely unless times is specified
+      - After callback only runs if times limit is reached, not on cancel
+
+    Returns: nothing
+  ]]
+  every: (delay, name_or_callback, callback_or_times, times_or_after, after_function) =>
+    name, callback, times, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_times, times_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_times, times_or_after
+    entry = {:name, mode: 'every', time: 0, :delay, :callback, :times, :after, count: 0}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Calls callback every frame for duration seconds.
+
+    Usage:
+      @timer\during 1, (dt, progress) -> @alpha = 1 - progress
+      @timer\during 1, 'fade', ((dt, progress) -> @alpha = progress), -> @dead = true
+
+    Parameters:
+      duration - total seconds to run
+      name     - (optional) timer name
+      callback - function receiving (dt, progress) where progress is 0 to 1
+      after    - (optional) callback when duration completes
+
+    Behavior:
+      - Callback runs every frame with dt and progress (0-1)
+      - Progress reaches 1 on the final frame
+
+    Returns: nothing
+  ]]
+  during: (duration, name_or_callback, callback_or_after, after_function) =>
+    name, callback, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_after
+    entry = {:name, mode: 'during', time: 0, :duration, :callback, :after}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Interpolates target properties over duration using easing.
+
+    Usage:
+      @timer\tween 0.5, self, {x: 100, y: 200}
+      @timer\tween 0.5, 'move', self, {x: 100}, math.cubic_out, -> print 'done'
+
+    Parameters:
+      duration - seconds for interpolation
+      name     - (optional) timer name
+      target   - object whose properties will be modified
+      values   - table of {property: target_value} pairs
+      easing   - (optional) easing function, defaults to math.linear
+      after    - (optional) callback when tween completes
+
+    Behavior:
+      - Captures initial values at creation time
+      - Interpolates each property from initial to target value
+      - Properties are set to exact target values on completion
+
+    Returns: nothing
+  ]]
+  tween: (duration, name_or_target, target_or_values, values_or_easing, easing_or_after, after_function) =>
+    name, target, values, easing, after = if type(name_or_target) == 'string'
+      name_or_target, target_or_values, values_or_easing, easing_or_after, after_function
+    else
+      @\uid!, name_or_target, target_or_values, values_or_easing, easing_or_after
+    easing = easing or math.linear
+    initial_values = {}
+    for key, _ in pairs values
+      initial_values[key] = target[key]
+    entry = {:name, mode: 'tween', time: 0, :duration, :target, :values, :initial_values, :easing, :after}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Calls callback when parent[field] changes value.
+
+    Usage:
+      @timer\watch 'hp', (current, previous) -> print "HP: #{previous} -> #{current}"
+      @timer\watch 'state', 'state_watch', ((cur, prev) -> @on_state_change!), 3
+
+    Parameters:
+      field    - name of field on parent object to watch
+      name     - (optional) timer name
+      callback - function receiving (current_value, previous_value)
+      times    - (optional) limit number of triggers
+      after    - (optional) callback when times limit reached
+
+    Behavior:
+      - Compares field value each frame to previous frame
+      - Only fires when value actually changes (using != comparison)
+      - Watches @parent[field], not self
+
+    Returns: nothing
+  ]]
+  watch: (field, name_or_callback, callback_or_times, times_or_after, after_function) =>
+    name, callback, times, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_times, times_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_times, times_or_after
+    initial_value = @parent[field]
+    entry = {:name, mode: 'watch', time: 0, :field, current: initial_value, previous: initial_value, :callback, :times, :after, count: 0}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Calls callback when condition transitions from false to true.
+
+    Usage:
+      @timer\when (-> @hp < 20), -> print 'low hp!'
+      @timer\when (-> @grounded), 'land', (-> @on_land!), 1
+
+    Parameters:
+      condition_fn - function returning boolean
+      name         - (optional) timer name
+      callback     - function to call when condition becomes true
+      times        - (optional) limit number of triggers
+      after        - (optional) callback when times limit reached
+
+    Behavior:
+      - Edge trigger: only fires on false->true transition
+      - Does NOT fire every frame the condition is true
+      - If condition starts true, fires on first frame
+
+    Returns: nothing
+  ]]
+  when: (condition_fn, name_or_callback, callback_or_times, times_or_after, after_function) =>
+    name, callback, times, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_times, times_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_times, times_or_after
+    entry = {:name, mode: 'when', time: 0, condition: condition_fn, last_condition: false, :callback, :times, :after, count: 0}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Calls callback every delay seconds while condition is true.
+
+    Usage:
+      @timer\cooldown 2, (-> @target), -> @attack!
+      @timer\cooldown 1, (-> @can_shoot), 'shoot', (-> @shoot!), 5
+
+    Parameters:
+      delay        - cooldown time between fires
+      condition_fn - function returning boolean
+      name         - (optional) timer name
+      callback     - function to call
+      times        - (optional) limit number of fires
+      after        - (optional) callback when times limit reached
+
+    Behavior:
+      - Timer resets to 0 when condition transitions false->true
+      - Only fires when BOTH delay elapsed AND condition is true
+      - Timer keeps counting while condition is false (holds cooldown)
+
+    Returns: nothing
+  ]]
+  cooldown: (delay, condition_fn, name_or_callback, callback_or_times, times_or_after, after_function) =>
+    name, callback, times, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_times, times_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_times, times_or_after
+    entry = {:name, mode: 'cooldown', time: 0, :delay, condition: condition_fn, last_condition: false, :callback, :times, :after, count: 0}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Calls callback with delays varying from start_delay to end_delay.
+
+    Usage:
+      @timer\every_step 0.1, 0.5, 10, -> @spawn_particle!
+      @timer\every_step 0.5, 0.1, 5, 'speedup', (-> @tick!), math.quad_in
+
+    Parameters:
+      start_delay - delay before first call
+      end_delay   - delay before last call
+      times       - total number of calls
+      name        - (optional) timer name
+      callback    - function to call
+      step_method - (optional) easing function for delay interpolation, defaults to math.linear
+      after       - (optional) callback when all calls complete
+
+    Behavior:
+      - Precomputes all delays at creation using step_method easing
+      - Useful for effects that speed up or slow down over time
+
+    Returns: nothing
+  ]]
+  every_step: (start_delay, end_delay, times, name_or_callback, callback_or_step, step_or_after, after_function) =>
+    name, callback, step_method, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_step, step_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_step, step_or_after
+    step_method = step_method or math.linear
+    delays = {}
+    for i = 1, times
+      t = (i - 1) / (times - 1)
+      t = step_method t
+      delays[i] = math.lerp t, start_delay, end_delay
+    entry = {:name, mode: 'every_step', time: 0, :delays, :callback, :after, step_index: 1}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Fits as many calls as possible within duration with varying delays.
+
+    Usage:
+      @timer\during_step 2, 0.3, 0.1, -> @blink!
+
+    Parameters:
+      duration    - total time window
+      start_delay - initial delay between calls
+      end_delay   - final delay between calls
+      name        - (optional) timer name
+      callback    - function to call
+      step_method - (optional) easing function, defaults to math.linear
+      after       - (optional) callback when complete
+
+    Behavior:
+      - Calculates how many calls fit: ceil(2 * duration / (start + end))
+      - Like every_step but you specify duration instead of times
+
+    Returns: nothing
+  ]]
+  during_step: (duration, start_delay, end_delay, name_or_callback, callback_or_step, step_or_after, after_function) =>
+    name, callback, step_method, after = if type(name_or_callback) == 'string'
+      name_or_callback, callback_or_step, step_or_after, after_function
+    else
+      @\uid!, name_or_callback, callback_or_step, step_or_after
+    step_method = step_method or math.linear
+    times = math.ceil 2 * duration / (start_delay + end_delay)
+    times = math.max times, 2
+    delays = {}
+    for i = 1, times
+      t = (i - 1) / (times - 1)
+      t = step_method t
+      delays[i] = math.lerp t, start_delay, end_delay
+    entry = {:name, mode: 'during_step', time: 0, :delays, :callback, :after, step_index: 1}
+    if @\find name
+      @entries[@\find name] = entry
+    else
+      @entries[] = entry
+
+  --[[
+    Cancels a named timer.
+
+    Usage:
+      @timer\cancel 'attack'
+
+    Behavior:
+      - Marks timer for removal at end of frame
+      - Does NOT call the after callback
+      - Safe to call during iteration (uses cancelled flag)
+
+    Returns: nothing
+  ]]
+  cancel: (name) =>
+    index = @\find name
+    @entries[index].cancelled = true if index
+
+  --[[
+    Fires a named timer immediately and resets it.
+
+    Usage:
+      @timer\every 10, 'attack', -> @attack!
+      @timer\trigger 'attack'  -- fires now, resets timer
+
+    Behavior:
+      - after: fires callback, marks as cancelled (one-shot)
+      - every, cooldown, every_step, during_step: fires callback, resets time to 0
+      - watch: fires callback with current/previous values
+      - when: fires callback
+      - during, tween: not supported (continuous, not discrete)
+
+    Returns: nothing
+  ]]
+  trigger: (name) =>
+    index = @\find name
+    return unless index
+    entry = @entries[index]
+    switch entry.mode
+      when 'after'
+        entry.callback!
+        entry.cancelled = true
+      when 'every'
+        entry.callback!
+        entry.time = 0
+      when 'cooldown'
+        entry.callback!
+        entry.time = 0
+      when 'every_step'
+        entry.callback!
+        entry.time = 0
+      when 'during_step'
+        entry.callback!
+        entry.time = 0
+      when 'watch'
+        entry.callback entry.current, entry.previous
+      when 'when'
+        entry.callback!
+
+  --[[
+    Dynamically adjusts timer speed.
+
+    Usage:
+      @timer\every 1, 'attack', -> @attack!
+      @timer\set_multiplier 'attack', 0.5  -- now fires every 2s
+      @timer\set_multiplier 'attack', 2    -- now fires every 0.5s
+
+    Behavior:
+      - Multiplier affects delay/duration: actual_delay = delay * multiplier
+      - Multiplier of 2 = twice as fast (half the delay)
+      - Multiplier of 0.5 = half speed (double the delay)
+      - Defaults to 1 if not set
+
+    Returns: nothing
+  ]]
+  set_multiplier: (name, multiplier=1) =>
+    index = @\find name
+    return unless index
+    @entries[index].multiplier = multiplier
+
+  --[[
+    Returns remaining time until timer fires.
+
+    Usage:
+      remaining = @timer\get_time_left 'attack'
+      print remaining if remaining
+
+    Behavior:
+      - For after, every, cooldown: returns delay - elapsed time
+      - For during, tween: returns duration - elapsed time
+      - For every_step, during_step: returns current step delay - elapsed time
+      - For watch, when: returns nil (not time-based)
+      - Accounts for multiplier
+
+    Returns: seconds remaining, or nil
+  ]]
+  get_time_left: (name) =>
+    index = @\find name
+    return nil unless index
+    entry = @entries[index]
+    switch entry.mode
+      when 'after', 'every', 'cooldown'
+        delay = entry.delay * (entry.multiplier or 1)
+        delay - entry.time
+      when 'during', 'tween'
+        duration = entry.duration * (entry.multiplier or 1)
+        duration - entry.time
+      when 'every_step', 'during_step'
+        entry.delays[entry.step_index] - entry.time
+      else
+        nil
+
+  --[[
+    Internal: processes all timer entries each frame.
+
+    Called automatically by the object update system.
+  ]]
+  update: (dt) =>
+    to_remove = {}
+    for index, entry in ipairs @entries
+      if entry.cancelled
+        to_remove[] = index
+        continue
+      entry.time += dt
+
+      switch entry.mode
+        when 'after'
+          delay = entry.delay * (entry.multiplier or 1)
+          if entry.time >= delay
+            entry.callback!
+            to_remove[] = index
+
+        when 'every'
+          delay = entry.delay * (entry.multiplier or 1)
+          if entry.time >= delay
+            entry.callback!
+            entry.time -= delay
+            if entry.times
+              entry.count += 1
+              if entry.count >= entry.times
+                entry.after! if entry.after
+                to_remove[] = index
+
+        when 'during'
+          duration = entry.duration * (entry.multiplier or 1)
+          progress = math.min entry.time / duration, 1
+          entry.callback dt, progress
+          if entry.time >= duration
+            entry.after! if entry.after
+            to_remove[] = index
+
+        when 'tween'
+          duration = entry.duration * (entry.multiplier or 1)
+          progress = math.min entry.time / duration, 1
+          eased = entry.easing progress
+          for key, target_value in pairs entry.values
+            entry.target[key] = math.lerp eased, entry.initial_values[key], target_value
+          if entry.time >= duration
+            entry.after! if entry.after
+            to_remove[] = index
+
+        when 'watch'
+          entry.previous = entry.current
+          entry.current = @parent[entry.field]
+          if entry.previous != entry.current
+            entry.callback entry.current, entry.previous
+            if entry.times
+              entry.count += 1
+              if entry.count >= entry.times
+                entry.after! if entry.after
+                to_remove[] = index
+
+        when 'when'
+          current_condition = entry.condition!
+          if current_condition and not entry.last_condition
+            entry.callback!
+            if entry.times
+              entry.count += 1
+              if entry.count >= entry.times
+                entry.after! if entry.after
+                to_remove[] = index
+          entry.last_condition = current_condition
+
+        when 'cooldown'
+          delay = entry.delay * (entry.multiplier or 1)
+          current_condition = entry.condition!
+          if current_condition and not entry.last_condition
+            entry.time = 0
+          if entry.time >= delay and current_condition
+            entry.callback!
+            entry.time = 0
+            if entry.times
+              entry.count += 1
+              if entry.count >= entry.times
+                entry.after! if entry.after
+                to_remove[] = index
+          entry.last_condition = current_condition
+
+        when 'every_step'
+          if entry.time >= entry.delays[entry.step_index]
+            entry.callback!
+            entry.time -= entry.delays[entry.step_index]
+            entry.step_index += 1
+            if entry.step_index > #entry.delays
+              entry.after! if entry.after
+              to_remove[] = index
+
+        when 'during_step'
+          if entry.time >= entry.delays[entry.step_index]
+            entry.callback!
+            entry.time -= entry.delays[entry.step_index]
+            entry.step_index += 1
+            if entry.step_index > #entry.delays
+              entry.after! if entry.after
+              to_remove[] = index
+
+    for i = #to_remove, 1, -1
+      table.remove @entries, to_remove[i]

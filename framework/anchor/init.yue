@@ -1,28 +1,113 @@
 global *
 
+--[[
+  Anchor framework initialization.
+
+  This file:
+    1. Requires all framework classes (object, layer, image, font)
+    2. Creates the root object 'an' with resource registries
+    3. Attaches registration methods to 'an'
+    4. Defines the global update() function called by the C engine
+
+  The 'an' object is the root of the object tree and the central access point
+  for all framework resources (layers, images, fonts).
+]]
+
 require 'anchor.object'
 require 'anchor.layer'
 require 'anchor.image'
 require 'anchor.font'
+require 'anchor.timer'
+require 'anchor.math'
 
+--[[
+  Root object for the framework.
+
+  All game objects should be children of 'an' (directly or nested).
+  Resource registries (layers, images, fonts) live here.
+
+  Usage:
+    an\layer 'game'                  -- register layer
+    an\image 'player', 'path.png'    -- register image
+    an\font 'main', 'path.ttf', 16   -- register font
+    an\add player                    -- add child object
+]]
 an = object 'an'
 an.layers = {}
 an.images = {}
 an.fonts = {}
 
+--[[
+  Registers a named layer.
+
+  Usage:
+    an\layer 'game'
+    an\layer 'ui'
+
+  Behavior:
+    - Creates a layer object and stores it in an.layers[name]
+    - Subsequent access via an.layers.game, an.layers.ui, etc.
+
+  Returns: the created layer object
+]]
 an.layer = (name) =>
   @layers[name] = layer name
   @layers[name]
 
+--[[
+  Registers a named image (texture).
+
+  Usage:
+    an\image 'player', 'assets/player.png'
+    an\image 'enemy', 'assets/enemy.png'
+
+  Behavior:
+    - Loads texture from path via texture_load()
+    - Creates an image wrapper and stores in an.images[name]
+    - Subsequent access via an.images.player, an.images.enemy, etc.
+
+  Returns: the created image object
+]]
 an.image = (name, path) =>
   handle = texture_load path
   @images[name] = image handle
   @images[name]
 
+--[[
+  Registers a named font.
+
+  Usage:
+    an\font 'main', 'assets/LanaPixel.ttf', 11
+    an\font 'title', 'assets/BigFont.ttf', 32
+
+  Behavior:
+    - Loads font from path at given size
+    - Creates a font wrapper and stores in an.fonts[name]
+    - Subsequent access via an.fonts.main, an.fonts.title, etc.
+
+  Returns: the created font object
+]]
 an.font = (name, path, size) =>
   @fonts[name] = font name, path, size
   @fonts[name]
 
+--[[
+  Global update function called by the C engine each physics tick (144Hz).
+
+  Behavior:
+    1. Collects an + all descendants into a flat array
+    2. Runs early phase (_early_update) on all objects
+    3. Runs main phase (_update) on all objects
+    4. Runs late phase (_late_update) on all objects
+    5. Runs cleanup to remove dead objects and finished actions
+
+  The three phases allow proper ordering:
+    - early: input handling, pre-update logic
+    - main: game logic, movement, collisions
+    - late: drawing, post-update cleanup
+
+  Note: This is called automatically by the C engine. Do not call manually.
+]]
 update = (dt) ->
   all_objects = {an}
   all_objects[] = obj for obj in *an\all!

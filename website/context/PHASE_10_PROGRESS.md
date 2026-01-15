@@ -25,7 +25,9 @@ Anchor/
 │   │   ├── object.yue
 │   │   ├── layer.yue
 │   │   ├── image.yue
-│   │   └── font.yue
+│   │   ├── font.yue
+│   │   ├── timer.yue
+│   │   └── math.yue
 │   ├── assets/             # Test assets
 │   ├── main.yue            # Test file
 │   ├── yue.exe             # YueScript compiler
@@ -106,6 +108,8 @@ require 'anchor.object'
 require 'anchor.layer'
 require 'anchor.image'
 require 'anchor.font'
+require 'anchor.timer'
+require 'anchor.math'
 
 an = object 'an'
 an.layers = {}
@@ -397,6 +401,86 @@ an\action ->
 
 ---
 
+## Timer Module
+
+The `timer` class is a child object that provides time-based callbacks, tweening, and state watching.
+
+### Design Decisions
+
+1. **Array-based storage** — Timers stored in `@entries` array (not hash table) for deterministic iteration order, enabling reproducible replays
+2. **Optional named timers** — Name is always the second argument: `timer\after 1, 'name', callback`. Named timers automatically replace existing timers with the same name.
+3. **Anonymous timer UIDs** — Anonymous timers get auto-generated unique IDs (`_timer_1`, `_timer_2`, etc.) to support `find` operations
+4. **Cancelled flag** — Safe iteration when callbacks cancel other timers; cancelled entries are skipped and removed at end of update
+5. **Multiplier support** — `set_multiplier` allows dynamic speed adjustment for slow-mo effects
+6. **Edge triggers** — `watch` and `when` fire once when condition changes, not continuously while true
+
+### API Reference
+
+**Basic Timers:**
+```yuescript
+timer\after delay, [name], callback                    -- Fire once after delay
+timer\every interval, [name], callback, [count], [after]  -- Fire repeatedly
+timer\during duration, [name], callback, [after]       -- Fire every frame for duration
+```
+
+**Tweening:**
+```yuescript
+timer\tween duration, [name], target, properties, [easing], [after]
+-- Example: timer\tween 1, obj, {x: 100, y: 50}, math.cubic_out
+```
+
+**State Watching:**
+```yuescript
+timer\watch field_name, callback              -- Fire when @[field] changes
+timer\when condition_function, callback       -- Fire once when condition becomes true
+timer\cooldown interval, name, condition, callback  -- Fire on interval while condition true
+```
+
+**Stepped Timers:**
+```yuescript
+timer\every_step start_delay, end_delay, count, callback  -- Varying intervals
+timer\during_step start_delay, end_delay, duration, callback, [after]
+```
+
+**Control:**
+```yuescript
+timer\cancel name           -- Remove timer by name
+timer\trigger name          -- Fire timer immediately (useful for testing or manual triggers)
+timer\set_multiplier value  -- Speed up (>1) or slow down (<1) all timers
+timer\get_time_left name    -- Query remaining time on a timer
+```
+
+### Entry Types
+
+Each timer entry has a `mode` field:
+
+| Mode | Fields | Behavior |
+|------|--------|----------|
+| `after` | delay, time, callback, after | Fires callback when time >= delay |
+| `every` | interval, time, callback, count, after | Repeats; count limits iterations |
+| `during` | duration, time, callback, after | Runs callback(dt, progress) each frame |
+| `tween` | duration, time, target, initial, properties, easing, after | Interpolates properties |
+| `watch` | field, previous, callback | Compares @[field] each frame |
+| `when` | condition, callback | Checks condition each frame |
+| `cooldown` | interval, time, condition, callback | Fires while condition true |
+| `every_step` | delays (array), index, time, callback | Uses varying delays |
+| `during_step` | delays (array), duration, time, callback, after | Varies frame timing |
+
+### Easing Functions
+
+The `math.yue` module provides easing functions for tweens:
+
+- **Linear:** `math.linear`
+- **Polynomial:** `quad`, `cubic`, `quart`, `quint` (each with `_in`, `_out`, `_in_out`, `_out_in`)
+- **Trigonometric:** `sine` (all variants)
+- **Exponential:** `expo` (all variants)
+- **Circular:** `circ` (all variants)
+- **Bounce:** `bounce` (all variants)
+- **Back:** `back` (overshoots, all variants)
+- **Elastic:** `elastic` (springy, all variants)
+
+---
+
 ## YueScript Idioms
 
 - Use `list[] = item` instead of `table.insert list, item`
@@ -429,6 +513,10 @@ an\action ->
 16. **Links don't create named refs** — Unlike `add()`, links are just death notifications
 17. **No custom operators** — YueScript limitations make operators impractical; short methods used instead
 18. **Single-letter aliases** — T, Y, U, E, X, L, A, F, K provide compact API without language hacks
+19. **Timer name as second argument** — `timer\after 1, 'name', callback` reads like English ("after 1 second, named X, do Y")
+20. **Array-based timer storage** — Deterministic iteration order for reproducible replays
+21. **`trigger` for immediate fire** — Rejected `_now` suffix variants; separate method is clearer
+22. **`watch` and `when` as edge triggers** — Fire once when state changes, not continuously while condition holds
 
 ---
 
@@ -456,6 +544,8 @@ an\action ->
 | `image` class (width, height, handle wrapper) | Done |
 | `font` class (text_width, char_width, glyph_metrics) | Done |
 | Resource registration on `an` (layer, image, font) | Done |
+| `timer` class (after, every, during, tween, watch, when, cooldown, every_step, during_step, cancel, trigger, set_multiplier, get_time_left) | Done |
+| `math` module (lerp, easing functions: linear, sine, quad, cubic, quart, quint, expo, circ, bounce, back, elastic) | Done |
 
 ---
 
@@ -558,8 +648,10 @@ Implementation order for remaining Phase 10 work:
 
 | Category | Items | Status |
 |----------|-------|--------|
-| **Pure utilities** | math (lerp, angle, easing), array, string | Not started |
+| **Pure utilities** | math (lerp, easing) | Done |
+| **Pure utilities** | array, string | Not started |
 | **Value objects** | color | Not started |
 | **Resource manager** | sounds, music on `an` | Not started |
-| **Child objects** | random, input, timer, spring, collider, camera, animation, shake | Not started |
+| **Child objects** | timer | Done |
+| **Child objects** | random, input, spring, collider, camera, animation, shake | Not started |
 | **External libs** | Integrate lua-geo2d for collision utilities | Not started |

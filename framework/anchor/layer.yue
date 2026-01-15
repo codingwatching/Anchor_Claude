@@ -1,30 +1,170 @@
 global *
 
+--[[
+  Layer class wraps the C layer handle for drawing.
+
+  Layers are FBOs (framebuffer objects) that accumulate draw commands during the frame.
+  Commands are deferred and processed at frame end via layer_render() with GL batching.
+  Draw order is FIFO — no z-ordering, call order determines render order.
+
+  Usage:
+    an\layer 'game'                           -- register layer
+    game = an.layers.game                     -- access layer
+    game\rectangle 100, 100, 50, 30, color    -- queue rectangle
+    game\draw!                                -- composite to screen
+
+  Properties:
+    @name   - string, layer identifier
+    @handle - C layer pointer
+]]
 class layer
+  --[[
+    Creates a new layer with the given name.
+
+    Usage:
+      layer 'game'
+      layer 'ui'
+
+    Behavior:
+      - Calls layer_create() which gets or creates a named layer in C
+      - Stores the C handle for subsequent draw calls
+  ]]
   new: (@name) =>
     @handle = layer_create @name
 
+  --[[
+    Queues a filled rectangle centered at (x, y).
+
+    Usage:
+      layer\rectangle 100, 100, 50, 30, rgba(255, 0, 0, 255)
+
+    Parameters:
+      x, y  - center position
+      w, h  - width and height
+      color - packed RGBA (use rgba() helper)
+  ]]
   rectangle: (x, y, w, h, color) =>
     layer_rectangle @handle, x, y, w, h, color
 
+  --[[
+    Queues a filled circle centered at (x, y).
+
+    Usage:
+      layer\circle 200, 150, 25, rgba(0, 255, 0, 255)
+
+    Parameters:
+      x, y   - center position
+      radius - circle radius
+      color  - packed RGBA (use rgba() helper)
+  ]]
   circle: (x, y, radius, color) =>
     layer_circle @handle, x, y, radius, color
 
+  --[[
+    Queues an image (texture) centered at (x, y).
+
+    Usage:
+      layer\image an.images.player, 100, 100
+      layer\image an.images.player, 100, 100, rgba(255, 255, 255, 128)  -- semi-transparent
+      layer\image an.images.player, 100, 100, 0xFFFFFFFF, rgba(255, 0, 0, 255)  -- red flash
+
+    Parameters:
+      image - image object (from an\image)
+      x, y  - center position
+      color - tint/multiply color (default: white/opaque)
+      flash - additive flash color (default: none)
+
+    Note: Use push/pop for rotation and scaling.
+  ]]
   image: (image, x, y, color, flash) =>
     layer_draw_texture @handle, image.handle, x, y, color or 0xFFFFFFFF, flash or 0
 
+  --[[
+    Queues text at position (x, y).
+
+    Usage:
+      layer\text "Hello!", an.fonts.main, 100, 50, rgba(255, 255, 255, 255)
+      layer\text "Score: 100", "main", 100, 50, rgba(255, 255, 255, 255)  -- font name string
+
+    Parameters:
+      text  - string to render
+      font  - font object or font name string
+      x, y  - position (top-left of text)
+      color - packed RGBA
+  ]]
   text: (text, font, x, y, color) =>
     font_name = if type(font) == 'string' then font else font.name
     layer_draw_text @handle, text, font_name, x, y, color
 
+  --[[
+    Pushes a transform onto the layer's transform stack.
+
+    Usage:
+      layer\push 240, 135, math.pi/4, 2, 2   -- translate, rotate 45°, scale 2x
+      layer\image img, 0, 0                   -- draws at (240,135), rotated, scaled
+      layer\pop!
+
+    Parameters:
+      x, y - translation
+      r    - rotation in radians
+      sx   - scale X
+      sy   - scale Y
+
+    Behavior:
+      - Builds TRS matrix: Translate(x,y) * Rotate(r) * Scale(sx,sy)
+      - Multiplies with current transform (transforms compose)
+      - All subsequent draws use this transform until pop
+      - Max stack depth: 32
+  ]]
   push: (x, y, r, sx, sy) =>
     layer_push @handle, x, y, r, sx, sy
 
+  --[[
+    Pops the top transform from the stack.
+
+    Usage:
+      layer\push 100, 100, 0, 1, 1
+      layer\rectangle 0, 0, 50, 50, color
+      layer\pop!
+
+    Behavior:
+      - Restores previous transform
+      - If stack is empty (depth 0), does nothing
+  ]]
   pop: =>
     layer_pop @handle
 
+  --[[
+    Sets the blend mode for subsequent draw commands.
+
+    Usage:
+      layer\set_blend_mode 'additive'   -- for glows, particles
+      layer\set_blend_mode 'alpha'      -- default blending
+
+    Parameters:
+      mode - 'alpha' (default) or 'additive'
+
+    Behavior:
+      - 'alpha': result = src * src.a + dst * (1 - src.a)
+      - 'additive': result = src * src.a + dst (good for glows)
+  ]]
   set_blend_mode: (mode) =>
     layer_set_blend_mode @handle, mode
 
+  --[[
+    Queues this layer to be composited to the screen.
+
+    Usage:
+      layer\draw!           -- draw at (0, 0)
+      layer\draw 10, 20     -- draw with offset
+
+    Parameters:
+      x, y - screen offset (default: 0, 0)
+
+    Behavior:
+      - Adds layer to the layer_draw_queue
+      - At frame end, all queued layers are composited to screen in order
+      - Layer is cleared after compositing (ready for next frame)
+  ]]
   draw: (x, y) =>
     layer_draw @handle, x or 0, y or 0

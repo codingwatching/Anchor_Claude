@@ -166,3 +166,4 @@ If a verbose name conflicts with a reserved keyword or one that's already in the
 - Use `@\method!` for self method calls in class methods
 - Use `@` prefix in constructor parameters for auto-assignment: `new: (@name, @x, @y) =>` automatically sets `@name = name`, etc.
 - Default values work with auto-assignment: `new: (@name='default', @size=16) =>`
+- Use `{:key}` shorthand for `{key: key}` when table key matches variable name: `{:delay, :callback}` instead of `{delay: delay, callback: callback}`

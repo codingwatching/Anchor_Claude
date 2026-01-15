@@ -6,6 +6,73 @@ an\layer 'game'
 an\font 'main', 'assets/LanaPixel.ttf', 11
 an\image 'smile', 'assets/slight_smile.png'
 
+-- Timer tests
+test_obj = object 'test'
+test_obj\add timer!
+an\add test_obj
+
+-- Test 1: anonymous after
+test_obj.timer\after 0.5, -> print '[0.5s] anonymous after fired'
+
+-- Test 2: named after
+test_obj.timer\after 1, 'named_after', -> print '[1.0s] named after fired'
+
+-- Test 3: anonymous every (3 times)
+test_obj.timer\every 0.3, (-> print '[every 0.3s] tick'), 3, -> print '[every 0.3s] done after 3 times'
+
+-- Test 4: named every (will be cancelled)
+test_obj.timer\every 0.2, 'to_cancel', -> print '[every 0.2s] this should only print twice'
+
+-- Test 5: cancel the named every after 0.5s
+test_obj.timer\after 0.5, 'do_cancel', ->
+  print '[0.5s] cancelling to_cancel timer'
+  test_obj.timer\cancel 'to_cancel'
+
+-- Test 6: replace named timer (second should win)
+test_obj.timer\after 2, 'replaceable', -> print '[2.0s] FAIL - first timer should have been replaced'
+test_obj.timer\after 2, 'replaceable', -> print '[2.0s] replaced timer fired (expected)'
+
+-- Test 7: during (runs every frame for duration)
+during_count = 0
+test_obj.timer\during 0.5, ((dt, progress) -> during_count += 1), -> print "[during 0.5s] done, ran #{during_count} times"
+
+-- Test 8: tween (interpolate properties)
+tween_obj = {x: 0, y: 0}
+test_obj.timer\tween 1, tween_obj, {x: 100, y: 50}, math.cubic_out, -> print "[tween 1s] done, x=#{tween_obj.x}, y=#{tween_obj.y}"
+
+-- Test 9: tween with named timer
+tween_obj2 = {scale: 1}
+test_obj.timer\tween 0.5, 'scale_tween', tween_obj2, {scale: 2}, math.quad_in_out, -> print "[tween 0.5s] scale done, scale=#{tween_obj2.scale}"
+
+-- Test 10: watch (field changes)
+test_obj.hp = 100
+test_obj.timer\watch 'hp', (current, previous) -> print "[watch] hp changed: #{previous} -> #{current}"
+test_obj.timer\after 0.3, -> test_obj.hp = 80
+test_obj.timer\after 0.6, -> test_obj.hp = 50
+
+-- Test 11: when (condition becomes true)
+test_obj.danger = false
+test_obj.timer\when (-> test_obj.danger), -> print "[when] danger became true!"
+test_obj.timer\after 0.4, -> test_obj.danger = true
+
+-- Test 12: every_step (varying delays, 5 calls from 0.1s to 0.3s)
+every_step_count = 0
+test_obj.timer\every_step 0.1, 0.3, 5, ->
+  every_step_count += 1
+  print "[every_step] tick #{every_step_count}"
+
+-- Test 13: trigger (fire immediately)
+test_obj.timer\every 10, 'trigger_test', -> print "[trigger] fired!"
+test_obj.timer\after 0.2, ->
+  print "[0.2s] triggering trigger_test"
+  test_obj.timer\trigger 'trigger_test'
+
+-- Test 14: get_time_left
+test_obj.timer\after 1.5, 'time_check', -> print "[1.5s] time_check fired"
+test_obj.timer\after 0.7, ->
+  remaining = test_obj.timer\get_time_left 'time_check'
+  print "[0.7s] time_check has #{remaining}s left"
+
 an.angle = 0
 
 an\action (dt) =>

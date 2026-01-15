@@ -1,15 +1,82 @@
 global *
 
+--[[
+  Font class wraps a named C font for text rendering.
+
+  Fonts in the C engine are identified by name string, not handle.
+  This class registers the font and provides query methods for metrics.
+
+  Usage:
+    an\font 'main', 'assets/LanaPixel.ttf', 11   -- register font
+    f = an.fonts.main                             -- access font
+    layer\text "Hello", f, 100, 50, color         -- draw text
+
+  Properties:
+    @name   - font identifier string
+    @size   - font size in pixels
+    @height - line height in pixels
+]]
 class font
+  --[[
+    Creates and registers a font.
+
+    Usage:
+      font 'main', 'assets/font.ttf', 16
+
+    Parameters:
+      name - identifier for this font (used in C calls)
+      path - path to TTF file
+      size - font size in pixels
+
+    Behavior:
+      - Calls font_load() to load and register the font in C
+      - Caches the line height
+  ]]
   new: (@name, path, @size) =>
     font_load @name, path, @size
     @height = font_get_height @name
 
+  --[[
+    Returns the width of a text string in pixels.
+
+    Usage:
+      width = font\text_width "Hello, world!"
+
+    Returns: number (pixel width)
+  ]]
   text_width: (text) =>
     font_get_text_width @name, text
 
+  --[[
+    Returns the advance width of a single character.
+
+    Usage:
+      width = font\char_width 65   -- 'A'
+
+    Parameters:
+      codepoint - Unicode codepoint (number)
+
+    Returns: number (pixel width)
+  ]]
   char_width: (codepoint) =>
     font_get_char_width @name, codepoint
 
+  --[[
+    Returns detailed metrics for a glyph.
+
+    Usage:
+      metrics = font\glyph_metrics 65   -- 'A'
+      print metrics.width, metrics.advance
+
+    Parameters:
+      codepoint - Unicode codepoint (number)
+
+    Returns: table with fields:
+      width    - glyph bitmap width
+      height   - glyph bitmap height
+      advance  - horizontal advance (spacing to next glyph)
+      bearingX - horizontal offset from cursor to glyph left edge
+      bearingY - vertical offset from baseline to glyph top edge
+  ]]
   glyph_metrics: (codepoint) =>
     font_get_glyph_metrics @name, codepoint
