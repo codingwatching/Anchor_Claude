@@ -28,6 +28,8 @@ The log is often too large to read in one pass. You MUST read it systematically:
 1. **Read in sequential chunks** — Start from the beginning, read 400-500 lines at a time
 2. **Build a chronological outline** — As you read each chunk, note:
    - Key events/tasks in order they occurred
+   - Planning phases: proposals, alternatives considered, user feedback on approach
+   - Research: docs read, code examined, references consulted
    - Errors encountered and how they were fixed
    - Decisions made and why
    - User corrections or feedback
@@ -64,7 +66,8 @@ Format (from SESSION_WORKFLOW.md):
 Rules:
 - **Chronological order** — Categories should match conversation flow
 - **Specific details** — Error messages, file names, what was tried
-- **Weight to problems solved** — Errors, fixes, user corrections matter
+- **Weight planning equally** — Research, proposals, alternatives considered, user feedback on approach are as important as implementation
+- **Weight problems solved** — Errors, fixes, user corrections matter
 
 ## Step 5: Get User Approval
 
