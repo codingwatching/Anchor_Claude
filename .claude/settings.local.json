@@ -43,7 +43,9 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:store.steampowered.com)",
       "Bash(E:/a327ex/Anchor/engine/tools/yue.exe:*)",
-      "WebFetch(domain:yuescript.org)"
+      "WebFetch(domain:yuescript.org)",
+      "WebFetch(domain:p5play.org)",
+      "WebFetch(domain:www.kvin.me)"
     ]
   }
 }

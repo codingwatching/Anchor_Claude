@@ -1,6 +1,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 PI = math.pi
 PI2 = math.pi / 2
 LN2 = math.log(2)
@@ -14,8 +28,131 @@ amplitude = 1
 period = 0.0003
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 math.lerp = function(t, source, destination)return 
 source * (1 - t) + destination * t end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.lerp_dt = function(p, t, dt, source, destination)return 
+math.lerp(1 - (1 - p) ^ (dt / t), source, destination)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.loop = function(t, length)return 
+math.clamp(t - math.floor(t / length) * length, 0, length)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.lerp_angle = function(t, source, destination)local dt = 
+math.loop(destination - source, 2 * math.pi)if 
+dt > math.pi then dt = dt - 2 * math.pi end;return 
+source + dt * math.clamp(t, 0, 1)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.lerp_angle_dt = function(p, t, dt, source, destination)return 
+math.lerp_angle(1 - (1 - p) ^ (dt / t), source, destination)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.clamp = function(value, min, max)if 
+value < min then return min elseif 
+value > max then return max else return 
+value end end
 
 
 math.linear = function(t)return t end

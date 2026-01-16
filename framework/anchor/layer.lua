@@ -44,6 +44,9 @@ local _class_0;local _base_0 = { rectangle = function(self, x, y, w, h, color)re
 
 
 
+
+
+
 layer_rectangle(self.handle, x, y, w, h, color)end, circle = function(self, x, y, radius, color)return 
 
 
@@ -323,4 +326,4 @@ layer_render(self.handle)end, draw_from = function(self, source, shader)return
 
 
 
-layer_draw_from(self.handle, source.handle, shader)end }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, name)self.name = name;self.handle = layer_create(self.name)end, __base = _base_0, __name = "layer" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;layer = _class_0;return _class_0 end
+layer_draw_from(self.handle, source.handle, shader)end }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, name)self.name = name;self.handle = layer_create(self.name)self.parallax_x = 1;self.parallax_y = 1;self.camera = an.camera end, __base = _base_0, __name = "layer" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;layer = _class_0;return _class_0 end

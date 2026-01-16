@@ -1,0 +1,262 @@
+global *
+
+--[[
+  Camera child object for viewport control.
+
+  Usage:
+    an\add camera 480, 270
+    an.camera.x = 100
+    an.camera.y = 200
+    an.camera.zoom = 2
+
+  Camera is added as a child object, typically to 'an'.
+  Layers automatically use an.camera by default (configurable via layer.camera).
+
+  Camera methods:
+    attach       - Apply camera transform to a layer (called automatically)
+    detach       - Remove camera transform from a layer (called automatically)
+    to_world     - Convert screen coordinates to world coordinates
+    to_screen    - Convert world coordinates to screen coordinates
+    get_effects  - Collect transform effects from child objects
+
+  Properties:
+    x, y         - Camera center position in world coordinates
+    w, h         - Viewport dimensions
+    rotation     - Rotation in radians
+    zoom         - Zoom level (1 = normal, 2 = 2x magnification)
+    mouse        - Table with x, y of mouse in world coordinates
+]]
+class camera extends object
+  --[[
+    Creates a new camera with the given viewport dimensions.
+
+    Usage:
+      an\add camera 480, 270
+
+    Parameters:
+      w - Viewport width (default 480)
+      h - Viewport height (default 270)
+
+    Behavior:
+      - Camera starts centered at (w/2, h/2)
+      - Zoom defaults to 1, rotation to 0
+      - Mouse position in world coords updated each frame
+  ]]
+  new: (@w=W, @h=H) =>
+    super 'camera'
+    @x = @w / 2
+    @y = @h / 2
+    @rotation = 0
+    @zoom = 1
+    @mouse = {x: 0, y: 0}
+    @follow_target = nil
+    @follow_lerp = 0.9
+    @follow_lerp_time = 0.5
+    @follow_lead = 0
+    @bounds = nil
+
+  --[[
+    Collects transform effects from children that implement get_transform.
+
+    Usage:
+      effects = camera\get_effects!
+
+    Returns: {x, y, rotation, zoom} - summed offsets from all child effects
+
+    Behavior:
+      - Iterates through children looking for get_transform method
+      - Child effects (shake, handcam, etc.) return {x, y, rotation, zoom}
+      - All effects are summed together
+  ]]
+  get_effects: =>
+    ox, oy, rotation, zoom = 0, 0, 0, 0
+    for child in *@children
+      if child.get_transform
+        t = child\get_transform!
+        ox += t.x or 0
+        oy += t.y or 0
+        rotation += t.rotation or 0
+        zoom += t.zoom or 0
+    {x: ox, y: oy, :rotation, :zoom}
+
+  --[[
+    Converts screen coordinates to world coordinates.
+
+    Usage:
+      world_x, world_y = camera\to_world screen_x, screen_y
+      world_x, world_y = camera\to_world mouse_position!
+
+    Parameters:
+      sx, sy - Screen coordinates
+
+    Returns: world_x, world_y
+
+    Behavior:
+      - Accounts for camera position, zoom, rotation
+      - Accounts for effects from child objects (shake, etc.)
+  ]]
+  to_world: (sx, sy) =>
+    effects = @\get_effects!
+    cx = @x + effects.x
+    cy = @y + effects.y
+    rot = @rotation + effects.rotation
+    zoom = @zoom * (1 + effects.zoom)
+
+    x = sx - @w / 2
+    y = sy - @h / 2
+    x = x / zoom
+    y = y / zoom
+    cos_r = math.cos -rot
+    sin_r = math.sin -rot
+    rx = x * cos_r - y * sin_r
+    ry = x * sin_r + y * cos_r
+    rx + cx, ry + cy
+
+  --[[
+    Converts world coordinates to screen coordinates.
+
+    Usage:
+      screen_x, screen_y = camera\to_screen world_x, world_y
+
+    Parameters:
+      wx, wy - World coordinates
+
+    Returns: screen_x, screen_y
+
+    Behavior:
+      - Accounts for camera position, zoom, rotation
+      - Accounts for effects from child objects (shake, etc.)
+  ]]
+  to_screen: (wx, wy) =>
+    effects = @\get_effects!
+    cx = @x + effects.x
+    cy = @y + effects.y
+    rot = @rotation + effects.rotation
+    zoom = @zoom * (1 + effects.zoom)
+
+    x = wx - cx
+    y = wy - cy
+    cos_r = math.cos rot
+    sin_r = math.sin rot
+    rx = x * cos_r - y * sin_r
+    ry = x * sin_r + y * cos_r
+    rx * zoom + @w / 2, ry * zoom + @h / 2
+
+  --[[
+    Applies camera transform to a layer.
+
+    Usage:
+      camera\attach layer
+      camera\attach layer, 0.5, 0.5  -- parallax
+
+    Parameters:
+      layer      - Layer to apply transform to
+      parallax_x - Horizontal parallax multiplier (default 1)
+      parallax_y - Vertical parallax multiplier (default 1)
+
+    Behavior:
+      - Pushes two transforms onto layer's stack
+      - Parallax < 1 makes layer scroll slower (background effect)
+      - Parallax = 0 makes layer stationary (fixed background)
+      - Called automatically by update loop for layers with camera set
+  ]]
+  attach: (layer, parallax_x=1, parallax_y=1) =>
+    effects = @\get_effects!
+    cx = @x * parallax_x + effects.x
+    cy = @y * parallax_y + effects.y
+    rot = @rotation + effects.rotation
+    zoom = @zoom * (1 + effects.zoom)
+
+    layer\push @w / 2, @h / 2, rot, zoom, zoom
+    layer\push -cx, -cy, 0, 1, 1
+
+  --[[
+    Removes camera transform from a layer.
+
+    Usage:
+      camera\detach layer
+
+    Parameters:
+      layer - Layer to remove transform from
+
+    Behavior:
+      - Pops two transforms from layer's stack
+      - Called automatically by update loop after all updates complete
+  ]]
+  detach: (layer) =>
+    layer\pop!
+    layer\pop!
+
+  --[[
+    Sets the target for the camera to follow.
+
+    Usage:
+      camera\follow player
+      camera\follow player, 0.9, 0.3    -- cover 90% of distance in 0.3 seconds
+      camera\follow player, 0.9, 0.5, 0.1  -- with lead
+
+    Parameters:
+      target    - Object with x, y properties (and optionally collider for velocity)
+      lerp      - Percentage of distance to cover (default: 0.9 = 90%)
+      lerp_time - Time in seconds to cover that percentage (default: 0.5)
+      lead      - Lead multiplier (default: 0, how far ahead to look based on velocity)
+
+    Behavior:
+      - Camera lerps towards target position each frame
+      - If lead > 0 and target has a collider, camera looks ahead in movement direction
+      - Pass nil to stop following
+  ]]
+  follow: (target, lerp, lerp_time, lead) =>
+    @follow_target = target
+    @follow_lerp = lerp if lerp
+    @follow_lerp_time = lerp_time if lerp_time
+    @follow_lead = lead if lead
+
+  --[[
+    Sets the camera bounds.
+
+    Usage:
+      camera\set_bounds -50, W + 50, -50, H + 50
+
+    Parameters:
+      min_x, max_x - Horizontal limits for camera center
+      min_y, max_y - Vertical limits for camera center
+
+    Behavior:
+      - Camera position is clamped to these bounds after following
+      - Pass nil to remove bounds: camera\set_bounds!
+  ]]
+  set_bounds: (min_x, max_x, min_y, max_y) =>
+    if min_x
+      @bounds = {:min_x, :max_x, :min_y, :max_y}
+    else
+      @bounds = nil
+
+  --[[
+    Internal: updates follow, bounds, and mouse world position each frame.
+
+    Called automatically during early_update phase.
+  ]]
+  early_update: (dt) =>
+    -- Follow target
+    if @follow_target and not @follow_target.dead
+      target_x = @follow_target.x
+      target_y = @follow_target.y
+      -- Add lead based on velocity
+      if @follow_lead > 0 and @follow_target.collider
+        vx, vy = @follow_target.collider\get_velocity!
+        target_x += vx * @follow_lead
+        target_y += vy * @follow_lead
+      @x = math.lerp_dt @follow_lerp, @follow_lerp_time, dt, @x, target_x
+      @y = math.lerp_dt @follow_lerp, @follow_lerp_time, dt, @y, target_y
+
+    -- Apply bounds
+    if @bounds
+      half_w = @w / (2 * @zoom)
+      half_h = @h / (2 * @zoom)
+      @x = math.clamp @x, @bounds.min_x + half_w, @bounds.max_x - half_w
+      @y = math.clamp @y, @bounds.min_y + half_h, @bounds.max_y - half_h
+
+    -- Update mouse world position
+    mx, my = mouse_position!
+    @mouse.x, @mouse.y = @\to_world mx, my

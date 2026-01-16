@@ -11,7 +11,7 @@ Guidelines for Claude Code instances working on the Anchor engine.
 **Framework** — YueScript framework classes in `Anchor/framework/anchor/` (object.yue, init.yue, etc.)
 
 **Engine Mode** — when modifying anchor.c or engine behavior
-**Game Mode** — when writing gameplay code in YueScript (from a game's repository)
+**Game Mode** — when writing gameplay code in YueScript (from a game's repository)  
 **Framework Mode** — when editing the YueScript framework classes in `Anchor/framework/anchor/`
 
 This is the **Engine** and **Framework** repository. For Game Mode, work from a game's repository (e.g., `emoji-ball-battles/`).

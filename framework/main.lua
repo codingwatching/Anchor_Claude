@@ -3,21 +3,29 @@
 require('anchor')
 
 
+W, H = 480, 270
+
+
+an:add(camera())
+an.camera:add(shake())
+an:add(spring())
+an.spring:add('camera_rotation', 0, 2, 0.5)
+
 
 game = an:layer('game')
+game_2 = an:layer('game_2')
 bg = an:layer('bg')
 shadow = an:layer('shadow')
-outline = an:layer('outline')
+game_outline = an:layer('game_outline')
+game_2_outline = an:layer('game_2_outline')
 ui = an:layer('ui')
+ui.camera = nil
 
 
 an:font('main', 'assets/LanaPixel.ttf', 11)
 an:image('ball', 'assets/slight_smile.png')
 an:shader('shadow', 'shaders/shadow.frag')
 an:shader('outline', 'shaders/outline.frag')
-
-
-W, H = 480, 270
 
 
 an:physics_init()
@@ -98,7 +106,7 @@ impulse_height = ground_height
 impulse_x = left_wall_x + wall_width
 impulse_y = ground_y - impulse_height;do
 
-local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self, layer)return 
+local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self, layer)
 
 
 
@@ -108,7 +116,12 @@ local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self, 
 
 
 
-layer:rectangle(self.x - self.w / 2, self.y - self.h / 2, self.w, self.h, blue)end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y, w, h)self.w = w;self.h = h;_class_0.__parent.__init(self)self:tag('drawable')self:add(collider('impulse_block', 'static', 'box', self.w, self.h))self.collider:set_position(x + self.w / 2, y + self.h / 2)self.collider:set_friction(1)return self.collider:set_restitution(1)end, __base = _base_0, __name = "impulse_block", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;impulse_block = _class_0 end
+
+
+
+layer:push(self.x, self.y, 0, self.spring.main.x, self.spring.main.x)
+layer:rectangle(-self.w / 2, -self.h / 2, self.w, self.h, self.flash and white or blue)return 
+layer:pop()end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y, w, h)self.w = w;self.h = h;_class_0.__parent.__init(self)self:tag('impulse_block')self.flash = false;self:add(timer())self:add(spring())self:add(collider('impulse_block', 'static', 'box', self.w, self.h))self.collider:set_position(x + self.w / 2, y + self.h / 2)self.collider:set_friction(1)return self.collider:set_restitution(1)end, __base = _base_0, __name = "impulse_block", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;impulse_block = _class_0 end
 
 an:add(impulse_block(impulse_x, impulse_y, impulse_width, impulse_height))
 
@@ -152,29 +165,77 @@ local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self, 
 
 
 
-self.collider:get_angle()
-layer:push(self.x, self.y, angle, ball_scale, ball_scale)
+
+self.collider:get_angle()local scale = 
+ball_scale * self.spring.main.x
+layer:push(self.x, self.y, angle, scale, scale)
 layer:image(an.images.ball, 0, 0, nil, self.flash and white or nil)return 
-layer:pop()end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y)self.x = x;self.y = y;_class_0.__parent.__init(self)self:tag('ball')self:tag('drawable')self.impulsed = false;self.original_speed = 0;self.flash = false;self:add(timer())self:add(collider('ball', 'dynamic', 'circle', ball_radius))self.collider:set_position(self.x, self.y)self.collider:set_restitution(1)return self.collider:set_friction(1)end, __base = _base_0, __name = "ball", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;ball = _class_0 end
+layer:pop()end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y)self.x = x;self.y = y;_class_0.__parent.__init(self)self:tag('ball')self:tag('drawable')self.impulsed = false;self.original_speed = 0;self.flash = false;self:add(timer())self:add(spring())self:add(collider('ball', 'dynamic', 'circle', ball_radius))self.collider:set_position(self.x, self.y)self.collider:set_restitution(1)return self.collider:set_friction(1)end, __base = _base_0, __name = "ball", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;ball = _class_0 end
 
 
-an:action(function(self)if 
+an:action(function(self, dt)if 
 key_is_pressed('k') then local spawn_x = 
 left_wall_x + wall_width + ball_radius + 20;local spawn_y = 
-wall_top - ball_radius - 5
-an:add(ball(spawn_x, spawn_y))end;if 
+wall_top - ball_radius - 5;local new_ball = 
+ball(spawn_x, spawn_y)
+an:add(new_ball)end;if 
+
 
 key_is_pressed('p') then local _list_0 = 
 an:all('ball')for _index_0 = 1, #_list_0 do local b = _list_0[_index_0]
-b.collider:apply_impulse(200, 0)end end end)
+b.collider:apply_impulse(200, 0)end end;if 
+
+key_is_pressed('r') then
+an.spring:pull('camera_rotation', math.pi / 12)end;if 
+
+key_is_pressed('t') then
+an.camera.shake:trauma(1, 1)end;if 
+
+key_is_pressed('y') then
+an.camera.shake:push(random_float(0, 2 * math.pi), 20)end;if 
+
+key_is_pressed('u') then
+an.camera.shake:shake(15, 0.5)end;if 
+
+key_is_pressed('i') then
+an.camera.shake:sine(random_float(0, 2 * math.pi), 15, 8, 0.5)end;if 
+
+key_is_pressed('o') then
+an.camera.shake:square(random_float(0, 2 * math.pi), 15, 8, 0.5)end;if 
+
+key_is_pressed('h') then
+an.camera.shake:handcam(not an.camera.shake.handcam_enabled)end
+
+an.camera.rotation = an.spring.camera_rotation.x;if 
+
+
+mouse_is_pressed(1) then local _list_0 = 
+an:query_point(an.camera.mouse.x, an.camera.mouse.y, 'ball')for _index_0 = 1, #_list_0 do local b = _list_0[_index_0]
+b.flash = true
+b.timer:after(0.15, 'flash', function()b.flash = false end)
+b.spring:pull('main', 0.2, 5, 0.8)end end;local camera_speed = 
+
+200;if 
+key_is_down('w') or key_is_down('up') then local _obj_0 = 
+an.camera;_obj_0.y = _obj_0.y - (camera_speed * dt)end;if 
+key_is_down('s') or key_is_down('down') then local _obj_0 = 
+an.camera;_obj_0.y = _obj_0.y + (camera_speed * dt)end;if 
+key_is_down('a') or key_is_down('left') then local _obj_0 = 
+an.camera;_obj_0.x = _obj_0.x - (camera_speed * dt)end;if 
+key_is_down('d') or key_is_down('right') then local _obj_0 = 
+an.camera;_obj_0.x = _obj_0.x + (camera_speed * dt)end end)
 
 
 an:early_action('handle_collisions', function(self)local _list_0 = 
 an:collision_begin_events('ball', 'impulse_block')for _index_0 = 1, #_list_0 do local event = _list_0[_index_0]local ball = 
-event.a;if not 
+event.a;local block = 
+event.b;if not 
 ball.impulsed then
 ball.impulsed = true
-ball.collider:apply_impulse(random_float(20, 40), 0)end end;local _list_1 = 
+ball.collider:apply_impulse(random_float(20, 40), 0)
+block.flash = true
+block.timer:after(0.15, 'flash', function()block.flash = false end)
+block.spring:pull('main', 0.2, 5, 0.8)end end;local _list_1 = 
 
 an:sensor_begin_events('ball', 'slowing_zone')for _index_0 = 1, #_list_1 do local event = _list_1[_index_0]local ball = 
 event.a;local vx,vy = 
@@ -196,7 +257,8 @@ an:hit_events('ball', 'wall')for _index_0 = 1, #_list_3 do local event = _list_3
 event.a;if 
 event.approach_speed > 300 then
 ball.flash = true
-ball.timer:after(0.15, 'flash', function()ball.flash = false end)end end end)
+ball.timer:after(0.15, 'flash', function()ball.flash = false end)
+ball.spring:pull('main', 0.2, 5, 0.8)end end end)
 
 
 an:late_action('draw', function(self)
@@ -208,8 +270,17 @@ an:all('drawable')for _index_0 = 1, #_list_0 do local obj = _list_0[_index_0]
 obj:draw(game)end;local _list_1 = 
 
 
-an:all('slowing_zone')for _index_0 = 1, #_list_1 do local zone = _list_1[_index_0]
-zone:draw(ui)end end)
+an:all('impulse_block')for _index_0 = 1, #_list_1 do local obj = _list_1[_index_0]
+obj:draw(game_2)end;local _list_2 = 
+
+
+an:all('slowing_zone')for _index_0 = 1, #_list_2 do local zone = _list_2[_index_0]
+zone:draw(ui)end;local _list_3 = 
+
+
+an:all('ball')for _index_0 = 1, #_list_3 do local b = _list_3[_index_0]local screen_x,screen_y = 
+an.camera:to_screen(b.x, b.y)
+ui:circle(screen_x, screen_y - 20, 5, red)end end)
 
 
 
@@ -217,19 +288,25 @@ draw = function()
 
 bg:render()
 game:render()
+game_2:render()
 ui:render()
 
 
 shadow:clear()
 shadow:draw_from(game, an.shaders.shadow)
+shadow:draw_from(game_2, an.shaders.shadow)
 
-outline:clear()
 shader_set_vec2(an.shaders.outline, "u_pixel_size", 1 / W, 1 / H)
-outline:draw_from(game, an.shaders.outline)
+game_outline:clear()
+game_outline:draw_from(game, an.shaders.outline)
+game_2_outline:clear()
+game_2_outline:draw_from(game_2, an.shaders.outline)
 
 
 bg:draw()
 shadow:draw(4, 4)
-outline:draw()
-game:draw()return 
+game_outline:draw()
+game:draw()
+game_2_outline:draw()
+game_2:draw()return 
 ui:draw()end

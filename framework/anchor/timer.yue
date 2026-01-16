@@ -1,7 +1,5 @@
 global *
 
-require 'anchor.object'
-
 --[[
   Timer child object for scheduling delayed, repeating, and conditional callbacks.
 

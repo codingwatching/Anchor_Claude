@@ -28,6 +28,7 @@ Anchor/
 │   │   ├── font.yue
 │   │   ├── timer.yue
 │   │   ├── collider.yue
+│   │   ├── spring.yue
 │   │   └── math.yue
 │   ├── assets/             # Test assets
 │   ├── main.yue            # Test file
@@ -111,6 +112,8 @@ require 'anchor.image'
 require 'anchor.font'
 require 'anchor.timer'
 require 'anchor.math'
+require 'anchor.collider'
+require 'anchor.spring'
 
 an = object 'an'
 an.layers = {}
@@ -482,6 +485,69 @@ The `math.yue` module provides easing functions for tweens:
 
 ---
 
+## Spring Module
+
+The `spring` class is a child object that provides damped spring animations for juicy visual effects.
+
+### Design Decisions
+
+1. **Container pattern** — One spring object holds multiple named springs (like timer holds multiple timers)
+2. **Default 'main' spring** — Every spring object starts with a 'main' spring at value 1 (useful for scale effects)
+3. **Direct property access** — Springs accessible as `@spring.name.x` for clean usage
+4. **Early update** — Springs update in early phase so values are ready for main/late phases
+5. **Standard damped spring physics** — Uses equation `a = -k*(x - target) - d*v`
+
+### API Reference
+
+```yuescript
+@\add spring!                        -- Add spring child (creates default 'main' at value 1)
+@spring\add 'scale', 1, 200, 10      -- Add named spring: name, initial, stiffness, damping
+@spring\pull 'main', 0.5             -- Apply impulse (adds to current value)
+@spring\pull 'scale', 0.3, 200, 5    -- Pull with custom k/d
+@spring\set_target 'main', 2         -- Change resting point (animates toward new value)
+@spring\at_rest 'main'               -- Check if spring has settled
+@spring.main.x                       -- Read current value
+@spring.scale.x                      -- Read named spring value
+```
+
+### Spring Properties
+
+Each spring entry has:
+- `x` — Current value
+- `target_x` — Resting point (value spring settles toward)
+- `v` — Current velocity
+- `k` — Stiffness (default 100, higher = faster oscillation)
+- `d` — Damping (default 10, higher = less bouncy)
+
+### Physics
+
+The spring uses standard damped harmonic oscillator physics:
+```
+acceleration = -k * (x - target_x) - d * velocity
+velocity += acceleration * dt
+x += velocity * dt
+```
+
+For critical damping (no overshoot): `d = 2 * sqrt(k)`
+
+### Usage Example
+
+```yuescript
+-- Add spring to an object
+@\add spring!
+@spring\add 'hit_scale', 1, 200, 10
+
+-- On hit, pull the spring
+@spring\pull 'hit_scale', 0.3
+
+-- In draw, apply spring value to scale
+layer\push @x, @y, 0, @spring.hit_scale.x, @spring.hit_scale.x
+layer\rectangle -@w/2, -@h/2, @w, @h, @color
+layer\pop!
+```
+
+---
+
 ## Layer Rendering Pipeline
 
 The rendering pipeline uses explicit control via a global `draw()` function called by C after the update phase completes.
@@ -634,6 +700,7 @@ This ensures semi-transparent colors composite correctly when drawn through mult
 | `collider` sensor shape support via opts table `{sensor: true}` | Done |
 | Event normalization (a/b match query tag order) | Done |
 | Spatial queries on `an` (query_point, query_circle, query_aabb, query_box, query_capsule, query_polygon, raycast, raycast_all) | Done |
+| `spring` class (add, pull, set_target, at_rest, early_update) | Done |
 
 ---
 
@@ -673,7 +740,7 @@ These are proper tree objects added as children to other objects. Their lifecycl
 | **input** | Input bindings context | `@\add input!` then `@input\is_pressed 'jump'` |
 | **random** | Seeded RNG instance | `@\add random seed` then `@random\float 0, 1` |
 | **timer** | Delays, repeating callbacks, tweens | `@\add timer!` then `@timer\after 2, -> ...` |
-| **spring** | Damped spring animation | `@\add spring 1, 200, 10` then `@spring\pull 0.5` |
+| **spring** | Damped spring animation | `@\add spring!` then `@spring\pull 'main', 0.5` |
 | **collider** | Box2D physics body | `@\add collider 'enemy', 'dynamic', 'circle', 16` |
 | **camera** | Viewport with position, zoom, rotation | `an\add camera!` then `an.camera\follow player` |
 | **animation** | Sprite animation | `@\add animation 'walk', 0.1` |
@@ -797,18 +864,190 @@ This behavior is documented in the [YueScript source code](https://github.com/pi
 
 ---
 
+## Camera Module
+
+The `camera` class is a child object that provides viewport control with position, zoom, rotation, and effects.
+
+### Design Decisions
+
+1. **Child object pattern** — Camera is added to `an` and layers reference it via `layer.camera`
+2. **Effect composition** — Camera collects transform offsets from child objects implementing `get_transform()`
+3. **Coordinate conversion** — `to_world` and `to_screen` methods for mouse picking and UI positioning
+4. **Follow with lead** — Camera can follow a target with optional velocity-based lead
+5. **Bounds clamping** — Optional camera bounds to constrain movement
+
+### API Reference
+
+```yuescript
+an\add camera!                           -- Add camera (uses global W, H)
+an.camera.x, an.camera.y = 100, 200      -- Set position
+an.camera.zoom = 2                       -- Set zoom
+an.camera.rotation = math.pi / 4         -- Set rotation
+
+an.camera\follow player                  -- Follow target
+an.camera\follow player, 0.9, 0.5        -- Follow with lerp (90% distance in 0.5s)
+an.camera\follow player, 0.9, 0.5, 0.1   -- Follow with lead (look ahead based on velocity)
+
+an.camera\set_bounds min_x, max_x, min_y, max_y  -- Constrain camera
+an.camera\set_bounds!                    -- Remove bounds
+
+world_x, world_y = an.camera\to_world screen_x, screen_y  -- Screen to world
+screen_x, screen_y = an.camera\to_screen world_x, world_y -- World to screen
+an.camera.mouse.x, an.camera.mouse.y     -- Mouse in world coordinates (updated each frame)
+```
+
+### Layer Integration
+
+Layers reference `an.camera` by default. Set `layer.camera = nil` for screen-space UI:
+
+```yuescript
+ui = an\layer 'ui'
+ui.camera = nil  -- UI stays in screen space
+```
+
+### Effect System
+
+Child objects of camera can implement `get_transform()` to contribute effects:
+
+```yuescript
+get_transform: =>
+  {x: offset_x, y: offset_y, rotation: rotation_offset, zoom: zoom_offset}
+```
+
+The camera sums all child effects in `get_effects()` and applies them during `attach()`.
+
+---
+
+## Math Module Additions
+
+Added framerate-independent interpolation and angle utilities:
+
+```yuescript
+-- Framerate-independent lerp
+-- "Cover p% of the distance in t seconds"
+math.lerp_dt(p, t, dt, source, destination)
+-- Example: math.lerp_dt(0.9, 0.5, dt, @x, target_x)  -- 90% of distance in 0.5s
+
+-- Angle interpolation (handles wraparound)
+math.lerp_angle(t, source, destination)
+math.lerp_angle_dt(p, t, dt, source, destination)
+
+-- Loop value within range (like modulo but always positive)
+math.loop(t, length)  -- Returns value in [0, length)
+```
+
+---
+
+## Spring Module Updates
+
+Changed spring API from physics constants (k, d) to intuitive parameters (frequency, bounce):
+
+### Old API (Internal)
+```yuescript
+@spring\add 'scale', 1, 200, 10  -- value, stiffness k, damping d
+```
+
+### New API
+```yuescript
+@spring\add 'scale', 1, 5, 0.5   -- value, frequency (Hz), bounce (0-1)
+@spring\pull 'main', 0.5, 8, 0.7 -- force, optional new frequency/bounce
+```
+
+**Parameters:**
+- `frequency` — Oscillations per second (default 5)
+- `bounce` — Bounciness 0-1 (default 0.5, where 0=no overshoot, 1=infinite oscillation)
+
+**Internal conversion:**
+```
+k = (2π × frequency)²
+d = 4π × (1 - bounce) × frequency
+```
+
+---
+
+## Shake Module
+
+The `shake` class is a child object added to camera that provides various screen shake effects.
+
+### Design Decisions
+
+1. **Camera child** — Shake is added to camera and implements `get_transform()`
+2. **Multiple instance types** — Each shake type (trauma, shake, sine, square) supports multiple simultaneous instances
+3. **Duration per call** — Trauma and other effects specify duration per call, allowing different decay rates
+4. **Spring reuse** — Push shake reuses the spring module for natural oscillation
+
+### API Reference
+
+**Trauma (Perlin noise, accumulating):**
+```yuescript
+shake\trauma 0.5, 0.3           -- amount, duration (instances sum together)
+shake\trauma 1, 1               -- full trauma over 1 second
+shake\set_trauma_parameters {x: 24, y: 24, rotation: 0.2, zoom: 0.2}
+```
+
+**Push (spring-based directional):**
+```yuescript
+shake\push angle, amount                    -- directional impulse
+shake\push angle, amount, frequency, bounce -- with custom spring params
+shake\push 0, 20                            -- rightward push
+shake\push math.pi, 15, 8, 0.7              -- leftward with custom spring
+```
+
+**Shake (random jitter):**
+```yuescript
+shake\shake amplitude, duration             -- random displacement
+shake\shake amplitude, duration, frequency  -- with jitter rate (changes/sec)
+shake\shake 15, 0.5                         -- 15 pixels, 0.5 seconds
+shake\shake 20, 0.5, 30                     -- slower jitter (30 Hz)
+```
+
+**Sine (smooth oscillation):**
+```yuescript
+shake\sine angle, amplitude, frequency, duration
+shake\sine 0, 15, 8, 0.5        -- horizontal, 15px, 8 Hz, 0.5s
+```
+
+**Square (sharp oscillation):**
+```yuescript
+shake\square angle, amplitude, frequency, duration
+shake\square 0, 15, 8, 0.5      -- horizontal, 15px, 8 Hz, 0.5s
+```
+
+**Handcam (continuous subtle motion):**
+```yuescript
+shake\handcam true                          -- enable with defaults
+shake\handcam true, {x: 5, y: 5, rotation: 0.02, zoom: 0.02}, 0.5  -- custom
+shake\handcam false                         -- disable
+```
+
+### Shake Types Summary
+
+| Method | Description | Key Feature |
+|--------|-------------|-------------|
+| `trauma` | Perlin noise shake | Accumulates, quadratic intensity |
+| `push` | Spring-based directional | Natural oscillation and settle |
+| `shake` | Random jitter | Chaotic, jittery feel |
+| `sine` | Sinusoidal oscillation | Smooth, rhythmic |
+| `square` | Square wave oscillation | Sharp, snappy |
+| `handcam` | Continuous subtle motion | Always-on ambient effect |
+
+---
+
 ## What's Next
 
 Implementation order for remaining Phase 10 work:
 
 | Category | Items | Status |
 |----------|-------|--------|
-| **Pure utilities** | math (lerp, easing) | Done |
+| **Pure utilities** | math (lerp, easing, lerp_dt, lerp_angle, loop) | Done |
 | **Pure utilities** | array, string | Not started |
 | **Value objects** | color | Not started |
 | **Resource manager** | sounds, music on `an` | Not started |
 | **Child objects** | timer | Done |
 | **Child objects** | collider | Done |
-| **Child objects** | random, input, spring, camera, animation, shake | Not started |
+| **Child objects** | spring (with frequency/bounce API) | Done |
+| **Child objects** | camera (follow, bounds, lead, coordinate conversion) | Done |
+| **Child objects** | shake (trauma, push, shake, sine, square, handcam) | Done |
+| **Child objects** | random, input, animation | Not started |
 | **Physics** | Spatial queries on `an` (query_point, query_circle, raycast, etc.) | Done |
 | **External libs** | Integrate lua-geo2d for collision utilities | Not started |

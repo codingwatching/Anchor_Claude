@@ -2,22 +2,30 @@ global *
 
 require 'anchor'
 
+-- Screen dimensions (must be before camera)
+W, H = 480, 270
+
+-- Create camera first (layers will reference it)
+an\add camera!
+an.camera\add shake!
+an\add spring!
+an.spring\add 'camera_rotation', 0, 2, 0.5  -- 2 Hz, moderate bounce
+
 -- Setup layers
--- game is created first so it renders first, making its texture available for shadow/outline
 game = an\layer 'game'
+game_2 = an\layer 'game_2'
 bg = an\layer 'bg'
 shadow = an\layer 'shadow'
-outline = an\layer 'outline'
+game_outline = an\layer 'game_outline'
+game_2_outline = an\layer 'game_2_outline'
 ui = an\layer 'ui'
+ui.camera = nil  -- UI layer stays in screen space
 
 -- Resources
 an\font 'main', 'assets/LanaPixel.ttf', 11
 an\image 'ball', 'assets/slight_smile.png'
 an\shader 'shadow', 'shaders/shadow.frag'
 an\shader 'outline', 'shaders/outline.frag'
-
--- Screen dimensions
-W, H = 480, 270
 
 -- Initialize physics
 an\physics_init!
@@ -101,14 +109,19 @@ impulse_y = ground_y - impulse_height
 class impulse_block extends object
   new: (x, y, @w, @h) =>
     super!
-    @\tag 'drawable'
+    @\tag 'impulse_block'
+    @flash = false
+    @\add timer!
+    @\add spring!
     @\add collider 'impulse_block', 'static', 'box', @w, @h
     @collider\set_position x + @w/2, y + @h/2
     @collider\set_friction 1
     @collider\set_restitution 1
 
   draw: (layer) =>
-    layer\rectangle @x - @w/2, @y - @h/2, @w, @h, blue
+    layer\push @x, @y, 0, @spring.main.x, @spring.main.x
+    layer\rectangle -@w/2, -@h/2, @w, @h, @flash and white or blue
+    layer\pop!
 
 an\add impulse_block impulse_x, impulse_y, impulse_width, impulse_height
 
@@ -146,6 +159,7 @@ class ball extends object
     @original_speed = 0
     @flash = false
     @\add timer!
+    @\add spring!
     @\add collider 'ball', 'dynamic', 'circle', ball_radius
     @collider\set_position @x, @y
     @collider\set_restitution 1
@@ -153,28 +167,75 @@ class ball extends object
 
   draw: (layer) =>
     local angle = @collider\get_angle!
-    layer\push @x, @y, angle, ball_scale, ball_scale
+    local scale = ball_scale * @spring.main.x
+    layer\push @x, @y, angle, scale, scale
     layer\image an.images.ball, 0, 0, nil, @flash and white or nil
     layer\pop!
 
--- Spawn ball on K, impulse on P
-an\action =>
+-- Spawn ball on K, impulse on P, camera movement with WASD/arrows
+an\action (dt) =>
   if key_is_pressed 'k'
     spawn_x = left_wall_x + wall_width + ball_radius + 20
     spawn_y = wall_top - ball_radius - 5
-    an\add ball spawn_x, spawn_y
+    new_ball = ball spawn_x, spawn_y
+    an\add new_ball
+    -- an.camera\follow new_ball, 0.9, 0.1
 
   if key_is_pressed 'p'
     for b in *an\all 'ball'
       b.collider\apply_impulse 200, 0
 
+  if key_is_pressed 'r'
+    an.spring\pull 'camera_rotation', math.pi / 12  -- 15 degrees
+
+  if key_is_pressed 't'
+    an.camera.shake\trauma 1, 1
+
+  if key_is_pressed 'y'
+    an.camera.shake\push random_float(0, 2 * math.pi), 20
+
+  if key_is_pressed 'u'
+    an.camera.shake\shake 15, 0.5
+
+  if key_is_pressed 'i'
+    an.camera.shake\sine random_float(0, 2 * math.pi), 15, 8, 0.5
+
+  if key_is_pressed 'o'
+    an.camera.shake\square random_float(0, 2 * math.pi), 15, 8, 0.5
+
+  if key_is_pressed 'h'
+    an.camera.shake\handcam not an.camera.shake.handcam_enabled
+
+  an.camera.rotation = an.spring.camera_rotation.x
+
+  -- Screen -> world test: click on ball to flash + jiggle
+  if mouse_is_pressed 1
+    for b in *an\query_point an.camera.mouse.x, an.camera.mouse.y, 'ball'
+      b.flash = true
+      b.timer\after 0.15, 'flash', -> b.flash = false
+      b.spring\pull 'main', 0.2, 5, 0.8
+
+  camera_speed = 200
+  if key_is_down('w') or key_is_down('up')
+    an.camera.y -= camera_speed * dt
+  if key_is_down('s') or key_is_down('down')
+    an.camera.y += camera_speed * dt
+  if key_is_down('a') or key_is_down('left')
+    an.camera.x -= camera_speed * dt
+  if key_is_down('d') or key_is_down('right')
+    an.camera.x += camera_speed * dt
+
 -- Handle collisions
 an\early_action 'handle_collisions', =>
   for event in *an\collision_begin_events 'ball', 'impulse_block'
     local ball = event.a
+    local block = event.b
     unless ball.impulsed
       ball.impulsed = true
       ball.collider\apply_impulse random_float(20, 40), 0
+      block.flash = true
+      block.timer\after 0.15, 'flash', -> block.flash = false
+      block.spring\pull 'main', 0.2, 5, 0.8
 
   for event in *an\sensor_begin_events 'ball', 'slowing_zone'
     local ball = event.a
@@ -197,19 +258,29 @@ an\early_action 'handle_collisions', =>
     if event.approach_speed > 300
       ball.flash = true
       ball.timer\after 0.15, 'flash', -> ball.flash = false
+      ball.spring\pull 'main', 0.2, 5, 0.8
 
 -- Queue draw commands during update
 an\late_action 'draw', =>
   -- Draw background
   bg\rectangle 0, 0, W, H, bg_color
 
-  -- Draw all drawable objects to game layer (only once!)
+  -- Draw all drawable objects to game layer
   for obj in *an\all 'drawable'
     obj\draw game
 
-  -- Draw slowing zone to ui layer (no shadow/outline effects)
+  -- Draw impulse blocks to game_2 layer
+  for obj in *an\all 'impulse_block'
+    obj\draw game_2
+
+  -- Draw slowing zone to ui layer
   for zone in *an\all 'slowing_zone'
     zone\draw ui
+
+  -- World -> screen test: draw UI marker above each ball
+  for b in *an\all 'ball'
+    screen_x, screen_y = an.camera\to_screen b.x, b.y
+    ui\circle screen_x, screen_y - 20, 5, red
 
 -- Global draw function - called by C after update
 -- Handles: render source layers, create derived layers, composite to screen
@@ -217,19 +288,25 @@ draw = ->
   -- 1. Render source layers (process queued commands to FBOs)
   bg\render!
   game\render!
+  game_2\render!
   ui\render!
 
-  -- 2. Create derived layers (copy from game through shaders)
+  -- 2. Create derived layers (copy through shaders)
   shadow\clear!
   shadow\draw_from game, an.shaders.shadow
+  shadow\draw_from game_2, an.shaders.shadow
 
-  outline\clear!
   shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
-  outline\draw_from game, an.shaders.outline
+  game_outline\clear!
+  game_outline\draw_from game, an.shaders.outline
+  game_2_outline\clear!
+  game_2_outline\draw_from game_2, an.shaders.outline
 
   -- 3. Composite to screen (visual back-to-front order)
   bg\draw!
   shadow\draw 4, 4
-  outline\draw!
+  game_outline\draw!
   game\draw!
+  game_2_outline\draw!
+  game_2\draw!
   ui\draw!

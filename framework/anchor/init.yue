@@ -20,6 +20,9 @@ require 'anchor.font'
 require 'anchor.timer'
 require 'anchor.math'
 require 'anchor.collider'
+require 'anchor.spring'
+require 'anchor.camera'
+require 'anchor.shake'
 
 --[[
   Root object for the framework.
@@ -602,11 +605,13 @@ an.raycast_all = (x1, y1, x2, y2, tags) =>
   Global update function called by the C engine each physics tick (144Hz).
 
   Behavior:
-    1. Collects an + all descendants into a flat array
-    2. Runs early phase (_early_update) on all objects
-    3. Runs main phase (_update) on all objects
-    4. Runs late phase (_late_update) on all objects
-    5. Runs cleanup to remove dead objects and finished actions
+    1. Attaches camera transforms to layers
+    2. Collects an + all descendants into a flat array
+    3. Runs early phase (_early_update) on all objects
+    4. Runs main phase (_update) on all objects
+    5. Runs late phase (_late_update) on all objects
+    6. Runs cleanup to remove dead objects and finished actions
+    7. Detaches camera transforms from layers
 
   The three phases allow proper ordering:
     - early: input handling, pre-update logic
@@ -616,9 +621,19 @@ an.raycast_all = (x1, y1, x2, y2, tags) =>
   Note: This is called automatically by the C engine. Do not call manually.
 ]]
 update = (dt) ->
+  -- Attach camera transforms to layers before any updates
+  for name, layer in pairs an.layers
+    if layer.camera
+      layer.camera\attach layer, layer.parallax_x, layer.parallax_y
+
   all_objects = {an}
   all_objects[] = obj for obj in *an\all!
   obj\_early_update dt for obj in *all_objects
   obj\_update dt for obj in *all_objects
   obj\_late_update dt for obj in *all_objects
   an\cleanup!
+
+  -- Detach camera transforms after all drawing is done
+  for name, layer in pairs an.layers
+    if layer.camera
+      layer.camera\detach layer

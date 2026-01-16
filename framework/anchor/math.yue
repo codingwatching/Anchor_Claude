@@ -1,5 +1,19 @@
 global *
 
+--[[
+  Math utility functions and easing curves.
+
+  Utility functions:
+    lerp, lerp_dt           - Linear interpolation
+    lerp_angle, lerp_angle_dt - Angle interpolation with wrapping
+    clamp                   - Clamp value to range
+    loop                    - Loop value within range (for angles)
+
+  Easing functions:
+    linear, sine_*, quad_*, cubic_*, quart_*, quint_*,
+    expo_*, circ_*, bounce_*, back_*, elastic_*
+]]
+
 -- Constants for easing functions
 PI = math.pi
 PI2 = math.pi / 2
@@ -13,9 +27,132 @@ overshoot = 1.70158
 amplitude = 1
 period = 0.0003
 
--- Linearly interpolates between source and destination with lerp value t
+--[[
+  Linearly interpolates between source and destination.
+
+  Usage:
+    math.lerp 0.5, 0, 100   -> 50
+    math.lerp 0, 0, 100     -> 0
+    math.lerp 1, 0, 100     -> 100
+
+  Parameters:
+    t           - Interpolation factor (0 = source, 1 = destination)
+    source      - Start value
+    destination - End value
+
+  Returns: interpolated value
+]]
 math.lerp = (t, source, destination) ->
   source * (1 - t) + destination * t
+
+--[[
+  Framerate-independent linear interpolation.
+
+  Usage:
+    x = math.lerp_dt 0.9, 1, dt, x, target   -> covers 90% of distance in 1 second
+    x = math.lerp_dt 0.5, 0.5, dt, x, target -> covers 50% of distance in 0.5 seconds
+
+  Parameters:
+    p           - Percentage of distance to cover (0.9 = 90%)
+    t           - Time in seconds to cover that percentage
+    dt          - Delta time
+    source      - Current value
+    destination - Target value
+
+  Returns: new value moved towards destination
+
+  Behavior:
+    - Exponential approach: value gets closer but never quite reaches target
+    - Useful for smooth camera follow, UI animations, etc.
+]]
+math.lerp_dt = (p, t, dt, source, destination) ->
+  math.lerp 1 - (1 - p)^(dt / t), source, destination
+
+--[[
+  Loops value t to stay within [0, length] range.
+
+  Usage:
+    math.loop 3 * math.pi, 2 * math.pi  -> math.pi
+    math.loop 5, 3                       -> 2
+    math.loop -1, 4                      -> 3
+
+  Parameters:
+    t      - Value to loop
+    length - Range length (result will be in [0, length])
+
+  Returns: looped value
+
+  Behavior:
+    - Useful for keeping angles in [0, 2*pi] range
+    - Handles negative values correctly
+]]
+math.loop = (t, length) ->
+  math.clamp t - math.floor(t / length) * length, 0, length
+
+--[[
+  Linearly interpolates between angles with correct wrapping.
+
+  Usage:
+    math.lerp_angle 0.5, 0, math.pi          -> math.pi/2
+    math.lerp_angle 0.5, -math.pi, math.pi   -> 0 (takes shortest path)
+
+  Parameters:
+    t           - Interpolation factor (0 = source, 1 = destination)
+    source      - Start angle in radians
+    destination - End angle in radians
+
+  Returns: interpolated angle
+
+  Behavior:
+    - Takes the shortest path around the circle
+    - Keeps result in valid angle range
+]]
+math.lerp_angle = (t, source, destination) ->
+  dt = math.loop destination - source, 2 * math.pi
+  if dt > math.pi then dt = dt - 2 * math.pi
+  source + dt * math.clamp t, 0, 1
+
+--[[
+  Framerate-independent angle interpolation with correct wrapping.
+
+  Usage:
+    angle = math.lerp_angle_dt 0.9, 1, dt, angle, target_angle
+
+  Parameters:
+    p           - Percentage of distance to cover (0.9 = 90%)
+    t           - Time in seconds to cover that percentage
+    dt          - Delta time
+    source      - Current angle in radians
+    destination - Target angle in radians
+
+  Returns: new angle moved towards destination
+
+  Behavior:
+    - Takes the shortest path around the circle
+    - Exponential approach like lerp_dt
+]]
+math.lerp_angle_dt = (p, t, dt, source, destination) ->
+  math.lerp_angle 1 - (1 - p)^(dt / t), source, destination
+
+--[[
+  Clamps value to stay within [min, max] range.
+
+  Usage:
+    math.clamp 5, 0, 10   -> 5
+    math.clamp -5, 0, 10  -> 0
+    math.clamp 15, 0, 10  -> 10
+
+  Parameters:
+    value - Value to clamp
+    min   - Minimum bound
+    max   - Maximum bound
+
+  Returns: clamped value
+]]
+math.clamp = (value, min, max) ->
+  if value < min then min
+  elseif value > max then max
+  else value
 
 -- Linear (no easing)
 math.linear = (t) -> t

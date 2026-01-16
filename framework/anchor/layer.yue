@@ -31,6 +31,9 @@ class layer
   ]]
   new: (@name) =>
     @handle = layer_create @name
+    @parallax_x = 1
+    @parallax_y = 1
+    @camera = an.camera
 
   --[[
     Queues a filled rectangle at (x, y).

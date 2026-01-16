@@ -20,6 +20,9 @@ require('anchor.font')
 require('anchor.timer')
 require('anchor.math')
 require('anchor.collider')
+require('anchor.spring')
+require('anchor.camera')
+require('anchor.shake')
 
 
 
@@ -615,10 +618,22 @@ result end
 
 
 
-update = function(dt)local all_objects = { 
+
+
+update = function(dt)for name, layer in 
+
+pairs(an.layers) do if 
+layer.camera then
+layer.camera:attach(layer, layer.parallax_x, layer.parallax_y)end end;local all_objects = { 
+
 an }local _list_0 = 
 an:all()for _index_0 = 1, #_list_0 do local obj = _list_0[_index_0]all_objects[#all_objects + 1] = obj end;for _index_0 = 
 1, #all_objects do local obj = all_objects[_index_0]obj:_early_update(dt)end;for _index_0 = 
 1, #all_objects do local obj = all_objects[_index_0]obj:_update(dt)end;for _index_0 = 
-1, #all_objects do local obj = all_objects[_index_0]obj:_late_update(dt)end;return 
-an:cleanup()end
+1, #all_objects do local obj = all_objects[_index_0]obj:_late_update(dt)end
+an:cleanup()for name, layer in 
+
+
+pairs(an.layers) do if 
+layer.camera then
+layer.camera:detach(layer)end end end
