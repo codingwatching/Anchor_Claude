@@ -168,3 +168,159 @@ class layer
   ]]
   draw: (x, y) =>
     layer_draw @handle, x or 0, y or 0
+
+  --[[
+    Applies a shader to the layer's current contents.
+
+    Usage:
+      layer\apply_shader an.shaders.blur
+      layer\apply_shader an.shaders.outline
+
+    Parameters:
+      shader - shader handle (from an\shader or an\shader_string)
+
+    Behavior:
+      - Applies shader via ping-pong rendering (reads from layer, writes result back)
+      - Multiple shaders can be chained (call apply_shader multiple times)
+      - Set uniforms before calling apply_shader
+  ]]
+  apply_shader: (shader) =>
+    layer_apply_shader @handle, shader
+
+  --[[
+    Sets a float uniform on a shader for this layer.
+
+    Usage:
+      layer\shader_set_float an.shaders.blur, 'u_radius', 5.0
+
+    Parameters:
+      shader - shader handle
+      name   - uniform name in shader
+      value  - float value
+  ]]
+  shader_set_float: (shader, name, value) =>
+    layer_shader_set_float @handle, shader, name, value
+
+  --[[
+    Sets a vec2 uniform on a shader for this layer.
+
+    Usage:
+      layer\shader_set_vec2 an.shaders.outline, 'u_pixel_size', 1/480, 1/270
+
+    Parameters:
+      shader - shader handle
+      name   - uniform name in shader
+      x, y   - vec2 components
+  ]]
+  shader_set_vec2: (shader, name, x, y) =>
+    layer_shader_set_vec2 @handle, shader, name, x, y
+
+  --[[
+    Sets a vec4 uniform on a shader for this layer.
+
+    Usage:
+      layer\shader_set_vec4 an.shaders.tint, 'u_color', 1.0, 0.5, 0.0, 1.0
+
+    Parameters:
+      shader       - shader handle
+      name         - uniform name in shader
+      x, y, z, w   - vec4 components
+  ]]
+  shader_set_vec4: (shader, name, x, y, z, w) =>
+    layer_shader_set_vec4 @handle, shader, name, x, y, z, w
+
+  --[[
+    Sets an int uniform on a shader for this layer.
+
+    Usage:
+      layer\shader_set_int an.shaders.effect, 'u_mode', 2
+
+    Parameters:
+      shader - shader handle
+      name   - uniform name in shader
+      value  - integer value
+  ]]
+  shader_set_int: (shader, name, value) =>
+    layer_shader_set_int @handle, shader, name, value
+
+  --[[
+    Gets the layer's current texture handle.
+
+    Usage:
+      tex = layer\get_texture!
+      layer\shader_set_int shader, "u_texture", tex
+
+    Returns: texture ID for use in shader uniforms
+
+    Behavior:
+      - Returns the layer's texture handle
+      - Typically used to pass a layer's contents as a shader uniform
+  ]]
+  get_texture: =>
+    layer_get_texture @handle
+
+  --[[
+    Clears the layer's contents and resets effect state.
+
+    Usage:
+      layer\reset_effects!
+
+    Behavior:
+      - Clears all drawn contents from the layer
+      - Resets any effect processing state
+  ]]
+  reset_effects: =>
+    layer_reset_effects @handle
+
+  --[[
+    Clears the layer's FBO contents to transparent black.
+
+    Usage:
+      layer\clear!
+
+    Behavior:
+      - Immediately clears the layer's framebuffer
+      - Use before draw_from if you want to replace contents (not accumulate)
+  ]]
+  clear: =>
+    layer_clear @handle
+
+  --[[
+    Renders queued draw commands to this layer's FBO.
+
+    Usage:
+      game\render!
+
+    Behavior:
+      - Binds this layer's FBO
+      - Clears to transparent black
+      - Processes all queued draw commands (rectangles, circles, images, text)
+      - Clears the command queue
+
+    Note: Call this in draw() for each layer that has draw commands.
+    Layers used only as effect targets (shadow, outline) don't need render.
+  ]]
+  render: =>
+    layer_render @handle
+
+  --[[
+    Draws another layer's texture to this layer's FBO.
+
+    Usage:
+      shadow\draw_from game                          -- copy game to shadow
+      shadow\draw_from game, an.shaders.shadow       -- copy through shader
+      outline\draw_from game, an.shaders.outline     -- copy through shader
+
+    Parameters:
+      source - source layer to copy from
+      shader - optional shader to apply during copy
+
+    Behavior:
+      - Binds this layer's FBO as render target
+      - Draws source layer's texture as a fullscreen quad
+      - If shader provided, applies it during the draw
+      - Uses alpha blending, so multiple sources accumulate
+      - Call clear! first if you want to replace instead of accumulate
+  ]]
+  draw_from: (source, shader) =>
+    layer_draw_from @handle, source.handle, shader

@@ -354,7 +354,47 @@ function init()
   --]]
   --}}}
 
+  --{{{ Alpha blending test (multi-canvas)
+  -- Create a second layer for the transparent element
+  ui_layer = object():layer()
+
+  -- Same colors as our engine test
+  local bg_color = {r=231/255, g=232/255, b=233/255, a=1}
+  local blue = {r=85/255, g=172/255, b=238/255, a=1}
+  local blue_transparent = {r=85/255, g=172/255, b=238/255, a=128/255}
+
+  function an:draw_layers()
+    -- Render both layers' commands
+    game:layer_draw_commands()
+    ui_layer:layer_draw_commands()
+
+    -- Composite to main canvas
+    self:layer_draw_to_canvas('main', function()
+      game:layer_draw()
+      ui_layer:layer_draw()  -- ui on top
+    end)
+
+    self:layer_draw('main', 0, 0, 0, self.sx, self.sy)
+  end
+
+  an:action(function(self, dt)
+    -- Draw bright background to game layer
+    game:rectangle(screen_w/2, screen_h/2, screen_w, screen_h, 0, 0, bg_color)
+
+    -- Draw opaque blue rectangle to game layer (left side)
+    game:rectangle(120, screen_h/2, 100, 100, 0, 0, blue)
+
+    -- Draw semi-transparent blue rectangle to UI layer (right side)
+    ui_layer:rectangle(360, screen_h/2, 100, 100, 0, 0, blue_transparent)
+
+    -- Labels on game layer
+    game:draw_text('Opaque (a=255)', 'lana_pixel', 70, screen_h/2 + 70, 0, 1, 1, 0, 0, {r=0, g=0, b=0, a=1})
+    game:draw_text('Transparent (a=32)', 'lana_pixel', 295, screen_h/2 + 70, 0, 1, 1, 0, 0, {r=0, g=0, b=0, a=1})
+  end)
+  --}}}
+
   --{{{ Combined bouncing circle and emoji test
+  --[[
   an:image('smile', 'assets/slight_smile.png')
   an:image('star', 'assets/star.png')
 
@@ -488,5 +528,6 @@ function init()
       game:pop()
     end
   end)
+  --]]
   --}}}
 end

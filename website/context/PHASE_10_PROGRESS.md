@@ -27,6 +27,7 @@ Anchor/
 │   │   ├── image.yue
 │   │   ├── font.yue
 │   │   ├── timer.yue
+│   │   ├── collider.yue
 │   │   └── math.yue
 │   ├── assets/             # Test assets
 │   ├── main.yue            # Test file
@@ -481,6 +482,79 @@ The `math.yue` module provides easing functions for tweens:
 
 ---
 
+## Layer Rendering Pipeline
+
+The rendering pipeline uses explicit control via a global `draw()` function called by C after the update phase completes.
+
+### Three-Phase Architecture
+
+1. **Queue commands** (during update) — Draw calls queue commands to layers
+2. **Render to FBOs** (in draw) — Process queued commands to layer framebuffers
+3. **Composite to screen** (in draw) — Draw layer textures to screen in desired order
+
+### Layer Methods
+
+| Method | Purpose |
+|--------|---------|
+| `layer\render!` | Process queued commands to FBO (clears first) |
+| `layer\clear!` | Clear FBO contents to transparent black |
+| `layer\draw_from source, shader` | Copy source layer's texture to this layer's FBO |
+| `layer\draw x, y` | Queue layer for compositing to screen |
+
+### Shader Uniforms
+
+For shaders used with `draw_from`, set uniforms immediately before the call:
+
+```yuescript
+shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
+outline\draw_from game, an.shaders.outline
+```
+
+### Example draw() Function
+
+```yuescript
+draw = ->
+  -- 1. Render source layers (process queued commands to FBOs)
+  bg\render!
+  game\render!
+  ui\render!
+
+  -- 2. Create derived layers (copy from game through shaders)
+  shadow\clear!
+  shadow\draw_from game, an.shaders.shadow
+
+  outline\clear!
+  shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
+  outline\draw_from game, an.shaders.outline
+
+  -- 3. Composite to screen (visual back-to-front order)
+  bg\draw!
+  shadow\draw 4, 4
+  outline\draw!
+  game\draw!
+  ui\draw!
+```
+
+### Alpha Blending Fix
+
+When drawing to FBOs with standard `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`, the alpha channel gets incorrectly squared:
+
+- **Problem:** FBO.alpha = src.alpha × src.alpha (e.g., 0.125 × 0.125 = 0.0156)
+- **Expected:** FBO.alpha = src.alpha (e.g., 0.125)
+
+The fix uses `glBlendFuncSeparate` to handle RGB and alpha channels differently:
+
+```c
+// RGB: standard alpha blend
+// Alpha: preserve source alpha correctly
+glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,  // RGB
+                    GL_ONE, GL_ONE_MINUS_SRC_ALPHA);       // Alpha
+```
+
+This ensures semi-transparent colors composite correctly when drawn through multiple FBOs.
+
+---
+
 ## YueScript Idioms
 
 - Use `list[] = item` instead of `table.insert list, item`
@@ -521,6 +595,8 @@ The `math.yue` module provides easing functions for tweens:
 23. **Event normalization** — `collision_begin_events 'a', 'b'` guarantees `event.a` has tag 'a' and `event.b` has tag 'b'; Box2D returns bodies in arbitrary order
 24. **Collider IDs via integers** — Use `physics_set_user_data` with incrementing integers; Lua userdata comparison fails because new objects are created each time
 25. **Explicit `local` with `global *`** — When using `global *`, explicitly declare `local` for variables inside functions that share names with top-level globals
+26. **Explicit layer rendering** — C calls a global `draw()` function instead of auto-rendering layers; gives full control over render order, derived layers (shadow/outline), and compositing
+27. **glBlendFuncSeparate for FBO alpha** — Standard `glBlendFunc` incorrectly squares alpha when drawing to FBOs; use separate blend for RGB vs alpha channels to preserve correct alpha values
 
 ---
 
@@ -544,7 +620,9 @@ The `math.yue` module provides easing functions for tweens:
 | Short aliases (T, Y, U, E, X, L, A, F, K) | Done |
 | Documentation comments in object.yue | Done |
 | Test suite (42 tests) | Done |
-| `layer` class (rectangle, circle, image, text, push/pop, draw) | Done |
+| `layer` class (rectangle, circle, image, text, push/pop, draw, render, clear, draw_from) | Done |
+| Shader resource registration (`an\shader`, `an\shader_string`) | Done |
+| Explicit layer rendering pipeline (global `draw()` function) | Done |
 | `image` class (width, height, handle wrapper) | Done |
 | `font` class (text_width, char_width, glyph_metrics) | Done |
 | Resource registration on `an` (layer, image, font) | Done |
@@ -574,6 +652,7 @@ The root object `an` manages all loaded resources. Resources are created through
 | **images** | `an\image 'name', 'path'` | `an.images.name` | `game\draw_texture an.images.player, x, y` |
 | **layers** | `an\layer 'name'` | `an.layers.name` | `game\circle x, y, r, color` |
 | **fonts** | `an\font 'name', 'path', size` | `an.fonts.name` | `game\draw_text 'hello', 'main', x, y` |
+| **shaders** | `an\shader 'name', 'path'` | `an.shaders.name` | `shadow\draw_from game, an.shaders.shadow` |
 
 **Why resources on `an`:**
 - Resources need handles tracked somewhere (C returns handles, Lua stores them)
@@ -656,6 +735,17 @@ These are just functions. No object wrapping, no state, no tree integration.
 
 This session focused on testing and fixing the physics event system with a visual demo.
 
+### C Engine Modification
+
+Added contact point and normal data to `collision_begin_events`. Previously, collision events only had body/shape handles. Now they include:
+- `point_x`, `point_y` — Contact point location
+- `normal_x`, `normal_y` — Contact normal direction
+
+Implementation in `anchor.c`:
+- Called `b2Shape_GetContactData` on the two colliding shapes to get the `b2Manifold`
+- Extracted the first `b2ManifoldPoint` from the manifold
+- Web searched "Box2D 3.1 contact manifold" and fetched Box2D documentation to find the correct API
+
 ### Fixes Applied
 
 **Event Normalization:**
@@ -666,7 +756,9 @@ This session focused on testing and fixing the physics event system with a visua
 **Collider ID Registration:**
 - Fixed body lookup using unique integer IDs instead of body handles
 - Lua creates new userdata objects for `b2BodyId` each time, so direct comparison fails
+- Debug output revealed the problem: event body addresses (`000001D9CA433B68`) didn't match any registered collider addresses (`000001D9C7981388`, etc.)
 - Now uses `physics_set_user_data` / `physics_get_user_data` with incrementing integer IDs
+- Collider constructor assigns `@id = collider_next_id` and registers in `an.colliders[@id]`
 
 **Sensor Shape Support:**
 - Added opts table support to collider class: `collider 'tag', 'static', 'box', w, h, {sensor: true}`

@@ -167,4 +167,160 @@ layer_set_blend_mode(self.handle, mode)end, draw = function(self, x, y)return
 
 
 
-layer_draw(self.handle, x or 0, y or 0)end }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, name)self.name = name;self.handle = layer_create(self.name)end, __base = _base_0, __name = "layer" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;layer = _class_0;return _class_0 end
+layer_draw(self.handle, x or 0, y or 0)end, apply_shader = function(self, shader)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_apply_shader(self.handle, shader)end, shader_set_float = function(self, shader, name, value)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_shader_set_float(self.handle, shader, name, value)end, shader_set_vec2 = function(self, shader, name, x, y)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_shader_set_vec2(self.handle, shader, name, x, y)end, shader_set_vec4 = function(self, shader, name, x, y, z, w)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_shader_set_vec4(self.handle, shader, name, x, y, z, w)end, shader_set_int = function(self, shader, name, value)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_shader_set_int(self.handle, shader, name, value)end, get_texture = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_get_texture(self.handle)end, reset_effects = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+layer_reset_effects(self.handle)end, clear = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+layer_clear(self.handle)end, render = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_render(self.handle)end, draw_from = function(self, source, shader)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_draw_from(self.handle, source.handle, shader)end }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, name)self.name = name;self.handle = layer_create(self.name)end, __base = _base_0, __name = "layer" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;layer = _class_0;return _class_0 end

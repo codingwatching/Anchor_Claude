@@ -117,6 +117,80 @@ Clears the layer's contents and resets effect state.
 layer_reset_effects(layer)
 ```
 
+### layer_render
+
+`layer_render(layer)`
+
+Processes all queued draw commands to the layer's FBO. Clears the FBO first, then renders all commands, then clears the command queue.
+
+```lua
+layer_render(game_layer)
+```
+
+### layer_clear
+
+`layer_clear(layer)`
+
+Clears the layer's FBO contents to transparent black without processing commands.
+
+```lua
+layer_clear(shadow_layer)
+```
+
+### layer_draw_from
+
+`layer_draw_from(dst, src, shader?)`
+
+Draws the source layer's texture to the destination layer's FBO. Optionally applies a shader during the draw. Uses alpha blending, so multiple sources accumulate.
+
+```lua
+-- Copy game layer to shadow layer through shadow shader
+layer_draw_from(shadow_layer, game_layer, shadow_shader)
+
+-- Copy without shader (passthrough)
+layer_draw_from(composite_layer, game_layer)
+```
+
+### shader_set_float
+
+`shader_set_float(shader, name, value)`
+
+Sets a float uniform on a shader. Use before `layer_draw_from` for immediate effect.
+
+```lua
+shader_set_float(blur_shader, "u_radius", 5.0)
+```
+
+### shader_set_vec2
+
+`shader_set_vec2(shader, name, x, y)`
+
+Sets a vec2 uniform on a shader.
+
+```lua
+shader_set_vec2(outline_shader, "u_pixel_size", 1/480, 1/270)
+```
+
+### shader_set_vec4
+
+`shader_set_vec4(shader, name, x, y, z, w)`
+
+Sets a vec4 uniform on a shader.
+
+```lua
+shader_set_vec4(tint_shader, "u_color", 1.0, 0.5, 0.0, 1.0)
+```
+
+### shader_set_int
+
+`shader_set_int(shader, name, value)`
+
+Sets an int uniform on a shader.
+
+```lua
+shader_set_int(effect_shader, "u_mode", 2)
+```
+
 ### texture_load
 
 `texture_load(path) -> texture`

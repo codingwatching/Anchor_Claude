@@ -37,6 +37,7 @@ an = object 'an'
 an.layers = {}
 an.images = {}
 an.fonts = {}
+an.shaders = {}
 
 --[[
   Registers a named layer.
@@ -91,6 +92,41 @@ an.image = (name, path) =>
 an.font = (name, path, size) =>
   @fonts[name] = font name, path, size
   @fonts[name]
+
+--[[
+  Registers a named shader from a file.
+
+  Usage:
+    an\shader 'shadow', 'shaders/shadow.frag'
+    an\shader 'outline', 'shaders/outline.frag'
+
+  Behavior:
+    - Loads shader from file path via shader_load_file()
+    - Stores shader handle in an.shaders[name]
+    - Subsequent access via an.shaders.shadow, an.shaders.outline, etc.
+
+  Returns: the shader handle
+]]
+an.shader = (name, path) =>
+  @shaders[name] = shader_load_file path
+  @shaders[name]
+
+--[[
+  Registers a named shader from source string.
+
+  Usage:
+    an\shader_string 'invert', '...shader source...'
+
+  Behavior:
+    - Compiles shader from source string via shader_load_string()
+    - Stores shader handle in an.shaders[name]
+    - Subsequent access via an.shaders[name]
+
+  Returns: the shader handle
+]]
+an.shader_string = (name, source) =>
+  @shaders[name] = shader_load_string source
+  @shaders[name]
 
 -- Physics world state
 an.colliders = {}        -- body_handle -> collider (internal registry)

@@ -2,20 +2,19 @@ global *
 
 require 'anchor'
 
--- Setup layers (bottom to top: background, shadow, outline, game, ui)
+-- Setup layers
+-- game is created first so it renders first, making its texture available for shadow/outline
+game = an\layer 'game'
 bg = an\layer 'bg'
 shadow = an\layer 'shadow'
 outline = an\layer 'outline'
-game = an\layer 'game'
 ui = an\layer 'ui'
 
 -- Resources
 an\font 'main', 'assets/LanaPixel.ttf', 11
 an\image 'ball', 'assets/slight_smile.png'
-
--- Shaders
-shadow_shader = shader_load_file 'shaders/shadow.frag'
-outline_shader = shader_load_file 'shaders/outline.frag'
+an\shader 'shadow', 'shaders/shadow.frag'
+an\shader 'outline', 'shaders/outline.frag'
 
 -- Screen dimensions
 W, H = 480, 270
@@ -40,7 +39,7 @@ an\physics_hit 'ball', 'wall'
 bg_color = rgba 231, 232, 233, 255
 green = rgba 122, 179, 87, 255
 blue = rgba 85, 172, 238, 255
-blue_transparent = rgba 85, 172, 238, 100
+blue_transparent = rgba 85, 172, 238, 128
 yellow = rgba 255, 204, 77, 255
 red = rgba 221, 46, 68, 255
 orange = rgba 244, 144, 12, 255
@@ -129,8 +128,8 @@ class slowing_zone extends object
     @\add collider 'slowing_zone', 'static', 'box', @w, @h, {sensor: true}
     @collider\set_position x, y
 
-  draw: =>
-    game\rectangle @x - @w/2, @y - @h/2, @w, @h, blue_transparent
+  draw: (layer) =>
+    layer\rectangle @x - @w/2, @y - @h/2, @w, @h, blue_transparent
 
 an\add slowing_zone slowing_zone_x, slowing_zone_y, slowing_zone_width, slowing_zone_height
 
@@ -199,27 +198,36 @@ an\early_action 'handle_collisions', =>
       ball.flash = true
       ball.timer\after 0.15, 'flash', -> ball.flash = false
 
--- Composite layers
+-- Queue draw commands during update
 an\late_action 'draw', =>
   -- Draw background
   bg\rectangle 0, 0, W, H, bg_color
 
-  -- Draw slowing zone to game layer only (no shadow/outline)
-  for zone in *an\all 'slowing_zone'
-    zone\draw!
-
-  -- Draw all drawable objects to shadow, outline, and game layers
+  -- Draw all drawable objects to game layer (only once!)
   for obj in *an\all 'drawable'
-    obj\draw shadow
-    obj\draw outline
     obj\draw game
 
-  -- Apply shaders
-  layer_apply_shader shadow.handle, shadow_shader
-  layer_shader_set_vec2 outline.handle, outline_shader, "u_pixel_size", 1/W, 1/H
-  layer_apply_shader outline.handle, outline_shader
+  -- Draw slowing zone to ui layer (no shadow/outline effects)
+  for zone in *an\all 'slowing_zone'
+    zone\draw ui
 
-  -- Composite layers (shadow at offset for drop shadow effect)
+-- Global draw function - called by C after update
+-- Handles: render source layers, create derived layers, composite to screen
+draw = ->
+  -- 1. Render source layers (process queued commands to FBOs)
+  bg\render!
+  game\render!
+  ui\render!
+
+  -- 2. Create derived layers (copy from game through shaders)
+  shadow\clear!
+  shadow\draw_from game, an.shaders.shadow
+
+  outline\clear!
+  shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
+  outline\draw_from game, an.shaders.outline
+
+  -- 3. Composite to screen (visual back-to-front order)
   bg\draw!
   shadow\draw 4, 4
   outline\draw!

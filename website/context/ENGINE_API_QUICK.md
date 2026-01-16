@@ -15,6 +15,13 @@ layer_set_blend_mode(layer, mode)
 layer_draw(layer, x?, y?)
 layer_get_texture(layer) -> texture_id
 layer_reset_effects(layer)
+layer_render(layer)
+layer_clear(layer)
+layer_draw_from(dst, src, shader?)
+shader_set_float(shader, name, value)
+shader_set_vec2(shader, name, x, y)
+shader_set_vec4(shader, name, x, y, z, w)
+shader_set_int(shader, name, value)
 texture_load(path) -> texture
 texture_unload(texture)
 texture_get_width(texture) -> int

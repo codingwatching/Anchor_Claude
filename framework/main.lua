@@ -3,19 +3,18 @@
 require('anchor')
 
 
+
+game = an:layer('game')
 bg = an:layer('bg')
 shadow = an:layer('shadow')
 outline = an:layer('outline')
-game = an:layer('game')
 ui = an:layer('ui')
 
 
 an:font('main', 'assets/LanaPixel.ttf', 11)
 an:image('ball', 'assets/slight_smile.png')
-
-
-shadow_shader = shader_load_file('shaders/shadow.frag')
-outline_shader = shader_load_file('shaders/outline.frag')
+an:shader('shadow', 'shaders/shadow.frag')
+an:shader('outline', 'shaders/outline.frag')
 
 
 W, H = 480, 270
@@ -40,7 +39,7 @@ an:physics_hit('ball', 'wall')
 bg_color = rgba(231, 232, 233, 255)
 green = rgba(122, 179, 87, 255)
 blue = rgba(85, 172, 238, 255)
-blue_transparent = rgba(85, 172, 238, 100)
+blue_transparent = rgba(85, 172, 238, 128)
 yellow = rgba(255, 204, 77, 255)
 red = rgba(221, 46, 68, 255)
 orange = rgba(244, 144, 12, 255)
@@ -122,7 +121,7 @@ ceiling_left_edge = ceiling_x - ceiling_width / 2
 slowing_zone_x = ceiling_left_edge
 slowing_zone_y = wall_top + ceiling_height + slowing_zone_height / 2;do
 
-local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self)return 
+local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self, layer)return 
 
 
 
@@ -130,7 +129,7 @@ local _class_0;local _parent_0 = object;local _base_0 = { draw = function(self)r
 
 
 
-game:rectangle(self.x - self.w / 2, self.y - self.h / 2, self.w, self.h, blue_transparent)end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y, w, h)self.w = w;self.h = h;_class_0.__parent.__init(self)self:tag('slowing_zone')self:add(collider('slowing_zone', 'static', 'box', self.w, self.h, { sensor = true }))return self.collider:set_position(x, y)end, __base = _base_0, __name = "slowing_zone", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;slowing_zone = _class_0 end
+layer:rectangle(self.x - self.w / 2, self.y - self.h / 2, self.w, self.h, blue_transparent)end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y, w, h)self.w = w;self.h = h;_class_0.__parent.__init(self)self:tag('slowing_zone')self:add(collider('slowing_zone', 'static', 'box', self.w, self.h, { sensor = true }))return self.collider:set_position(x, y)end, __base = _base_0, __name = "slowing_zone", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;slowing_zone = _class_0 end
 
 an:add(slowing_zone(slowing_zone_x, slowing_zone_y, slowing_zone_width, slowing_zone_height))
 
@@ -167,7 +166,6 @@ an:add(ball(spawn_x, spawn_y))end;if
 
 key_is_pressed('p') then local _list_0 = 
 an:all('ball')for _index_0 = 1, #_list_0 do local b = _list_0[_index_0]
-print("Applying impulse to ball")
 b.collider:apply_impulse(200, 0)end end end)
 
 
@@ -198,7 +196,7 @@ an:hit_events('ball', 'wall')for _index_0 = 1, #_list_3 do local event = _list_3
 event.a;if 
 event.approach_speed > 300 then
 ball.flash = true
-ball.timer:after(0.15, 'flash', function()ball.flash = false end)end end end)return 
+ball.timer:after(0.15, 'flash', function()ball.flash = false end)end end end)
 
 
 an:late_action('draw', function(self)
@@ -206,23 +204,32 @@ an:late_action('draw', function(self)
 bg:rectangle(0, 0, W, H, bg_color)local _list_0 = 
 
 
-an:all('slowing_zone')for _index_0 = 1, #_list_0 do local zone = _list_0[_index_0]
-zone:draw()end;local _list_1 = 
+an:all('drawable')for _index_0 = 1, #_list_0 do local obj = _list_0[_index_0]
+obj:draw(game)end;local _list_1 = 
 
 
-an:all('drawable')for _index_0 = 1, #_list_1 do local obj = _list_1[_index_0]
-obj:draw(shadow)
-obj:draw(outline)
-obj:draw(game)end
+an:all('slowing_zone')for _index_0 = 1, #_list_1 do local zone = _list_1[_index_0]
+zone:draw(ui)end end)
 
 
-layer_apply_shader(shadow.handle, shadow_shader)
-layer_shader_set_vec2(outline.handle, outline_shader, "u_pixel_size", 1 / W, 1 / H)
-layer_apply_shader(outline.handle, outline_shader)
+
+draw = function()
+
+bg:render()
+game:render()
+ui:render()
+
+
+shadow:clear()
+shadow:draw_from(game, an.shaders.shadow)
+
+outline:clear()
+shader_set_vec2(an.shaders.outline, "u_pixel_size", 1 / W, 1 / H)
+outline:draw_from(game, an.shaders.outline)
 
 
 bg:draw()
 shadow:draw(4, 4)
 outline:draw()
 game:draw()return 
-ui:draw()end)
+ui:draw()end

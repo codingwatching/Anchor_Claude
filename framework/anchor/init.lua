@@ -37,6 +37,7 @@ an = object('an')
 an.layers = {  }
 an.images = {  }
 an.fonts = {  }
+an.shaders = {  }
 
 
 
@@ -91,6 +92,41 @@ self.images[name]end
 an.font = function(self, name, path, size)
 self.fonts[name] = font(name, path, size)return 
 self.fonts[name]end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.shader = function(self, name, path)
+self.shaders[name] = shader_load_file(path)return 
+self.shaders[name]end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.shader_string = function(self, name, source)
+self.shaders[name] = shader_load_string(source)return 
+self.shaders[name]end
 
 
 an.colliders = {  }

@@ -3076,15 +3076,23 @@ static void process_glyph(const DrawCommand* cmd) {
 }
 
 // Apply GL blend state based on blend mode
+// Uses glBlendFuncSeparate to handle RGB and alpha channels differently:
+// - RGB: standard blend (src * factor + dst * factor)
+// - Alpha: preserves source alpha correctly when drawing to FBOs
+//   Without this, alpha gets multiplied by itself (src.a * src.a) causing incorrect compositing
 static void apply_blend_mode(uint8_t mode) {
     switch (mode) {
         case BLEND_ALPHA:
-            // Standard alpha blending: result = src * src.a + dst * (1 - src.a)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            // RGB: result = src.rgb * src.a + dst.rgb * (1 - src.a)
+            // Alpha: result = src.a * 1 + dst.a * (1 - src.a) = src.a + dst.a * (1 - src.a)
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,  // RGB
+                                GL_ONE, GL_ONE_MINUS_SRC_ALPHA);       // Alpha
             break;
         case BLEND_ADDITIVE:
-            // Additive blending: result = src * src.a + dst (good for glows, particles)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            // RGB: result = src.rgb * src.a + dst.rgb (additive glow effect)
+            // Alpha: result = src.a + dst.a (accumulate alpha)
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE,  // RGB
+                                GL_ONE, GL_ONE);       // Alpha
             break;
     }
 }
@@ -3582,6 +3590,51 @@ static int l_shader_destroy(lua_State* L) {
     return 0;
 }
 
+// Immediate shader uniform setters (for use with draw_from)
+static int l_shader_set_float(lua_State* L) {
+    GLuint shader = (GLuint)luaL_checkinteger(L, 1);
+    const char* name = luaL_checkstring(L, 2);
+    float value = (float)luaL_checknumber(L, 3);
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform1f(loc, value);
+    return 0;
+}
+
+static int l_shader_set_vec2(lua_State* L) {
+    GLuint shader = (GLuint)luaL_checkinteger(L, 1);
+    const char* name = luaL_checkstring(L, 2);
+    float x = (float)luaL_checknumber(L, 3);
+    float y = (float)luaL_checknumber(L, 4);
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform2f(loc, x, y);
+    return 0;
+}
+
+static int l_shader_set_vec4(lua_State* L) {
+    GLuint shader = (GLuint)luaL_checkinteger(L, 1);
+    const char* name = luaL_checkstring(L, 2);
+    float x = (float)luaL_checknumber(L, 3);
+    float y = (float)luaL_checknumber(L, 4);
+    float z = (float)luaL_checknumber(L, 5);
+    float w = (float)luaL_checknumber(L, 6);
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform4f(loc, x, y, z, w);
+    return 0;
+}
+
+static int l_shader_set_int(lua_State* L) {
+    GLuint shader = (GLuint)luaL_checkinteger(L, 1);
+    const char* name = luaL_checkstring(L, 2);
+    int value = (int)luaL_checkinteger(L, 3);
+    glUseProgram(shader);
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc != -1) glUniform1i(loc, value);
+    return 0;
+}
+
 // Deferred uniform setting Lua bindings (queued to layer's command list)
 static int l_layer_shader_set_float(lua_State* L) {
     Layer* layer = (Layer*)lua_touserdata(L, 1);
@@ -3649,6 +3702,87 @@ static int l_layer_get_texture(lua_State* L) {
 static int l_layer_reset_effects(lua_State* L) {
     Layer* layer = (Layer*)lua_touserdata(L, 1);
     layer_reset_effects(layer);
+    return 0;
+}
+
+// Clear a layer's FBO contents (transparent black)
+static int l_layer_clear(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+
+    // Bind the layer's current target FBO
+    GLuint target_fbo = layer->textures_swapped ? layer->effect_fbo : layer->fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);
+    glViewport(0, 0, layer->width, layer->height);
+
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    return 0;
+}
+
+// Render a layer's queued commands to its FBO (with clear)
+// This is called explicitly from Lua draw() instead of automatically
+static int l_layer_render(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+
+    // Bind layer's FBO
+    glBindFramebuffer(GL_FRAMEBUFFER, layer->fbo);
+    glViewport(0, 0, layer->width, layer->height);
+
+    // Clear to transparent black
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Process all queued commands
+    layer_render(layer);
+
+    // Clear command queue for next frame
+    layer->command_count = 0;
+
+    return 0;
+}
+
+// Draw source layer's texture to destination layer's FBO
+// Optional shader parameter - if 0/nil, uses passthrough
+static int l_layer_draw_from(lua_State* L) {
+    Layer* dst = (Layer*)lua_touserdata(L, 1);
+    Layer* src = (Layer*)lua_touserdata(L, 2);
+    GLuint shader = (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) ? (GLuint)luaL_checkinteger(L, 3) : 0;
+
+    // Bind destination layer's FBO
+    GLuint target_fbo = dst->textures_swapped ? dst->effect_fbo : dst->fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, target_fbo);
+    glViewport(0, 0, dst->width, dst->height);
+
+    // Enable alpha blending for accumulation
+    // Use glBlendFuncSeparate to preserve alpha correctly when drawing to FBOs
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,  // RGB
+                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);       // Alpha
+
+    // Use shader or passthrough
+    if (shader) {
+        glUseProgram(shader);
+        GLint tex_loc = glGetUniformLocation(shader, "u_texture");
+        if (tex_loc != -1) glUniform1i(tex_loc, 0);
+    } else {
+        glUseProgram(screen_shader);
+        GLint offset_loc = glGetUniformLocation(screen_shader, "u_offset");
+        if (offset_loc != -1) glUniform2f(offset_loc, 0.0f, 0.0f);
+    }
+
+    // Bind source layer's current texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, layer_get_texture(src));
+
+    // Draw fullscreen quad
+    glBindVertexArray(screen_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    // Restore drawing shader
+    glUseProgram(shader_program);
+
     return 0;
 }
 
@@ -5921,6 +6055,10 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "shader_load_file", l_shader_load_file);
     lua_register(L, "shader_load_string", l_shader_load_string);
     lua_register(L, "shader_destroy", l_shader_destroy);
+    lua_register(L, "shader_set_float", l_shader_set_float);
+    lua_register(L, "shader_set_vec2", l_shader_set_vec2);
+    lua_register(L, "shader_set_vec4", l_shader_set_vec4);
+    lua_register(L, "shader_set_int", l_shader_set_int);
     lua_register(L, "layer_shader_set_float", l_layer_shader_set_float);
     lua_register(L, "layer_shader_set_vec2", l_layer_shader_set_vec2);
     lua_register(L, "layer_shader_set_vec4", l_layer_shader_set_vec4);
@@ -5929,6 +6067,9 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_draw", l_layer_draw);
     lua_register(L, "layer_get_texture", l_layer_get_texture);
     lua_register(L, "layer_reset_effects", l_layer_reset_effects);
+    lua_register(L, "layer_clear", l_layer_clear);
+    lua_register(L, "layer_render", l_layer_render);
+    lua_register(L, "layer_draw_from", l_layer_draw_from);
     // --- Physics: World & Bodies ---
     lua_register(L, "physics_init", l_physics_init);
     lua_register(L, "physics_set_gravity", l_physics_set_gravity);
@@ -6656,22 +6797,25 @@ static void main_loop_iteration(void) {
         float aa_width = (filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
         glUniform1f(aa_loc, aa_width);
 
-        // === PASS 1: Render each layer to its FBO ===
+        // === PASS 1: Call Lua draw() function ===
+        // User's draw() handles: rendering layers, creating derived layers, compositing
         glBindTexture(GL_TEXTURE_2D, 0);  // Unbind to avoid feedback loop
 
-        for (int i = 0; i < layer_count; i++) {
-            Layer* layer = layer_registry[i];
-            glBindFramebuffer(GL_FRAMEBUFFER, layer->fbo);
-            glViewport(0, 0, layer->width, layer->height);
-
-            if (error_state) {
-                glClearColor(0.3f, 0.1f, 0.1f, 1.0f);  // Dark red for error
+        if (!error_state) {
+            lua_getglobal(L, "draw");
+            if (lua_isfunction(L, -1)) {
+                if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                    const char* err = lua_tostring(L, -1);
+                    fprintf(stderr, "Lua draw() error: %s\n", err);
+                    lua_pop(L, 1);
+                    error_state = true;
+                }
             } else {
-                glClearColor(0.0f, 0.0f, 0.0f, 0.0f);  // Transparent black
+                lua_pop(L, 1);
+                // No draw() function defined - that's an error now
+                fprintf(stderr, "Error: No draw() function defined in Lua\n");
+                error_state = true;
             }
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            layer_render(layer);
         }
 
         // === PASS 2: Composite all layers to screen ===
@@ -6703,6 +6847,10 @@ static void main_loop_iteration(void) {
         // Set viewport for game area
         glViewport(offset_x, offset_y, scaled_w, scaled_h);
         glUseProgram(screen_shader);
+
+        // Use premultiplied alpha blend for compositing layers to screen
+        // FBO contents are already blended, so we don't multiply by src alpha again
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
         // Get offset uniform location
         GLint offset_loc = glGetUniformLocation(screen_shader, "u_offset");
@@ -6753,6 +6901,10 @@ static void main_loop_iteration(void) {
                 layer_reset_effects(layer);
             }
         }
+
+        // Restore standard alpha blend for next frame's drawing
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,  // RGB
+                            GL_ONE, GL_ONE_MINUS_SRC_ALPHA);       // Alpha
 
         SDL_GL_SwapWindow(window);
     }
@@ -6837,7 +6989,9 @@ int main(int argc, char* argv[]) {
     printf("Renderer: %s\n", glGetString(GL_RENDERER));
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Use glBlendFuncSeparate to preserve alpha correctly when drawing to FBOs
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,  // RGB
+                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);       // Alpha
 
     // Create shader program
     shader_program = create_shader_program(vertex_shader_source, fragment_shader_source);
