@@ -23,6 +23,7 @@ require 'anchor.collider'
 require 'anchor.spring'
 require 'anchor.camera'
 require 'anchor.shake'
+require 'anchor.random'
 
 --[[
   Root object for the framework.
@@ -41,6 +42,9 @@ an.layers = {}
 an.images = {}
 an.fonts = {}
 an.shaders = {}
+an.sounds = {}
+an.tracks = {}
+an\add random!
 
 --[[
   Registers a named layer.
@@ -130,6 +134,315 @@ an.shader = (name, path) =>
 an.shader_string = (name, source) =>
   @shaders[name] = shader_load_string source
   @shaders[name]
+
+--[[
+  Registers a named sound effect.
+
+  Usage:
+    an\sound 'hit', 'assets/hit.wav'
+    an\sound 'jump', 'assets/jump.ogg'
+
+  Behavior:
+    - Loads sound from path via sound_load()
+    - Stores sound handle in an.sounds[name]
+    - Subsequent access via an.sounds.hit, an.sounds.jump, etc.
+
+  Returns: the sound handle
+]]
+an.sound = (name, path) =>
+  @sounds[name] = sound_load path
+  @sounds[name]
+
+--[[
+  Plays a sound effect by name.
+
+  Usage:
+    an\sound_play 'hit'
+    an\sound_play 'hit', 0.5        -- half volume
+    an\sound_play 'hit', 1, 1.2     -- normal volume, higher pitch
+
+  Parameters:
+    name   - sound name (registered via an\sound)
+    volume - (optional) volume 0-1, default 1
+    pitch  - (optional) pitch multiplier, default 1
+]]
+an.sound_play = (name, volume=1, pitch=1) =>
+  sound_play @sounds[name], volume, pitch
+
+--[[
+  Sets the master volume for all sound effects.
+
+  Usage:
+    an\sound_set_volume 0.5  -- half volume
+]]
+an.sound_set_volume = (volume) =>
+  sound_set_volume volume
+
+--[[
+  Registers a named music track.
+
+  Usage:
+    an\music 'battle', 'assets/battle.ogg'
+    an\music 'menu', 'assets/menu.ogg'
+
+  Behavior:
+    - Loads music from path via music_load()
+    - Stores music handle in an.tracks[name]
+    - Subsequent access via an.tracks.battle, an.tracks.menu, etc.
+
+  Returns: the music handle
+]]
+an.music = (name, path) =>
+  @tracks[name] = music_load path
+  @tracks[name]
+
+--[[
+  Plays a music track by name.
+
+  Usage:
+    an\music_play 'battle'           -- play once
+    an\music_play 'battle', true     -- loop
+    an\music_play 'battle', true, 1  -- loop on channel 1
+
+  Parameters:
+    name    - music name (registered via an\music)
+    loop    - (optional) whether to loop, default false
+    channel - (optional) channel 0 or 1, default 0
+]]
+an.music_play = (name, loop=false, channel=0) =>
+  -- Cancel crossfade if we're playing directly on a channel it uses
+  if @crossfade_state and (channel == @crossfade_state.from_channel or channel == @crossfade_state.to_channel)
+    music_set_volume @crossfade_state.original_from_volume, @crossfade_state.from_channel
+    music_set_volume @crossfade_state.original_to_volume, @crossfade_state.to_channel
+    @crossfade_state = nil
+  music_play @tracks[name], loop, channel
+
+--[[
+  Stops music playback.
+
+  Usage:
+    an\music_stop!      -- stop all channels
+    an\music_stop 0     -- stop channel 0 only
+    an\music_stop 1     -- stop channel 1 only
+]]
+an.music_stop = (channel=-1) =>
+  music_stop channel
+  -- Cancel any in-progress crossfade and restore original volumes
+  if @crossfade_state
+    music_set_volume @crossfade_state.original_from_volume, @crossfade_state.from_channel
+    music_set_volume @crossfade_state.original_to_volume, @crossfade_state.to_channel
+    @crossfade_state = nil
+  -- Reset playlist channel to 0 when stopping all channels
+  if channel == -1
+    @playlist_channel = 0
+
+--[[
+  Sets music volume.
+
+  Usage:
+    an\music_set_volume 0.5          -- master volume
+    an\music_set_volume 0.5, 0       -- channel 0 volume
+    an\music_set_volume 0.5, 1       -- channel 1 volume
+
+  Parameters:
+    volume  - volume 0-1
+    channel - (optional) channel 0 or 1, or -1 for master (default)
+]]
+an.music_set_volume = (volume, channel=-1) =>
+  music_set_volume volume, channel
+
+--[[
+  Crossfades from current music to a new track.
+
+  Usage:
+    an\music_crossfade 'battle', 2       -- crossfade over 2 seconds
+    an\music_crossfade 'battle', 2, true -- crossfade and loop
+
+  Parameters:
+    name     - music name (registered via an\music)
+    duration - crossfade duration in seconds
+    loop     - (optional) whether to loop new track, default false
+
+  Behavior:
+    - Starts new track on channel 1 at volume 0
+    - Tweens channel 0 from 1 to 0
+    - Tweens channel 1 from 0 to 1
+    - Stops channel 0 when done and swaps channels
+]]
+an.music_crossfade = (name, duration, loop=false) =>
+  -- Determine channels: from current playlist channel, to the other one
+  from_channel = @playlist_channel
+  to_channel = 1 - @playlist_channel  -- toggles between 0 and 1
+
+  -- Store original volumes before modifying
+  original_from_volume = music_get_volume from_channel
+  original_to_volume = music_get_volume to_channel
+
+  -- Start new track on to_channel at volume 0
+  music_set_volume 0, to_channel
+  music_play @tracks[name], loop, to_channel
+
+  -- Store crossfade state including original volumes for restoration if cancelled
+  @crossfade_state = {
+    :duration
+    time: 0
+    :from_channel
+    :to_channel
+    :original_from_volume
+    :original_to_volume
+  }
+
+-- Playlist state
+an.playlist = {}           -- array of track names
+an.playlist_index = 1      -- current index
+an.playlist_shuffled = {}  -- shuffled order (when shuffle enabled)
+an.playlist_shuffle_enabled = false
+an.playlist_crossfade_duration = 0  -- 0 = instant switch
+an.playlist_channel = 0             -- which channel playlist is currently using
+an.playlist_just_advanced = false   -- skip at_end check for one frame after advancing
+
+--[[
+  Sets the playlist tracks.
+
+  Usage:
+    an\playlist_set {'menu', 'battle', 'boss'}
+
+  Parameters:
+    tracks - array of music names (registered via an\music)
+]]
+an.playlist_set = (tracks) =>
+  @playlist = tracks
+  @playlist_index = 1
+  @playlist_shuffled = {}
+  @\playlist_generate_shuffle! if @playlist_shuffle_enabled
+
+--[[
+  Starts or resumes playlist playback.
+
+  Usage:
+    an\playlist_play!
+]]
+an.playlist_play = =>
+  return if #@playlist == 0
+  track = @\playlist_current_track!
+  if @playlist_crossfade_duration > 0
+    @\music_crossfade track, @playlist_crossfade_duration
+  else
+    @\music_play track, false, @playlist_channel
+  @playlist_just_advanced = true
+
+--[[
+  Stops playlist playback.
+
+  Usage:
+    an\playlist_stop!
+]]
+an.playlist_stop = =>
+  @\music_stop!
+  @playlist_channel = 0  -- reset to channel 0 for next start
+
+--[[
+  Advances to next track in playlist.
+
+  Usage:
+    an\playlist_next!
+]]
+an.playlist_next = =>
+  return if #@playlist == 0
+  @playlist_index = (@playlist_index % #@playlist) + 1
+  @\playlist_play!
+
+--[[
+  Goes to previous track in playlist.
+
+  Usage:
+    an\playlist_prev!
+]]
+an.playlist_prev = =>
+  return if #@playlist == 0
+  @playlist_index = ((@playlist_index - 2) % #@playlist) + 1
+  @\playlist_play!
+
+--[[
+  Enables or disables shuffle mode.
+
+  Usage:
+    an\playlist_shuffle true   -- enable
+    an\playlist_shuffle false  -- disable
+
+  Behavior:
+    When enabled, tracks play in random order.
+    Generates a new shuffle order each time the playlist loops.
+]]
+an.playlist_shuffle = (enabled) =>
+  @playlist_shuffle_enabled = enabled
+  if enabled
+    @\playlist_generate_shuffle!
+  else
+    @playlist_shuffled = {}
+
+--[[
+  Sets the crossfade duration for playlist transitions.
+
+  Usage:
+    an\playlist_set_crossfade 2  -- 2 second crossfade
+    an\playlist_set_crossfade 0  -- instant switch (default)
+]]
+an.playlist_set_crossfade = (duration) =>
+  @playlist_crossfade_duration = duration
+
+-- Internal: generate shuffled order
+an.playlist_generate_shuffle = =>
+  @playlist_shuffled = {}
+  indices = [i for i = 1, #@playlist]
+  while #indices > 0
+    index = @random\int 1, #indices
+    @playlist_shuffled[] = indices[index]
+    table.remove indices, index
+
+-- Internal: get current track name respecting shuffle
+an.playlist_current_track = =>
+  if @playlist_shuffle_enabled and #@playlist_shuffled > 0
+    @playlist[@playlist_shuffled[@playlist_index]]
+  else
+    @playlist[@playlist_index]
+
+-- Crossfade update action
+an\early_action 'crossfade', (dt) =>
+  return unless @crossfade_state
+  crossfade = @crossfade_state
+  crossfade.time += dt
+
+  if crossfade.time >= crossfade.duration
+    -- Crossfade complete
+    music_set_volume 1, crossfade.to_channel
+    music_stop crossfade.from_channel
+    -- Restore from_channel's original volume so it's ready for future use
+    music_set_volume crossfade.original_from_volume, crossfade.from_channel
+    -- Swap playlist channel so it tracks the now-active channel
+    @playlist_channel = crossfade.to_channel
+    @crossfade_state = nil
+  else
+    -- Interpolate volumes
+    progress = crossfade.time / crossfade.duration
+    music_set_volume 1 - progress, crossfade.from_channel
+    music_set_volume progress, crossfade.to_channel
+
+-- Playlist auto-advance action
+an\early_action 'playlist', (dt) =>
+  return if #@playlist == 0
+  -- Skip check for one frame after advancing (music_at_end can still be true briefly)
+  if @playlist_just_advanced
+    @playlist_just_advanced = false
+    return
+  -- Check current playlist channel for end of track
+  if music_at_end(@playlist_channel) and not music_is_playing(@playlist_channel)
+    -- Advance to next track
+    @playlist_index = (@playlist_index % #@playlist) + 1
+    -- Regenerate shuffle if we looped back to start
+    if @playlist_index == 1 and @playlist_shuffle_enabled
+      @\playlist_generate_shuffle!
+    @\playlist_play!
 
 -- Physics world state
 an.colliders = {}        -- body_handle -> collider (internal registry)

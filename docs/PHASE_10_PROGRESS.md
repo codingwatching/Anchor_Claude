@@ -1033,6 +1033,122 @@ shake\handcam false                         -- disable
 
 ---
 
+## Random Module
+
+The `random` class is a child object that provides seeded random number generation.
+
+### Design Decisions
+
+1. **Child object pattern** — Random is added to objects and dies with parent
+2. **Wraps C functions** — All randomness comes from C engine's RNG
+3. **Default on `an`** — A global random is created on `an` for convenience
+4. **Seeded for replays** — Seed can be stored and restored for deterministic replays
+
+### API Reference
+
+```yuescript
+@\add random!           -- unseeded (uses os.time)
+@\add random 12345      -- seeded for deterministic replays
+
+@random\float!          -- 0 to 1
+@random\float 10        -- 0 to 10
+@random\float 5, 10     -- 5 to 10
+
+@random\int 10          -- 1 to 10
+@random\int 5, 10       -- 5 to 10
+
+@random\angle!          -- 0 to 2π
+@random\sign!           -- -1 or 1 (50% each)
+@random\sign 75         -- 75% chance of 1
+@random\bool!           -- true/false (50% each)
+@random\bool 10         -- 10% chance true
+
+@random\normal!             -- mean 0, stddev 1
+@random\normal 100, 15      -- mean 100, stddev 15
+
+@random\choice enemies              -- random element from array
+@random\choices loot_table, 3       -- 3 unique random elements
+@random\weighted {1, 2, 7}          -- weighted index (10%, 20%, 70%)
+
+@random\get_seed!       -- get current seed
+@random\set_seed 12345  -- reset with new seed
+```
+
+---
+
+## Sound and Music System
+
+Sounds and music are registered on `an` and played through methods.
+
+### Sound API
+
+```yuescript
+-- Registration
+an\sound 'jump', 'assets/jump.wav'
+an\sound 'hit', 'assets/hit.ogg'
+
+-- Playback
+an\sound_play 'jump'                    -- play at default volume/pitch
+an\sound_play 'hit', 0.5, 1.2           -- volume 0.5, pitch 1.2
+
+-- Master volume
+an\sound_set_volume 0.8
+```
+
+### Music API
+
+```yuescript
+-- Registration
+an\music 'menu', 'assets/menu.ogg'
+an\music 'battle', 'assets/battle.ogg'
+
+-- Playback
+an\music_play 'menu'                    -- play on channel 0
+an\music_play 'menu', true              -- loop
+an\music_play 'menu', true, 1           -- play on channel 1
+
+-- Control
+an\music_stop!                          -- stop all channels
+an\music_stop 0                         -- stop channel 0 only
+an\music_set_volume 0.5                 -- master music volume
+an\music_set_volume 0.5, 0              -- channel 0 volume
+
+-- Crossfade (two-channel system)
+an\music_crossfade 'battle', 2          -- crossfade to battle over 2 seconds
+```
+
+### Playlist API
+
+```yuescript
+-- Setup
+an\playlist_set {'menu', 'battle', 'boss'}
+
+-- Control
+an\playlist_play!                       -- start playlist
+an\playlist_stop!                       -- stop playlist
+an\playlist_next!                       -- skip to next track
+an\playlist_prev!                       -- go to previous track
+
+-- Options
+an\playlist_shuffle true                -- enable shuffle
+an\playlist_shuffle false               -- disable shuffle
+an\playlist_set_crossfade 2             -- 2 second crossfade between tracks
+an\playlist_set_crossfade 0             -- instant switch (default)
+
+-- Query
+an\playlist_current_track!              -- get current track name
+```
+
+### Two-Channel Music System
+
+The C engine supports two music channels for crossfade effects:
+- Channel 0 and 1 can play simultaneously
+- `music_crossfade` fades out one channel while fading in the other
+- Playlist tracks which channel is active and swaps on crossfade completion
+- Same track on multiple channels shares one `ma_sound`, so stopping one channel checks if another needs it
+
+---
+
 ## What's Next
 
 Implementation order for remaining Phase 10 work:
@@ -1042,12 +1158,13 @@ Implementation order for remaining Phase 10 work:
 | **Pure utilities** | math (lerp, easing, lerp_dt, lerp_angle, loop) | Done |
 | **Pure utilities** | array, string | Not started |
 | **Value objects** | color | Not started |
-| **Resource manager** | sounds, music on `an` | Not started |
+| **Resource manager** | sounds, music on `an` | Done |
 | **Child objects** | timer | Done |
 | **Child objects** | collider | Done |
 | **Child objects** | spring (with frequency/bounce API) | Done |
 | **Child objects** | camera (follow, bounds, lead, coordinate conversion) | Done |
 | **Child objects** | shake (trauma, push, shake, sine, square, handcam) | Done |
-| **Child objects** | random, input, animation | Not started |
+| **Child objects** | random | Done |
+| **Child objects** | input, animation | Not started |
 | **Physics** | Spatial queries on `an` (query_point, query_circle, raycast, etc.) | Done |
 | **External libs** | Integrate lua-geo2d for collision utilities | Not started |

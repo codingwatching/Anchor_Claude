@@ -364,32 +364,94 @@ local bgm = music_load("assets/music.ogg")
 
 ### music_play
 
-`music_play(music, loop?)`
+`music_play(music, loop?, channel?)`
 
-Plays a music track. Stops any currently playing music.
+Plays a music track on the specified channel (0 or 1, default 0). The two-channel system enables crossfade effects.
 
 ```lua
-music_play(bgm, true)  -- loop
+music_play(bgm, true)        -- loop on channel 0
+music_play(bgm, false, 1)    -- play once on channel 1
 ```
 
 ### music_stop
 
-`music_stop()`
+`music_stop(channel?)`
 
-Stops the currently playing music.
+Stops music on the specified channel, or all channels if -1 (default).
 
 ```lua
-music_stop()
+music_stop()     -- stop all channels
+music_stop(0)    -- stop channel 0 only
+music_stop(1)    -- stop channel 1 only
 ```
+
+Note: If the same Music is playing on another channel, only the channel's reference is cleared without stopping the sound.
 
 ### music_set_volume
 
-`music_set_volume(volume)`
+`music_set_volume(volume, channel?)`
 
-Sets the music volume (0-1).
+Sets volume for a specific channel, or master music volume if channel is -1 (default).
 
 ```lua
-music_set_volume(0.5)
+music_set_volume(0.5)        -- master volume
+music_set_volume(0.8, 0)     -- channel 0 volume
+music_set_volume(0.0, 1)     -- mute channel 1
+```
+
+### music_get_volume
+
+`music_get_volume(channel) -> number`
+
+Returns the current volume of a music channel.
+
+```lua
+local vol = music_get_volume(0)
+```
+
+### music_is_playing
+
+`music_is_playing(channel) -> bool`
+
+Returns true if music is currently playing on the specified channel.
+
+```lua
+if music_is_playing(0) then
+    -- channel 0 has music
+end
+```
+
+### music_at_end
+
+`music_at_end(channel) -> bool`
+
+Returns true if the music on the specified channel has reached the end.
+
+```lua
+if music_at_end(0) and not music_is_playing(0) then
+    -- track finished, play next
+end
+```
+
+### music_get_position
+
+`music_get_position(channel) -> number`
+
+Returns the current playback position in seconds.
+
+```lua
+local pos = music_get_position(0)
+```
+
+### music_get_duration
+
+`music_get_duration(channel) -> number`
+
+Returns the total duration of the music in seconds.
+
+```lua
+local duration = music_get_duration(0)
+local progress = music_get_position(0) / duration
 ```
 
 ### audio_set_master_pitch

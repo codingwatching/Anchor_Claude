@@ -28,6 +28,29 @@ an:shader('shadow', 'shaders/shadow.frag')
 an:shader('outline', 'shaders/outline.frag')
 
 
+an:sound('death', 'assets/player_death.ogg')
+an:music('track1', 'assets/speder2_01.ogg')
+an:music('track2', 'assets/speder2_02.ogg')
+an:music('track3', 'assets/speder2_03.ogg')
+
+
+an:playlist_set({ 'track1', 'track2', 'track3' })
+
+
+print("=== AUDIO TEST CONTROLS ===")
+print("1 - Play death sound")
+print("2 - Play track1 directly")
+print("3 - Stop music")
+print("4 - Start playlist")
+print("5 - Playlist next")
+print("6 - Playlist prev")
+print("7 - Toggle shuffle")
+print("8 - Toggle crossfade (0 or 2 seconds)")
+print("9 - Crossfade to track2 (2 seconds)")
+print("0 - Stop playlist")
+print("===========================")
+
+
 an:physics_init()
 an:physics_set_gravity(0, 500)
 an:physics_set_meter_scale(64)
@@ -173,7 +196,60 @@ layer:image(an.images.ball, 0, 0, nil, self.flash and white or nil)return
 layer:pop()end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self, x, y)self.x = x;self.y = y;_class_0.__parent.__init(self)self:tag('ball')self:tag('drawable')self.impulsed = false;self.original_speed = 0;self.flash = false;self:add(timer())self:add(spring())self:add(collider('ball', 'dynamic', 'circle', ball_radius))self.collider:set_position(self.x, self.y)self.collider:set_restitution(1)return self.collider:set_friction(1)end, __base = _base_0, __name = "ball", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;ball = _class_0 end
 
 
+audio_crossfade_enabled = false
+
+
+
 an:action(function(self, dt)if 
+
+key_is_pressed('1') then
+an:sound_play('death')
+print("Sound: death")end;if 
+
+key_is_pressed('2') then
+print("Before play: ch0 vol=" .. tostring(music_get_volume(0)) .. ", ch1 vol=" .. tostring(music_get_volume(1)))
+an:music_play('track1')
+print("After play: ch0 vol=" .. tostring(music_get_volume(0)) .. ", playing=" .. tostring(music_is_playing(0)))end;if 
+
+key_is_pressed('3') then
+print("Before stop: ch0 vol=" .. tostring(music_get_volume(0)) .. ", ch1 vol=" .. tostring(music_get_volume(1)))
+an:music_stop()
+print("After stop: ch0 vol=" .. tostring(music_get_volume(0)) .. ", ch1 vol=" .. tostring(music_get_volume(1)))end;if 
+
+key_is_pressed('4') then
+an:playlist_play()
+print("Playlist: started")end;if 
+
+key_is_pressed('5') then
+an:playlist_next()
+print("Playlist: next -> " .. an:playlist_current_track())end;if 
+
+key_is_pressed('6') then
+an:playlist_prev()
+print("Playlist: prev -> " .. an:playlist_current_track())end;if 
+
+key_is_pressed('7') then
+an:playlist_shuffle(not an.playlist_shuffle_enabled)
+print("Playlist shuffle: " .. tostring(an.playlist_shuffle_enabled))end;if 
+
+key_is_pressed('8') then
+audio_crossfade_enabled = not audio_crossfade_enabled;if 
+audio_crossfade_enabled then
+an:playlist_set_crossfade(2)
+print("Playlist crossfade: 2 seconds")else
+
+an:playlist_set_crossfade(0)
+print("Playlist crossfade: instant")end end;if 
+
+key_is_pressed('9') then
+print("Before crossfade: ch0 vol=" .. tostring(music_get_volume(0)) .. ", ch1 vol=" .. tostring(music_get_volume(1)))
+an:music_crossfade('track2', 2)
+print("After crossfade: ch0 vol=" .. tostring(music_get_volume(0)) .. ", ch1 vol=" .. tostring(music_get_volume(1)))
+print("Crossfade state: " .. tostring(an.crossfade_state and 'exists' or 'nil'))end;if 
+
+key_is_pressed('0') then
+an:playlist_stop()
+print("Playlist: stopped")end;if 
 key_is_pressed('k') then local spawn_x = 
 left_wall_x + wall_width + ball_radius + 20;local spawn_y = 
 wall_top - ball_radius - 5;local new_ball = 
@@ -280,7 +356,23 @@ zone:draw(ui)end;local _list_3 =
 
 an:all('ball')for _index_0 = 1, #_list_3 do local b = _list_3[_index_0]local screen_x,screen_y = 
 an.camera:to_screen(b.x, b.y)
-ui:circle(screen_x, screen_y - 20, 5, red)end end)
+ui:circle(screen_x, screen_y - 20, 5, red)end;local is_playing = 
+
+
+music_is_playing(an.playlist_channel) or (an.crossfade_state and music_is_playing(an.crossfade_state.to_channel))local playing_status = 
+is_playing and "PLAYING" or "STOPPED"local shuffle_status = 
+an.playlist_shuffle_enabled and "ON" or "OFF"local crossfade_status = 
+an.playlist_crossfade_duration > 0 and tostring(an.playlist_crossfade_duration) .. "s" or "OFF"local current_track = #
+an.playlist > 0 and an:playlist_current_track() or "none"local shuffle_order = 
+
+
+""if 
+an.playlist_shuffle_enabled and #an.playlist_shuffled > 0 then
+local order_parts;do local _accum_0 = {  }local _len_0 = 1;local _list_4 = an.playlist_shuffled;for _index_0 = 1, #_list_4 do local i = _list_4[_index_0]_accum_0[_len_0] = tostring(i)_len_0 = _len_0 + 1 end;order_parts = _accum_0 end
+shuffle_order = " Order: [" .. table.concat(order_parts, ",") .. "]"end
+
+ui:text("Track: " .. tostring(current_track) .. " [" .. tostring(an.playlist_index) .. "/" .. tostring(#an.playlist) .. "]", 'main', 5, 5, white)return 
+ui:text("Status: " .. tostring(playing_status) .. " | Shuffle: " .. tostring(shuffle_status) .. tostring(shuffle_order) .. " | Crossfade: " .. tostring(crossfade_status), 'main', 5, 18, white)end)
 
 
 

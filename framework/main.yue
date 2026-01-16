@@ -27,6 +27,29 @@ an\image 'ball', 'assets/slight_smile.png'
 an\shader 'shadow', 'shaders/shadow.frag'
 an\shader 'outline', 'shaders/outline.frag'
 
+-- Audio resources
+an\sound 'death', 'assets/player_death.ogg'
+an\music 'track1', 'assets/speder2_01.ogg'
+an\music 'track2', 'assets/speder2_02.ogg'
+an\music 'track3', 'assets/speder2_03.ogg'
+
+-- Setup playlist
+an\playlist_set {'track1', 'track2', 'track3'}
+
+-- Print audio test controls
+print "=== AUDIO TEST CONTROLS ==="
+print "1 - Play death sound"
+print "2 - Play track1 directly"
+print "3 - Stop music"
+print "4 - Start playlist"
+print "5 - Playlist next"
+print "6 - Playlist prev"
+print "7 - Toggle shuffle"
+print "8 - Toggle crossfade (0 or 2 seconds)"
+print "9 - Crossfade to track2 (2 seconds)"
+print "0 - Stop playlist"
+print "==========================="
+
 -- Initialize physics
 an\physics_init!
 an\physics_set_gravity 0, 500
@@ -172,8 +195,57 @@ class ball extends object
     layer\image an.images.ball, 0, 0, nil, @flash and white or nil
     layer\pop!
 
+-- Audio test state
+audio_crossfade_enabled = false
+
 -- Spawn ball on K, impulse on P, camera movement with WASD/arrows
+-- Audio tests: 1-0 keys (see controls printed below)
 an\action (dt) =>
+  -- Audio tests
+  if key_is_pressed '1'
+    an\sound_play 'death'
+    print "Sound: death"
+
+  if key_is_pressed '2'
+    an\music_play 'track1'
+    print "Music: track1"
+
+  if key_is_pressed '3'
+    an\music_stop!
+    print "Music: stopped"
+
+  if key_is_pressed '4'
+    an\playlist_play!
+    print "Playlist: started"
+
+  if key_is_pressed '5'
+    an\playlist_next!
+    print "Playlist: next -> " .. an\playlist_current_track!
+
+  if key_is_pressed '6'
+    an\playlist_prev!
+    print "Playlist: prev -> " .. an\playlist_current_track!
+
+  if key_is_pressed '7'
+    an\playlist_shuffle not an.playlist_shuffle_enabled
+    print "Playlist shuffle: " .. tostring(an.playlist_shuffle_enabled)
+
+  if key_is_pressed '8'
+    audio_crossfade_enabled = not audio_crossfade_enabled
+    if audio_crossfade_enabled
+      an\playlist_set_crossfade 2
+      print "Playlist crossfade: 2 seconds"
+    else
+      an\playlist_set_crossfade 0
+      print "Playlist crossfade: instant"
+
+  if key_is_pressed '9'
+    an\music_crossfade 'track2', 2
+    print "Music: crossfade to track2"
+
+  if key_is_pressed '0'
+    an\playlist_stop!
+    print "Playlist: stopped"
   if key_is_pressed 'k'
     spawn_x = left_wall_x + wall_width + ball_radius + 20
     spawn_y = wall_top - ball_radius - 5
@@ -281,6 +353,22 @@ an\late_action 'draw', =>
   for b in *an\all 'ball'
     screen_x, screen_y = an.camera\to_screen b.x, b.y
     ui\circle screen_x, screen_y - 20, 5, red
+
+  -- Audio status display (check current channel OR if crossfade is in progress)
+  is_playing = music_is_playing(an.playlist_channel) or (an.crossfade_state and music_is_playing(an.crossfade_state.to_channel))
+  playing_status = is_playing and "PLAYING" or "STOPPED"
+  shuffle_status = an.playlist_shuffle_enabled and "ON" or "OFF"
+  crossfade_status = an.playlist_crossfade_duration > 0 and "#{an.playlist_crossfade_duration}s" or "OFF"
+  current_track = #an.playlist > 0 and an\playlist_current_track! or "none"
+
+  -- Build shuffle order string
+  shuffle_order = ""
+  if an.playlist_shuffle_enabled and #an.playlist_shuffled > 0
+    order_parts = [tostring(i) for i in *an.playlist_shuffled]
+    shuffle_order = " Order: [" .. table.concat(order_parts, ",") .. "]"
+
+  ui\text "Track: #{current_track} [#{an.playlist_index}/#{#an.playlist}]", 'main', 5, 5, white
+  ui\text "Status: #{playing_status} | Shuffle: #{shuffle_status}#{shuffle_order} | Crossfade: #{crossfade_status}", 'main', 5, 18, white
 
 -- Global draw function - called by C after update
 -- Handles: render source layers, create derived layers, composite to screen

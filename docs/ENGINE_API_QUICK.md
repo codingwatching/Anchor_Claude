@@ -48,9 +48,14 @@ sound_load(path) -> sound
 sound_play(sound, volume?, pitch?)
 sound_set_volume(volume)
 music_load(path) -> music
-music_play(music, loop?)
-music_stop()
-music_set_volume(volume)
+music_play(music, loop?, channel?)
+music_stop(channel?)
+music_set_volume(volume, channel?)
+music_get_volume(channel) -> number
+music_is_playing(channel) -> bool
+music_at_end(channel) -> bool
+music_get_position(channel) -> number
+music_get_duration(channel) -> number
 audio_set_master_pitch(pitch)
 ```
 

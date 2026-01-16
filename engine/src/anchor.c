@@ -972,13 +972,19 @@ static void sound_play(Sound* sound, float volume, float pitch) {
     ma_sound_start(&playing_sounds[slot].sound);
 }
 
-// Music - single streaming track
+// Music - streaming tracks with two channels for crossfade support
 typedef struct {
     ma_sound sound;
     bool initialized;
 } Music;
 
-static Music* current_music = NULL;
+#define MUSIC_CHANNELS 2
+typedef struct {
+    Music* music;           // Currently playing music on this channel
+    float volume;           // Per-channel volume multiplier (0-1)
+} MusicChannel;
+
+static MusicChannel music_channels[MUSIC_CHANNELS] = {{NULL, 1.0f}, {NULL, 1.0f}};
 
 static Music* music_load(const char* path) {
     if (!audio_initialized) return NULL;
@@ -1007,33 +1013,109 @@ static void music_destroy(Music* music) {
     free(music);
 }
 
-static void music_play(Music* music, bool loop) {
+static void music_play(Music* music, bool loop, int channel) {
     if (!audio_initialized || !music || !music->initialized) return;
+    if (channel < 0 || channel >= MUSIC_CHANNELS) channel = 0;
 
-    // Stop current music if different
-    if (current_music && current_music != music) {
-        ma_sound_stop(&current_music->sound);
+    MusicChannel* ch = &music_channels[channel];
+
+    // Stop current music on this channel if different
+    if (ch->music && ch->music != music && ch->music->initialized) {
+        ma_sound_stop(&ch->music->sound);
     }
 
-    current_music = music;
+    ch->music = music;
     ma_sound_set_looping(&music->sound, loop);
-    ma_sound_set_volume(&music->sound, linear_to_perceptual(music_master_volume));
+    ma_sound_set_volume(&music->sound, linear_to_perceptual(music_master_volume * ch->volume));
     ma_sound_seek_to_pcm_frame(&music->sound, 0);  // Restart from beginning
     ma_sound_start(&music->sound);
 }
 
-static void music_stop(void) {
-    if (current_music && current_music->initialized) {
-        ma_sound_stop(&current_music->sound);
+static void music_stop(int channel) {
+    if (channel < 0) {
+        // Stop all channels
+        for (int i = 0; i < MUSIC_CHANNELS; i++) {
+            if (music_channels[i].music && music_channels[i].music->initialized) {
+                ma_sound_stop(&music_channels[i].music->sound);
+            }
+            music_channels[i].music = NULL;
+        }
+    } else if (channel < MUSIC_CHANNELS) {
+        MusicChannel* ch = &music_channels[channel];
+        if (ch->music && ch->music->initialized) {
+            // Check if another channel is using the same Music
+            bool in_use_elsewhere = false;
+            for (int i = 0; i < MUSIC_CHANNELS; i++) {
+                if (i != channel && music_channels[i].music == ch->music) {
+                    in_use_elsewhere = true;
+                    break;
+                }
+            }
+            // Only stop the sound if no other channel needs it
+            if (!in_use_elsewhere) {
+                ma_sound_stop(&ch->music->sound);
+            }
+        }
+        ch->music = NULL;
     }
 }
 
-static void music_set_volume(float volume) {
-    music_master_volume = volume;
-    // Apply to currently playing music (perceptual scaling)
-    if (current_music && current_music->initialized) {
-        ma_sound_set_volume(&current_music->sound, linear_to_perceptual(volume));
+static void music_set_volume(float volume, int channel) {
+    if (channel < 0) {
+        // Set master volume
+        music_master_volume = volume;
+        for (int i = 0; i < MUSIC_CHANNELS; i++) {
+            if (music_channels[i].music && music_channels[i].music->initialized) {
+                ma_sound_set_volume(&music_channels[i].music->sound,
+                    linear_to_perceptual(music_master_volume * music_channels[i].volume));
+            }
+        }
+    } else if (channel < MUSIC_CHANNELS) {
+        // Set per-channel volume
+        MusicChannel* ch = &music_channels[channel];
+        ch->volume = volume;
+        if (ch->music && ch->music->initialized) {
+            ma_sound_set_volume(&ch->music->sound,
+                linear_to_perceptual(music_master_volume * ch->volume));
+        }
     }
+}
+
+static bool music_is_playing(int channel) {
+    if (channel < 0 || channel >= MUSIC_CHANNELS) return false;
+    MusicChannel* ch = &music_channels[channel];
+    if (!ch->music || !ch->music->initialized) return false;
+    return ma_sound_is_playing(&ch->music->sound);
+}
+
+static bool music_at_end(int channel) {
+    if (channel < 0 || channel >= MUSIC_CHANNELS) return false;
+    MusicChannel* ch = &music_channels[channel];
+    if (!ch->music || !ch->music->initialized) return false;
+    return ma_sound_at_end(&ch->music->sound);
+}
+
+static float music_get_position(int channel) {
+    if (channel < 0 || channel >= MUSIC_CHANNELS) return 0.0f;
+    MusicChannel* ch = &music_channels[channel];
+    if (!ch->music || !ch->music->initialized) return 0.0f;
+    float cursor;
+    ma_sound_get_cursor_in_seconds(&ch->music->sound, &cursor);
+    return cursor;
+}
+
+static float music_get_duration(int channel) {
+    if (channel < 0 || channel >= MUSIC_CHANNELS) return 0.0f;
+    MusicChannel* ch = &music_channels[channel];
+    if (!ch->music || !ch->music->initialized) return 0.0f;
+    float length;
+    ma_sound_get_length_in_seconds(&ch->music->sound, &length);
+    return length;
+}
+
+static float music_get_volume(int channel) {
+    if (channel < 0 || channel >= MUSIC_CHANNELS) return 1.0f;
+    return music_channels[channel].volume;
 }
 
 // Master pitch (slow-mo) - affects all currently playing audio
@@ -1047,9 +1129,11 @@ static void audio_set_master_pitch(float pitch) {
         }
     }
 
-    // Update music
-    if (current_music && current_music->initialized) {
-        ma_sound_set_pitch(&current_music->sound, pitch);
+    // Update music on all channels
+    for (int i = 0; i < MUSIC_CHANNELS; i++) {
+        if (music_channels[i].music && music_channels[i].music->initialized) {
+            ma_sound_set_pitch(&music_channels[i].music->sound, pitch);
+        }
     }
 }
 
@@ -3502,20 +3586,52 @@ static int l_music_load(lua_State* L) {
 static int l_music_play(lua_State* L) {
     Music* music = (Music*)lua_touserdata(L, 1);
     bool loop = lua_toboolean(L, 2);
-    music_play(music, loop);
+    int channel = (int)luaL_optinteger(L, 3, 0);
+    music_play(music, loop, channel);
     return 0;
 }
 
 static int l_music_stop(lua_State* L) {
-    (void)L;
-    music_stop();
+    int channel = (int)luaL_optinteger(L, 1, -1);  // -1 = stop all
+    music_stop(channel);
     return 0;
 }
 
 static int l_music_set_volume(lua_State* L) {
     float volume = (float)luaL_checknumber(L, 1);
-    music_set_volume(volume);
+    int channel = (int)luaL_optinteger(L, 2, -1);  // -1 = master volume
+    music_set_volume(volume, channel);
     return 0;
+}
+
+static int l_music_is_playing(lua_State* L) {
+    int channel = (int)luaL_optinteger(L, 1, 0);
+    lua_pushboolean(L, music_is_playing(channel));
+    return 1;
+}
+
+static int l_music_at_end(lua_State* L) {
+    int channel = (int)luaL_optinteger(L, 1, 0);
+    lua_pushboolean(L, music_at_end(channel));
+    return 1;
+}
+
+static int l_music_get_position(lua_State* L) {
+    int channel = (int)luaL_optinteger(L, 1, 0);
+    lua_pushnumber(L, music_get_position(channel));
+    return 1;
+}
+
+static int l_music_get_duration(lua_State* L) {
+    int channel = (int)luaL_optinteger(L, 1, 0);
+    lua_pushnumber(L, music_get_duration(channel));
+    return 1;
+}
+
+static int l_music_get_volume(lua_State* L) {
+    int channel = (int)luaL_optinteger(L, 1, 0);
+    lua_pushnumber(L, music_get_volume(channel));
+    return 1;
 }
 
 static int l_audio_set_master_pitch(lua_State* L) {
@@ -6046,6 +6162,11 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "music_play", l_music_play);
     lua_register(L, "music_stop", l_music_stop);
     lua_register(L, "music_set_volume", l_music_set_volume);
+    lua_register(L, "music_is_playing", l_music_is_playing);
+    lua_register(L, "music_at_end", l_music_at_end);
+    lua_register(L, "music_get_position", l_music_get_position);
+    lua_register(L, "music_get_duration", l_music_get_duration);
+    lua_register(L, "music_get_volume", l_music_get_volume);
     lua_register(L, "audio_set_master_pitch", l_audio_set_master_pitch);
     lua_register(L, "rgba", l_color_rgba);
     lua_register(L, "set_filter_mode", l_set_filter_mode);

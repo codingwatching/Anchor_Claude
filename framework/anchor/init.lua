@@ -23,6 +23,7 @@ require('anchor.collider')
 require('anchor.spring')
 require('anchor.camera')
 require('anchor.shake')
+require('anchor.random')
 
 
 
@@ -41,6 +42,9 @@ an.layers = {  }
 an.images = {  }
 an.fonts = {  }
 an.shaders = {  }
+an.sounds = {  }
+an.tracks = {  }
+an:add(random())
 
 
 
@@ -130,6 +134,315 @@ self.shaders[name]end
 an.shader_string = function(self, name, source)
 self.shaders[name] = shader_load_string(source)return 
 self.shaders[name]end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.sound = function(self, name, path)
+self.sounds[name] = sound_load(path)return 
+self.sounds[name]end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.sound_play = function(self, name, volume, pitch)if volume == nil then volume = 1 end;if pitch == nil then pitch = 1 end;return 
+sound_play(self.sounds[name], volume, pitch)end
+
+
+
+
+
+
+
+an.sound_set_volume = function(self, volume)return 
+sound_set_volume(volume)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.music = function(self, name, path)
+self.tracks[name] = music_load(path)return 
+self.tracks[name]end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.music_play = function(self, name, loop, channel)if loop == nil then loop = false end;if channel == nil then channel = 0 end;if 
+
+self.crossfade_state and (channel == self.crossfade_state.from_channel or channel == self.crossfade_state.to_channel) then
+music_set_volume(self.crossfade_state.original_from_volume, self.crossfade_state.from_channel)
+music_set_volume(self.crossfade_state.original_to_volume, self.crossfade_state.to_channel)
+self.crossfade_state = nil end;return 
+music_play(self.tracks[name], loop, channel)end
+
+
+
+
+
+
+
+
+
+an.music_stop = function(self, channel)if channel == nil then channel = -1 end
+music_stop(channel)if 
+
+self.crossfade_state then
+music_set_volume(self.crossfade_state.original_from_volume, self.crossfade_state.from_channel)
+music_set_volume(self.crossfade_state.original_to_volume, self.crossfade_state.to_channel)
+self.crossfade_state = nil end;if 
+
+channel == -1 then
+self.playlist_channel = 0 end end
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.music_set_volume = function(self, volume, channel)if channel == nil then channel = -1 end;return 
+music_set_volume(volume, channel)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.music_crossfade = function(self, name, duration, loop)if loop == nil then loop = false end;local from_channel = 
+
+self.playlist_channel;local to_channel = 
+1 - self.playlist_channel;local original_from_volume = 
+
+
+music_get_volume(from_channel)local original_to_volume = 
+music_get_volume(to_channel)
+
+
+music_set_volume(0, to_channel)
+music_play(self.tracks[name], loop, to_channel)
+
+
+
+self.crossfade_state = { duration = duration, time = 
+0, from_channel = 
+from_channel, to_channel = 
+to_channel, original_from_volume = 
+original_from_volume, original_to_volume = 
+original_to_volume }end
+
+
+
+an.playlist = {  }
+an.playlist_index = 1
+an.playlist_shuffled = {  }
+an.playlist_shuffle_enabled = false
+an.playlist_crossfade_duration = 0
+an.playlist_channel = 0
+an.playlist_just_advanced = false
+
+
+
+
+
+
+
+
+
+
+an.playlist_set = function(self, tracks)
+self.playlist = tracks
+self.playlist_index = 1
+self.playlist_shuffled = {  }if 
+self.playlist_shuffle_enabled then return self:playlist_generate_shuffle()end end
+
+
+
+
+
+
+
+an.playlist_play = function(self)if #
+self.playlist == 0 then return end;local track = 
+self:playlist_current_track()if 
+self.playlist_crossfade_duration > 0 then
+self:music_crossfade(track, self.playlist_crossfade_duration)else
+
+self:music_play(track, false, self.playlist_channel)end
+self.playlist_just_advanced = true end
+
+
+
+
+
+
+
+an.playlist_stop = function(self)
+self:music_stop()
+self.playlist_channel = 0 end
+
+
+
+
+
+
+
+an.playlist_next = function(self)if #
+self.playlist == 0 then return end
+self.playlist_index = (self.playlist_index % #self.playlist) + 1;return 
+self:playlist_play()end
+
+
+
+
+
+
+
+an.playlist_prev = function(self)if #
+self.playlist == 0 then return end
+self.playlist_index = ((self.playlist_index - 2) % #self.playlist) + 1;return 
+self:playlist_play()end
+
+
+
+
+
+
+
+
+
+
+
+
+an.playlist_shuffle = function(self, enabled)
+self.playlist_shuffle_enabled = enabled;if 
+enabled then return 
+self:playlist_generate_shuffle()else
+
+self.playlist_shuffled = {  }end end
+
+
+
+
+
+
+
+
+an.playlist_set_crossfade = function(self, duration)
+self.playlist_crossfade_duration = duration end
+
+
+an.playlist_generate_shuffle = function(self)
+self.playlist_shuffled = {  }
+local indices;do local _accum_0 = {  }local _len_0 = 1;for i = 1, #self.playlist do _accum_0[_len_0] = i;_len_0 = _len_0 + 1 end;indices = _accum_0 end;while #
+indices > 0 do local index = 
+self.random:int(1, #indices)do local _obj_0 = 
+self.playlist_shuffled;_obj_0[#_obj_0 + 1] = indices[index]end
+table.remove(indices, index)end end
+
+
+an.playlist_current_track = function(self)if 
+self.playlist_shuffle_enabled and #self.playlist_shuffled > 0 then return 
+self.playlist[self.playlist_shuffled[self.playlist_index]]else return 
+
+self.playlist[self.playlist_index]end end
+
+
+an:early_action('crossfade', function(self, dt)if not 
+self.crossfade_state then return end;local crossfade = 
+self.crossfade_state
+crossfade.time = crossfade.time + dt;if 
+
+crossfade.time >= crossfade.duration then
+
+music_set_volume(1, crossfade.to_channel)
+music_stop(crossfade.from_channel)
+
+music_set_volume(crossfade.original_from_volume, crossfade.from_channel)
+
+self.playlist_channel = crossfade.to_channel
+self.crossfade_state = nil else local progress = 
+
+
+crossfade.time / crossfade.duration
+music_set_volume(1 - progress, crossfade.from_channel)return 
+music_set_volume(progress, crossfade.to_channel)end end)
+
+
+an:early_action('playlist', function(self, dt)if #
+self.playlist == 0 then return end;if 
+
+self.playlist_just_advanced then
+self.playlist_just_advanced = false
+return end;if 
+
+music_at_end(self.playlist_channel) and not music_is_playing(self.playlist_channel) then
+
+self.playlist_index = (self.playlist_index % #self.playlist) + 1;if 
+
+self.playlist_index == 1 and self.playlist_shuffle_enabled then
+self:playlist_generate_shuffle()end;return 
+self:playlist_play()end end)
 
 
 an.colliders = {  }
