@@ -111,8 +111,9 @@ Run `./scripts/patch-claude-code.sh` to fix the "File has been unexpectedly modi
 
 ## Quick Website Push
 
-Push website changes to Blot without a commit message:
+Push website changes to Blot (uses separate repo at `E:/a327ex/anchor.blot.im/`):
 
 ```bash
-git add -A && git commit --allow-empty-message -m "" && git subtree push --prefix=website blot master
+cp -r E:/a327ex/Anchor/website/* E:/a327ex/anchor.blot.im/
+cd E:/a327ex/anchor.blot.im && git add -A && git commit --allow-empty-message -m "" && git push origin master
 ```

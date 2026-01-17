@@ -130,8 +130,9 @@ EOF
 # Push to GitHub
 git push origin main
 
-# Push website to Blot
-git subtree push --prefix=website blot master
+# Push website to Blot (separate repo, not subtree)
+cp -r E:/a327ex/Anchor/website/* E:/a327ex/anchor.blot.im/
+cd E:/a327ex/anchor.blot.im && git add -A && git commit -m "[Title]" && git push origin master
 ```
 
 ## Step 9: Confirm

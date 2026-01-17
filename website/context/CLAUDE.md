@@ -67,7 +67,9 @@ python scripts/jsonl-to-markdown.py [in.jsonl] website/logs/title-slug.md     # 
 cp .claude/CLAUDE.md docs/* website/context/                                   # Sync context files
 git add -A && git commit -m "Title..."                                         # Commit (see format below)
 git push origin main                                                           # Push to GitHub
-git subtree push --prefix=website blot master                                  # Push website to Blot
+# Push website to Blot (separate repo)
+cp -r website/* E:/a327ex/anchor.blot.im/
+cd E:/a327ex/anchor.blot.im && git add -A && git commit -m "Title" && git push origin master
 ```
 
 **Note:** If files are removed from `docs/`, also remove them from `website/context/`.
@@ -75,7 +77,8 @@ git subtree push --prefix=website blot master                                  #
 ### Quick Website Push
 
 ```bash
-git add -A && git commit --allow-empty-message -m "" && git subtree push --prefix=website blot master
+cp -r website/* E:/a327ex/anchor.blot.im/
+cd E:/a327ex/anchor.blot.im && git add -A && git commit --allow-empty-message -m "" && git push origin master
 ```
 
 ### Long Responses
