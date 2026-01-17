@@ -24,6 +24,8 @@ require('anchor.spring')
 require('anchor.camera')
 require('anchor.shake')
 require('anchor.random')
+require('anchor.color')
+require('anchor.array')
 
 
 
@@ -45,6 +47,12 @@ an.shaders = {  }
 an.sounds = {  }
 an.tracks = {  }
 an:add(random())
+
+
+an.width = engine_get_width()
+an.height = engine_get_height()
+an.dt = engine_get_dt()
+an.platform = engine_get_platform()
 
 
 
@@ -933,7 +941,371 @@ result end
 
 
 
-update = function(dt)for name, layer in 
+an.bind = function(self, action, control)return 
+input_bind(action, control)end
+
+
+
+
+
+
+
+an.unbind = function(self, action, control)return 
+input_unbind(action, control)end
+
+
+
+
+
+
+
+an.unbind_all = function(self, action)return 
+input_unbind_all(action)end
+
+
+
+
+
+
+
+
+
+an.bind_all = function(self)return 
+input_bind_all()end
+
+
+
+
+
+
+
+
+
+an.bind_chord = function(self, name, actions)return 
+input_bind_chord(name, actions)end
+
+
+
+
+
+
+
+
+
+
+
+an.bind_sequence = function(self, name, sequence)return 
+input_bind_sequence(name, sequence)end
+
+
+
+
+
+
+
+
+
+an.bind_hold = function(self, name, duration, source_action)return 
+input_bind_hold(name, duration, source_action)end
+
+
+
+
+
+
+
+
+an.is_pressed = function(self, action)return 
+is_pressed(action)end
+
+
+
+
+
+
+
+
+an.is_down = function(self, action)return 
+is_down(action)end
+
+
+
+
+
+
+
+
+an.is_released = function(self, action)return 
+is_released(action)end
+
+
+
+
+
+
+
+
+an.get_axis = function(self, negative, positive)return 
+input_get_axis(negative, positive)end
+
+
+
+
+
+
+
+
+
+
+
+an.get_vector = function(self, left, right, up, down)return 
+input_get_vector(left, right, up, down)end
+
+
+
+
+
+
+
+
+
+
+an.get_hold_duration = function(self, name)return 
+input_get_hold_duration(name)end
+
+
+
+
+
+
+
+
+an.any_pressed = function(self)return 
+input_any_pressed()end
+
+
+
+
+
+
+
+
+
+an.get_pressed_action = function(self)return 
+input_get_pressed_action()end
+
+
+
+
+
+
+
+
+an.key_is_down = function(self, key)return 
+key_is_down(key)end
+
+
+
+
+
+
+
+
+an.key_is_pressed = function(self, key)return 
+key_is_pressed(key)end
+
+
+
+
+
+
+
+
+an.key_is_released = function(self, key)return 
+key_is_released(key)end
+
+
+
+
+
+
+
+an.mouse_position = function(self)return 
+mouse_position()end
+
+
+
+
+
+
+
+an.mouse_delta = function(self)return 
+mouse_delta()end
+
+
+
+
+
+
+
+
+an.mouse_wheel = function(self)return 
+mouse_wheel()end
+
+
+
+
+
+
+
+
+
+
+an.mouse_is_down = function(self, button)return 
+mouse_is_down(button)end
+
+
+
+
+
+
+
+
+an.mouse_is_pressed = function(self, button)return 
+mouse_is_pressed(button)end
+
+
+
+
+
+
+
+
+an.mouse_is_released = function(self, button)return 
+mouse_is_released(button)end
+
+
+
+
+
+
+
+an.mouse_set_visible = function(self, visible)return 
+mouse_set_visible(visible)end
+
+
+
+
+
+
+
+an.mouse_set_grabbed = function(self, grabbed)return 
+mouse_set_grabbed(grabbed)end
+
+
+
+
+
+
+
+
+an.gamepad_is_connected = function(self)return 
+gamepad_is_connected()end
+
+
+
+
+
+
+
+
+
+
+an.gamepad_get_axis = function(self, axis)return 
+gamepad_get_axis(axis)end
+
+
+
+
+
+
+
+
+
+
+an.get_last_input_type = function(self)return 
+input_get_last_type()end
+
+
+
+
+
+
+
+
+an.start_capture = function(self)return 
+input_start_capture()end
+
+
+
+
+
+
+
+
+
+
+an.get_captured = function(self)return 
+input_get_captured()end
+
+
+
+
+
+
+
+an.stop_capture = function(self)return 
+input_stop_capture()end
+
+
+
+
+
+
+
+an.set_deadzone = function(self, deadzone)return 
+input_set_deadzone(deadzone)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+update = function(dt)
+
+an.frame = engine_get_frame()
+an.step = engine_get_step()
+an.time = engine_get_time()
+an.window_width, an.window_height = engine_get_window_size()
+an.scale = engine_get_scale()
+an.fullscreen = engine_is_fullscreen()
+an.fps = engine_get_fps()
+an.draw_calls = engine_get_draw_calls()for name, layer in 
+
 
 pairs(an.layers) do if 
 layer.camera then

@@ -4,6 +4,7 @@
 *.so
 *.dll
 *.exe
+release/
 
 # Editor
 *.swp

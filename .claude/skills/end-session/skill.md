@@ -14,12 +14,15 @@ Ask the user for a session title (max 30 characters). Examples: "Anchor Phase 10
 ## Step 2: Find and Convert Transcript
 
 ```bash
-# Find latest transcript
-ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -1
+# Find the two most recent transcripts (current session + previous session to summarize)
+ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -2
 
+# The SECOND file is the session to summarize (the first is this current end-session conversation)
 # Convert to markdown (use lowercase hyphenated slug)
-python E:/a327ex/Anchor/scripts/jsonl-to-markdown.py [JSONL_PATH] E:/a327ex/Anchor/website/logs/[slug].md
+python E:/a327ex/Anchor/scripts/jsonl-to-markdown.py [SECOND_JSONL_PATH] E:/a327ex/Anchor/website/logs/[slug].md
 ```
+
+**Note:** When running this skill in a fresh session, the most recent transcript is the current end-session conversation. The second most recent is the actual work session to summarize.
 
 ## Step 3: Read the Full Log (CRITICAL)
 

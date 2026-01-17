@@ -29,7 +29,12 @@ Anchor/
 │   │   ├── timer.yue
 │   │   ├── collider.yue
 │   │   ├── spring.yue
-│   │   └── math.yue
+│   │   ├── camera.yue
+│   │   ├── shake.yue
+│   │   ├── random.yue
+│   │   ├── math.yue
+│   │   ├── color.yue
+│   │   └── array.yue
 │   ├── assets/             # Test assets
 │   ├── main.yue            # Test file
 │   ├── yue.exe             # YueScript compiler
@@ -701,6 +706,10 @@ This ensures semi-transparent colors composite correctly when drawn through mult
 | Event normalization (a/b match query tag order) | Done |
 | Spatial queries on `an` (query_point, query_circle, query_aabb, query_box, query_capsule, query_polygon, raycast, raycast_all) | Done |
 | `spring` class (add, pull, set_target, at_rest, early_update) | Done |
+| `color` class (RGB/HSL, operators, clone, invert, mix) | Done |
+| `array` module (predicates, aggregates, search, modification, random) | Done |
+| Input wrappers on `an` (bind, is_pressed, is_down, key_*, mouse_*, gamepad_*) | Done |
+| Engine state on `an` (frame, step, time, width, height, scale, fullscreen, fps, draw_calls, platform) | Done |
 
 ---
 
@@ -737,14 +746,12 @@ These are proper tree objects added as children to other objects. Their lifecycl
 
 | Object | Description | Usage |
 |--------|-------------|-------|
-| **input** | Input bindings context | `@\add input!` then `@input\is_pressed 'jump'` |
 | **random** | Seeded RNG instance | `@\add random seed` then `@random\float 0, 1` |
 | **timer** | Delays, repeating callbacks, tweens | `@\add timer!` then `@timer\after 2, -> ...` |
 | **spring** | Damped spring animation | `@\add spring!` then `@spring\pull 'main', 0.5` |
 | **collider** | Box2D physics body | `@\add collider 'enemy', 'dynamic', 'circle', 16` |
 | **camera** | Viewport with position, zoom, rotation | `an\add camera!` then `an.camera\follow player` |
-| **animation** | Sprite animation | `@\add animation 'walk', 0.1` |
-| **shake** | Shake effect | `@\add shake!` then `@shake\shake 10, 0.5` |
+| **shake** | Shake effect (child of camera) | `an.camera\add shake!` then `an.camera.shake\shake 10, 0.5` |
 
 **Child object design principles:**
 - Extend `object` class (or are created by factory functions that return configured objects)
@@ -752,11 +759,6 @@ These are proper tree objects added as children to other objects. Their lifecycl
 - Die automatically when parent dies
 - Use `destroy()` method for cleanup when removed from tree (e.g., destroy physics body in C)
 - Are self-contained — internal state doesn't leak into tree semantics
-
-**input** as a child object enables:
-- Multiple input contexts (Player 1 keyboard, Player 2 gamepad)
-- Per-object bindings: `@input\bind 'jump', 'key:space'`
-- Queries raw input from C, manages bindings in Lua
 
 **random** as a child object enables:
 - Seeded RNG for deterministic replays
@@ -777,13 +779,27 @@ These are objects with state and methods, but they're not part of the tree hiera
 
 | Object | Description | Usage |
 |--------|-------------|-------|
-| **color** | Color with variations and operations | `red = color 1, 0, 0` then `game\circle x, y, 10, red[0]` |
+| **color** | Mutable color with RGB/HSL | `red = color 255, 0, 0` then `layer\circle x, y, 10, red!` |
 
 **color** provides:
-- Base color storage (RGBA)
-- Indexed variations: `red[0]` (base), `red[3]` (lighter), `red[-2]` (darker)
-- Alpha variations: `red.alpha[-3]` (semi-transparent)
-- Operations: `red\blend blue, 0.5`, `red\darken 0.2`
+- RGB and HSL properties (r, g, b, a, h, s, l)
+- Automatic RGB/HSL synchronization
+- Arithmetic operators (*, /, +, -) that mutate in place
+- Methods: `clone`, `invert`, `mix`
+- Packed value via `color!` for C functions
+
+### Global Systems (Not Objects)
+
+Some systems are implemented as method wrappers on `an` rather than child objects:
+
+| System | Description | Usage |
+|--------|-------------|-------|
+| **input** | Input binding and queries | `an\bind 'jump', 'key:space'` then `an\is_pressed 'jump'` |
+
+**input** as global wrappers:
+- Simpler than child object pattern for typical single-player games
+- All C input functions exposed as `an\*` methods
+- Supports action binding, raw input, gamepad, capture mode
 
 ### Pure Utilities (Stateless Global Functions)
 
@@ -793,8 +809,6 @@ These are just functions. No object wrapping, no state, no tree integration.
 |--------|-------------|
 | **math** | `math.lerp`, `math.angle`, `math.distance`, easing functions |
 | **array** | Array manipulation functions |
-| **string** | String utilities |
-| **collision** | Geometric tests via [lua-geo2d](https://github.com/eigenbom/lua-geo2d) |
 
 ---
 
@@ -1149,15 +1163,234 @@ The C engine supports two music channels for crossfade effects:
 
 ---
 
-## What's Next
+## Input System
 
-Implementation order for remaining Phase 10 work:
+Input is implemented as thin wrappers on `an` that call the C input functions directly. This is simpler than the child object pattern originally planned, since most games only need one input context.
+
+### Action Binding
+
+```yuescript
+an\bind 'jump', 'key:space'
+an\bind 'jump', 'button:a'           -- multiple bindings per action
+an\bind 'fire', 'mouse:1'
+an\bind 'move_left', 'axis:leftx-'
+
+an\unbind 'jump', 'key:space'        -- remove specific binding
+an\unbind_all 'jump'                 -- remove all bindings
+an\bind_all!                         -- bind all common keys/buttons
+```
+
+### Action Queries
+
+```yuescript
+an\is_pressed 'jump'                 -- true on frame pressed
+an\is_down 'jump'                    -- true while held
+an\is_released 'jump'                -- true on frame released
+an\get_axis 'left', 'right'          -- -1, 0, or 1
+an\get_vector 'left', 'right', 'up', 'down'  -- normalized x, y
+```
+
+### Advanced Bindings
+
+```yuescript
+an\bind_chord 'super_jump', {'shift', 'jump'}           -- all held at once
+an\bind_sequence 'dash', {'right', 0.3, 'right'}        -- timed sequence
+an\bind_hold 'charge', 1.0, 'attack'                    -- hold for duration
+an\get_hold_duration 'charge'                           -- query hold time
+```
+
+### Raw Input
+
+```yuescript
+an\key_is_down 'space'
+an\key_is_pressed 'escape'
+an\key_is_released 'space'
+
+an\mouse_position!                   -- x, y
+an\mouse_delta!                      -- dx, dy
+an\mouse_wheel!                      -- wx, wy
+an\mouse_is_down 1                   -- 1=left, 2=middle, 3=right
+an\mouse_is_pressed 1
+an\mouse_is_released 1
+an\mouse_set_visible false
+an\mouse_set_grabbed true
+
+an\gamepad_is_connected!
+an\gamepad_get_axis 'leftx'          -- -1 to 1
+an\get_last_input_type!              -- 'keyboard', 'mouse', or 'gamepad'
+```
+
+### Input Capture (Rebinding)
+
+```yuescript
+an\start_capture!
+captured = an\get_captured!          -- returns control string or nil
+an\stop_capture!
+an\set_deadzone 0.2
+```
+
+---
+
+## Color Module
+
+The `color` class is a mutable color object with RGB and HSL access.
+
+### Design Decisions
+
+1. **Mutable in place** — All operations modify the color, no new objects created
+2. **HSL synchronization** — Changing RGB updates HSL and vice versa
+3. **Packed value via call** — Use `color!` to get packed RGBA integer for C functions
+4. **Operators return self** — Allows chaining: `red = red * 0.5 + 20`
+
+### API Reference
+
+```yuescript
+-- Creation
+red = color 255, 0, 0                -- RGB, alpha defaults to 255
+transparent = color 255, 0, 0, 128   -- RGBA
+
+-- Properties (readable and writable)
+red.r, red.g, red.b, red.a           -- RGB 0-255, alpha 0-255
+red.h, red.s, red.l                  -- hue 0-360, saturation 0-1, lightness 0-1
+
+-- Packed value for C functions
+layer\circle x, y, r, red!
+
+-- Operators (mutate in place, return self)
+red = red * 0.5                      -- darken by half
+red = red / 2                        -- same effect
+red = red + 50                       -- brighten all channels
+red = red - 20                       -- darken all channels
+red = red * other_color              -- component-wise multiply
+red = red + other_color              -- component-wise add
+
+-- Methods
+copy = red\clone!                    -- independent copy
+red\invert!                          -- flip RGB (255 - value)
+red\mix blue, 0.5                    -- lerp toward blue (mutates red)
+```
+
+### HSL Examples
+
+```yuescript
+red = color 255, 0, 0
+red.l = 0.75                         -- lighten (becomes pink)
+red.l = 0.25                         -- darken (becomes dark red)
+red.h = 120                          -- shift hue to green
+red.s = 0                            -- desaturate to gray
+```
+
+---
+
+## Array Module
+
+The `array` module provides utility functions for array manipulation. Functions that can be easily expressed with YueScript comprehensions are omitted.
+
+### Design Decisions
+
+1. **In-place modification** — Most operations modify the array, use comprehension to copy first
+2. **Optional RNG parameter** — Random functions default to `an.random`
+3. **YueScript idioms preferred** — Use `[f(v) for v in *t]` for map, `[v for v in *t when cond]` for filter
+
+### Omitted Functions (Use YueScript)
+
+```yuescript
+-- map: use comprehension
+result = [f(v) for v in *t]
+
+-- filter/select: use comprehension with when
+result = [v for v in *t when v > 5]
+
+-- copy: use comprehension
+copy = [v for v in *t]
+
+-- indexes: use comprehension
+indices = [i for i, v in ipairs t when v == target]
+```
+
+### Predicate Functions
+
+```yuescript
+array.all t, (v) -> v > 0            -- true if all pass
+array.any t, (v) -> v > 0            -- true if any pass
+array.has t, value                   -- true if value exists
+array.has t, (v) -> v > 5            -- true if predicate matches
+```
+
+### Aggregate Functions
+
+```yuescript
+array.sum t                          -- sum of values
+array.sum t, (v) -> v.score          -- sum with accessor
+array.average t                      -- average of values
+array.max t                          -- maximum value
+array.max t, (v) -> v.priority       -- max by accessor
+array.count t                        -- length (#t)
+array.count t, value                 -- count occurrences
+array.count t, (v) -> v > 5          -- count matching predicate
+```
+
+### Search Functions
+
+```yuescript
+array.index t, value                 -- first index of value
+array.index t, (v) -> v > 5          -- first index matching predicate
+array.get t, 1                       -- element at index
+array.get t, -1                      -- last element (negative index)
+array.get t, 1, 3                    -- range {t[1], t[2], t[3]}
+array.get_circular_buffer_index t, i -- wrap index for circular buffer
+```
+
+### Modification Functions
+
+```yuescript
+array.delete t, value                -- remove all instances, returns count
+array.remove t, i                    -- remove at index (table.remove)
+array.reverse t                      -- reverse in place
+array.reverse t, 1, 3                -- reverse range
+array.rotate t, 1                    -- shift right: {4,1,2,3}
+array.rotate t, -1                   -- shift left: {2,3,4,1}
+array.shuffle t                      -- randomize order
+array.shuffle t, rng                 -- with custom RNG
+```
+
+### Random Functions
+
+```yuescript
+array.random t                       -- random element
+array.random t, 3                    -- 3 unique random elements
+array.remove_random t                -- remove and return random element
+array.remove_random t, 3             -- remove and return 3 random elements
+```
+
+### Utility Functions
+
+```yuescript
+array.flatten t                      -- flatten nested arrays
+array.flatten t, 1                   -- flatten one level only
+array.join t                         -- concatenate: "123"
+array.join t, ", "                   -- with separator: "1, 2, 3"
+array.print t                        -- debug print, returns string
+```
+
+### Table Utilities
+
+```yuescript
+table.copy t                         -- deep copy
+table.tostring t                     -- string representation
+```
+
+---
+
+## Phase 10 Complete
+
+All Phase 10 modules are implemented:
 
 | Category | Items | Status |
 |----------|-------|--------|
 | **Pure utilities** | math (lerp, easing, lerp_dt, lerp_angle, loop) | Done |
-| **Pure utilities** | array, string | Not started |
-| **Value objects** | color | Not started |
+| **Pure utilities** | array (all, any, sum, max, has, index, reverse, shuffle, etc.) | Done |
+| **Value objects** | color (RGB/HSL, operators, clone, invert, mix) | Done |
 | **Resource manager** | sounds, music on `an` | Done |
 | **Child objects** | timer | Done |
 | **Child objects** | collider | Done |
@@ -1165,6 +1398,97 @@ Implementation order for remaining Phase 10 work:
 | **Child objects** | camera (follow, bounds, lead, coordinate conversion) | Done |
 | **Child objects** | shake (trauma, push, shake, sine, square, handcam) | Done |
 | **Child objects** | random | Done |
-| **Child objects** | input, animation | Not started |
+| **Global system** | input (wrappers on `an` for all C input functions) | Done |
 | **Physics** | Spatial queries on `an` (query_point, query_circle, raycast, etc.) | Done |
-| **External libs** | Integrate lua-geo2d for collision utilities | Not started |
+
+---
+
+## Phase 11: Engine State Exposure
+
+Exposed engine state values to Lua via properties on `an`.
+
+### Static Values (set once at init)
+
+| Property | Description |
+|----------|-------------|
+| `an.width` | Game resolution width (e.g., 480) |
+| `an.height` | Game resolution height (e.g., 270) |
+| `an.dt` | Physics delta time (constant 1/120) |
+| `an.platform` | `'windows'` or `'web'` |
+
+### Dynamic Values (updated each frame)
+
+| Property | Description |
+|----------|-------------|
+| `an.frame` | Render frame count (60Hz) |
+| `an.step` | Physics step count (120Hz) |
+| `an.time` | Total elapsed game time (seconds) |
+| `an.window_width` | Current window width in pixels |
+| `an.window_height` | Current window height in pixels |
+| `an.scale` | Current integer scaling factor |
+| `an.fullscreen` | Whether in fullscreen mode |
+| `an.fps` | Frames per second |
+| `an.draw_calls` | Batch draw calls this frame |
+
+### Implementation
+
+**C Engine:**
+- Added `draw_calls` counter in `batch_flush()`
+- Added `fps` calculation from dt_history average
+- Added 12 getter functions registered to Lua
+
+**Framework (init.yue):**
+- Static values set once when `an` is created
+- Dynamic values updated at start of `update()` before processing objects
+
+---
+
+## Phase 11: Asset Packaging
+
+Single executable distribution for desktop builds using the LÖVE-style zip-append approach.
+
+### How It Works
+
+1. **Packaging:** A script creates a zip of game assets and appends it to the engine executable
+2. **Detection:** On startup, the engine checks if a zip is appended to itself
+3. **Loading:** All asset loading functions check the embedded zip first, fall back to disk
+
+### Usage
+
+```bash
+# Package a game
+./scripts/package.bat framework          # Creates release/framework.exe
+./scripts/package.bat ../my-game my-game # Creates release/my-game.exe
+
+# Or with bash
+./scripts/package.sh ../my-game my-game
+```
+
+The output executable is self-contained and can be distributed without additional files.
+
+### Implementation
+
+**C Engine Changes:**
+- Added miniz.h (single-header zip library)
+- `zip_init()` — Detects and opens zip appended to executable
+- `zip_read_file()` — Reads file from zip or falls back to disk
+- `zip_shutdown()` — Cleanup on exit
+
+**Modified Asset Loading:**
+- Lua loading: Uses `zip_read_file()` + `luaL_loadbuffer()`
+- Texture loading: Uses `zip_read_file()` + `stbi_load_from_memory()`
+- Font loading: Uses `zip_read_file()` + `FT_New_Memory_Face()`
+- Sound loading: Uses `zip_read_file()` + `ma_decoder_init_memory()`
+- Music loading: Uses `zip_read_file()` + `ma_decoder_init_memory()`
+- Shader loading: Uses `zip_read_file()` (read_file_to_string)
+
+**Web Builds:**
+- Unaffected — Emscripten uses `--preload-file` for asset bundling
+- `zip_read_file()` on Emscripten falls back to regular file I/O
+
+### Scripts
+
+- `scripts/package.bat` — Windows batch script
+- `scripts/package.sh` — Bash script (MSYS2/WSL/Linux/Mac)
+
+Both create a zip of the game folder (excluding .yue files, .git, etc.) and concatenate it to the engine exe.

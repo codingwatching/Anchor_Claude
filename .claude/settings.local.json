@@ -46,7 +46,10 @@
       "WebFetch(domain:yuescript.org)",
       "WebFetch(domain:p5play.org)",
       "WebFetch(domain:www.kvin.me)",
-      "WebFetch(domain:miniaud.io)"
+      "WebFetch(domain:miniaud.io)",
+      "Bash(powershell -NoProfile -Command \"Compress-Archive -Path * -DestinationPath /tmp/test.zip -Force\")",
+      "Bash(unzip:*)",
+      "Bash(./package.bat ../framework)"
     ]
   }
 }

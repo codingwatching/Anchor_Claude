@@ -2,6 +2,421 @@ global *
 
 require 'anchor'
 
+-- =============================================================================
+-- ENGINE STATE TESTS
+-- =============================================================================
+print "=== ENGINE STATE TESTS ==="
+print "Static values (set at init):"
+print "  an.width = #{an.width}"
+print "  an.height = #{an.height}"
+print "  an.dt = #{an.dt}"
+print "  an.platform = #{an.platform}"
+
+-- =============================================================================
+-- COLOR TESTS (Phase 1: Basic creation, RGB, packed value)
+-- =============================================================================
+print "=== COLOR TESTS ==="
+
+-- Test 1: Creation with defaults
+c1 = color!
+print "Test 1 - Default color: r=#{c1.r} g=#{c1.g} b=#{c1.b} a=#{c1.a}"
+print "  Expected: r=255 g=255 b=255 a=255"
+
+-- Test 2: Creation with RGB
+c2 = color 255, 0, 0
+print "Test 2 - Red color: r=#{c2.r} g=#{c2.g} b=#{c2.b} a=#{c2.a}"
+print "  Expected: r=255 g=0 b=0 a=255"
+
+-- Test 3: Creation with RGBA
+c3 = color 0, 255, 0, 128
+print "Test 3 - Green transparent: r=#{c3.r} g=#{c3.g} b=#{c3.b} a=#{c3.a}"
+print "  Expected: r=0 g=255 b=0 a=128"
+
+-- Test 4: Modify in place
+c4 = color 100, 100, 100
+c4.r = 200
+c4.g = 50
+print "Test 4 - Modified: r=#{c4.r} g=#{c4.g} b=#{c4.b} a=#{c4.a}"
+print "  Expected: r=200 g=50 b=100 a=255"
+
+-- Test 5: Packed value via __call
+c5 = color 255, 128, 64, 255
+packed = c5!
+expected = rgba 255, 128, 64, 255
+print "Test 5 - Packed value: #{packed}"
+print "  Expected (rgba): #{expected}"
+print "  Match: #{packed == expected}"
+
+-- =============================================================================
+-- Phase 2: HSL properties
+-- =============================================================================
+print "\n--- Phase 2: HSL Properties ---"
+
+-- Test 6: Read HSL from pure red (h=0, s=1, l=0.5)
+c6 = color 255, 0, 0
+print "Test 6 - Red HSL: h=#{c6.h} s=#{c6.s} l=#{c6.l}"
+print "  Expected: h=0 s=1 l=0.5"
+
+-- Test 7: Read HSL from pure green (h=120, s=1, l=0.5)
+c7 = color 0, 255, 0
+print "Test 7 - Green HSL: h=#{c7.h} s=#{c7.s} l=#{c7.l}"
+print "  Expected: h=120 s=1 l=0.5"
+
+-- Test 8: Read HSL from pure blue (h=240, s=1, l=0.5)
+c8 = color 0, 0, 255
+print "Test 8 - Blue HSL: h=#{c8.h} s=#{c8.s} l=#{c8.l}"
+print "  Expected: h=240 s=1 l=0.5"
+
+-- Test 9: Read HSL from gray (achromatic, s=0)
+c9 = color 128, 128, 128
+print "Test 9 - Gray HSL: h=#{c9.h} s=#{c9.s} l=#{string.format('%.3f', c9.l)}"
+print "  Expected: h=0 s=0 l=~0.502"
+
+-- Test 10: Set lightness to make red lighter
+c10 = color 255, 0, 0
+c10.l = 0.75
+print "Test 10 - Lightened red: r=#{c10.r} g=#{c10.g} b=#{c10.b} (l=#{c10.l})"
+print "  Expected: ~r=255 g=128 b=128 (pink-ish)"
+
+-- Test 11: Set lightness to make red darker
+c11 = color 255, 0, 0
+c11.l = 0.25
+print "Test 11 - Darkened red: r=#{c11.r} g=#{c11.g} b=#{c11.b} (l=#{c11.l})"
+print "  Expected: ~r=128 g=0 b=0 (dark red)"
+
+-- Test 12: Shift hue from red to green
+c12 = color 255, 0, 0
+c12.h = 120
+print "Test 12 - Hue shifted to green: r=#{c12.r} g=#{c12.g} b=#{c12.b} (h=#{c12.h})"
+print "  Expected: r=0 g=255 b=0"
+
+-- Test 13: Desaturate
+c13 = color 255, 0, 0
+c13.s = 0
+print "Test 13 - Desaturated red: r=#{c13.r} g=#{c13.g} b=#{c13.b} (s=#{c13.s})"
+print "  Expected: ~r=128 g=128 b=128 (gray at same lightness)"
+
+-- Test 14: Round-trip RGB -> HSL -> RGB
+c14 = color 100, 150, 200
+orig_r, orig_g, orig_b = c14.r, c14.g, c14.b
+c14.h = c14.h  -- trigger HSL -> RGB conversion
+print "Test 14 - Round-trip: original=#{orig_r},#{orig_g},#{orig_b} after=#{c14.r},#{c14.g},#{c14.b}"
+print "  Expected: same values (or very close)"
+
+-- =============================================================================
+-- Phase 3: Arithmetic operators
+-- =============================================================================
+print "\n--- Phase 3: Arithmetic Operators ---"
+
+-- Test 15: Multiply by scalar (darken)
+c15 = color 200, 100, 50
+c15 = c15 * 0.5
+print "Test 15 - Multiply by 0.5: r=#{c15.r} g=#{c15.g} b=#{c15.b}"
+print "  Expected: r=100 g=50 b=25"
+
+-- Test 16: Divide by scalar (darken)
+c16 = color 200, 100, 50
+c16 = c16 / 2
+print "Test 16 - Divide by 2: r=#{c16.r} g=#{c16.g} b=#{c16.b}"
+print "  Expected: r=100 g=50 b=25"
+
+-- Test 17: Add scalar (lighten all channels)
+c17 = color 100, 100, 100
+c17 = c17 + 50
+print "Test 17 - Add 50: r=#{c17.r} g=#{c17.g} b=#{c17.b}"
+print "  Expected: r=150 g=150 b=150"
+
+-- Test 18: Subtract scalar
+c18 = color 100, 100, 100
+c18 = c18 - 30
+print "Test 18 - Subtract 30: r=#{c18.r} g=#{c18.g} b=#{c18.b}"
+print "  Expected: r=70 g=70 b=70"
+
+-- Test 19: Add another color
+c19 = color 100, 50, 25
+c19 = c19 + color(50, 50, 50)
+print "Test 19 - Add color(50,50,50): r=#{c19.r} g=#{c19.g} b=#{c19.b}"
+print "  Expected: r=150 g=100 b=75"
+
+-- Test 20: Subtract another color
+c20 = color 200, 150, 100
+c20 = c20 - color(50, 50, 50)
+print "Test 20 - Subtract color(50,50,50): r=#{c20.r} g=#{c20.g} b=#{c20.b}"
+print "  Expected: r=150 g=100 b=50"
+
+-- Test 21: Clamping at 0
+c21 = color 50, 50, 50
+c21 = c21 - 100
+print "Test 21 - Clamp at 0: r=#{c21.r} g=#{c21.g} b=#{c21.b}"
+print "  Expected: r=0 g=0 b=0"
+
+-- Test 22: Clamping at 255
+c22 = color 200, 200, 200
+c22 = c22 + 100
+print "Test 22 - Clamp at 255: r=#{c22.r} g=#{c22.g} b=#{c22.b}"
+print "  Expected: r=255 g=255 b=255"
+
+-- Test 23: Chaining (returns self)
+c23 = color 100, 100, 100
+result = c23 + 50
+print "Test 23 - Chaining returns self: #{result == c23}"
+print "  Expected: true"
+
+-- Test 24: HSL updates after arithmetic
+c24 = color 255, 0, 0  -- pure red, l=0.5
+c24 = c24 * 0.5        -- darken
+print "Test 24 - HSL updates: l=#{string.format('%.2f', c24.l)} (was 0.5)"
+print "  Expected: l=0.25 (darker)"
+
+-- =============================================================================
+-- Phase 4: clone, invert, mix
+-- =============================================================================
+print "\n--- Phase 4: clone, invert, mix ---"
+
+-- Test 25: Clone creates independent copy
+c25 = color 100, 150, 200
+c25_copy = c25\clone!
+c25.r = 50
+print "Test 25 - Clone independent: original r=#{c25.r}, copy r=#{c25_copy.r}"
+print "  Expected: original r=50, copy r=100"
+
+-- Test 26: Clone preserves alpha
+c26 = color 100, 100, 100, 128
+c26_copy = c26\clone!
+print "Test 26 - Clone preserves alpha: #{c26_copy.a}"
+print "  Expected: 128"
+
+-- Test 27: Invert RGB
+c27 = color 100, 150, 200
+c27\invert!
+print "Test 27 - Invert: r=#{c27.r} g=#{c27.g} b=#{c27.b}"
+print "  Expected: r=155 g=105 b=55"
+
+-- Test 28: Invert returns self
+c28 = color 100, 100, 100
+result28 = c28\invert!
+print "Test 28 - Invert returns self: #{result28 == c28}"
+print "  Expected: true"
+
+-- Test 29: Mix halfway
+c29 = color 0, 0, 0
+c29\mix color(100, 200, 100), 0.5
+print "Test 29 - Mix 50%: r=#{c29.r} g=#{c29.g} b=#{c29.b}"
+print "  Expected: r=50 g=100 b=50"
+
+-- Test 30: Mix at t=0 (no change)
+c30 = color 100, 100, 100
+c30\mix color(200, 200, 200), 0
+print "Test 30 - Mix t=0: r=#{c30.r} g=#{c30.g} b=#{c30.b}"
+print "  Expected: r=100 g=100 b=100"
+
+-- Test 31: Mix at t=1 (full target)
+c31 = color 100, 100, 100
+c31\mix color(200, 200, 200), 1
+print "Test 31 - Mix t=1: r=#{c31.r} g=#{c31.g} b=#{c31.b}"
+print "  Expected: r=200 g=200 b=200"
+
+-- Test 32: Mix interpolates alpha
+c32 = color 100, 100, 100, 0
+c32\mix color(100, 100, 100, 200), 0.5
+print "Test 32 - Mix alpha: a=#{c32.a}"
+print "  Expected: a=100"
+
+-- Test 33: Mix returns self
+c33 = color 100, 100, 100
+result33 = c33\mix color(200, 200, 200), 0.5
+print "Test 33 - Mix returns self: #{result33 == c33}"
+print "  Expected: true"
+
+print "=== END COLOR TESTS ===\n"
+
+-- =============================================================================
+-- ARRAY TESTS
+-- =============================================================================
+print "=== ARRAY TESTS ==="
+
+-- Test: array.all
+print "\n--- array.all ---"
+print "all {1,2,3} > 0: #{array.all {1, 2, 3}, (v) -> v > 0}"
+print "  Expected: true"
+print "all {1,2,3} < 2: #{array.all {1, 2, 3}, (v) -> v < 2}"
+print "  Expected: false"
+print "all {} any: #{array.all {}, (v) -> v == 0}"
+print "  Expected: true (vacuous)"
+
+-- Test: array.any
+print "\n--- array.any ---"
+print "any {1,2,3} > 2: #{array.any {1, 2, 3}, (v) -> v > 2}"
+print "  Expected: true"
+print "any {1,2,3} > 5: #{array.any {1, 2, 3}, (v) -> v > 5}"
+print "  Expected: false"
+
+-- Test: array.average
+print "\n--- array.average ---"
+print "average {1, 3}: #{array.average {1, 3}}"
+print "  Expected: 2"
+print "average {-3, 3}: #{array.average {-3, 3}}"
+print "  Expected: 0"
+
+-- Test: array.sum
+print "\n--- array.sum ---"
+print "sum {1, 2, 3}: #{array.sum {1, 2, 3}}"
+print "  Expected: 6"
+print "sum with func: #{array.sum {{a: 1}, {a: 4}}, (v) -> v.a}"
+print "  Expected: 5"
+
+-- Test: array.max
+print "\n--- array.max ---"
+print "max {1, 5, 3}: #{array.max {1, 5, 3}}"
+print "  Expected: 5"
+print "max {-2, 0, -10}: #{array.max {-2, 0, -10}}"
+print "  Expected: 0"
+max_obj = array.max {{a: 1}, {a: 4}, {a: 2}}, (v) -> v.a
+print "max with func: #{max_obj.a}"
+print "  Expected: 4"
+
+-- Test: array.count
+print "\n--- array.count ---"
+print "count {1, 1, 2}: #{array.count {1, 1, 2}}"
+print "  Expected: 3"
+print "count {1, 1, 2}, 1: #{array.count {1, 1, 2}, 1}"
+print "  Expected: 2"
+print "count with func (v > 3): #{array.count {1, 2, 3, 4, 5}, (v) -> v > 3}"
+print "  Expected: 2"
+
+-- Test: array.has
+print "\n--- array.has ---"
+print "has {1, 2, 3}, 2: #{array.has {1, 2, 3}, 2}"
+print "  Expected: true"
+print "has {1, 2, 3}, 5: #{array.has {1, 2, 3}, 5}"
+print "  Expected: false"
+print "has with func (v > 2): #{array.has {1, 2, 3}, (v) -> v > 2}"
+print "  Expected: true"
+
+-- Test: array.index
+print "\n--- array.index ---"
+print "index {2, 1, 2}, 2: #{array.index {2, 1, 2}, 2}"
+print "  Expected: 1"
+print "index {2, 1, 2}, 1: #{array.index {2, 1, 2}, 1}"
+print "  Expected: 2"
+print "index with func (v > 2): #{array.index {1, 2, 3, 4}, (v) -> v > 2}"
+print "  Expected: 3"
+
+-- Test: array.get
+print "\n--- array.get ---"
+print "get {4, 3, 2, 1}, 1: #{array.get {4, 3, 2, 1}, 1}"
+print "  Expected: 4"
+print "get {4, 3, 2, 1}, -1: #{array.get {4, 3, 2, 1}, -1}"
+print "  Expected: 1"
+get_range = array.get {4, 3, 2, 1}, 1, 3
+print "get {4, 3, 2, 1}, 1, 3: #{table.tostring get_range}"
+print "  Expected: {4, 3, 2}"
+get_neg = array.get {4, 3, 2, 1}, -2, -1
+print "get {4, 3, 2, 1}, -2, -1: #{table.tostring get_neg}"
+print "  Expected: {2, 1}"
+
+-- Test: array.get_circular_buffer_index
+print "\n--- array.get_circular_buffer_index ---"
+print "circular {'a','b','c'}, 1: #{array.get_circular_buffer_index {'a', 'b', 'c'}, 1}"
+print "  Expected: 1"
+print "circular {'a','b','c'}, 0: #{array.get_circular_buffer_index {'a', 'b', 'c'}, 0}"
+print "  Expected: 3"
+print "circular {'a','b','c'}, 4: #{array.get_circular_buffer_index {'a', 'b', 'c'}, 4}"
+print "  Expected: 1"
+
+-- Test: array.delete
+print "\n--- array.delete ---"
+del_t = {1, 2, 1, 3, 1}
+del_count = array.delete del_t, 1
+print "delete {1,2,1,3,1}, 1: removed #{del_count}, result #{table.tostring del_t}"
+print "  Expected: removed 3, result {2, 3}"
+
+-- Test: array.remove
+print "\n--- array.remove ---"
+rem_t = {3, 2, 1}
+rem_val = array.remove rem_t, 1
+print "remove {3, 2, 1}, 1: removed #{rem_val}, result #{table.tostring rem_t}"
+print "  Expected: removed 3, result {2, 1}"
+
+-- Test: array.reverse
+print "\n--- array.reverse ---"
+rev_t = {1, 2, 3, 4}
+array.reverse rev_t
+print "reverse {1, 2, 3, 4}: #{table.tostring rev_t}"
+print "  Expected: {4, 3, 2, 1}"
+rev_t2 = {1, 2, 3, 4}
+array.reverse rev_t2, 1, 2
+print "reverse {1, 2, 3, 4}, 1, 2: #{table.tostring rev_t2}"
+print "  Expected: {2, 1, 3, 4}"
+
+-- Test: array.rotate
+print "\n--- array.rotate ---"
+rot_t = {1, 2, 3, 4}
+array.rotate rot_t, 1
+print "rotate {1, 2, 3, 4}, 1: #{table.tostring rot_t}"
+print "  Expected: {4, 1, 2, 3}"
+rot_t2 = {1, 2, 3, 4}
+array.rotate rot_t2, -1
+print "rotate {1, 2, 3, 4}, -1: #{table.tostring rot_t2}"
+print "  Expected: {2, 3, 4, 1}"
+
+-- Test: array.shuffle (just check it doesn't error and length preserved)
+print "\n--- array.shuffle ---"
+shuf_t = {1, 2, 3, 4, 5}
+array.shuffle shuf_t
+print "shuffle {1,2,3,4,5}: length=#{#shuf_t}, sum=#{array.sum shuf_t}"
+print "  Expected: length=5, sum=15"
+
+-- Test: array.random
+print "\n--- array.random ---"
+rand_t = {10, 20, 30, 40, 50}
+rand_single = array.random rand_t
+print "random {10,20,30,40,50}: #{rand_single} (should be one of 10,20,30,40,50)"
+rand_multi = array.random rand_t, 3
+print "random 3 elements: #{table.tostring rand_multi} (3 unique values)"
+print "  Length: #{#rand_multi}, Expected: 3"
+
+-- Test: array.remove_random
+print "\n--- array.remove_random ---"
+rem_rand_t = {1, 2, 3, 4, 5}
+rem_rand_val = array.remove_random rem_rand_t
+print "remove_random: removed #{rem_rand_val}, remaining #{table.tostring rem_rand_t}"
+print "  Remaining length: #{#rem_rand_t}, Expected: 4"
+
+-- Test: array.flatten
+print "\n--- array.flatten ---"
+flat1 = array.flatten {1, 2, {3, 4}}
+print "flatten {1, 2, {3, 4}}: #{table.tostring flat1}"
+print "  Expected: {1, 2, 3, 4}"
+flat2 = array.flatten {1, {2, {3, {4}}}}
+print "flatten {1, {2, {3, {4}}}}: #{table.tostring flat2}"
+print "  Expected: {1, 2, 3, 4}"
+flat3 = array.flatten {1, {2, {3, {4}}}}, 1
+print "flatten level=1: #{table.tostring flat3}"
+print "  Expected: {1, 2, {3, {4}}} (nested tables preserved)"
+
+-- Test: array.join
+print "\n--- array.join ---"
+print "join {1, 2, 3}: '#{array.join {1, 2, 3}}'"
+print "  Expected: '123'"
+print "join {1, 2, 3}, ', ': '#{array.join {1, 2, 3}, ', '}'"
+print "  Expected: '1, 2, 3'"
+
+-- Test: table.copy
+print "\n--- table.copy ---"
+orig = {a: 1, b: {c: 2}}
+copy = table.copy orig
+copy.b.c = 999
+print "deep copy: orig.b.c=#{orig.b.c}, copy.b.c=#{copy.b.c}"
+print "  Expected: orig.b.c=2, copy.b.c=999"
+
+-- Test: table.tostring
+print "\n--- table.tostring ---"
+print "tostring {1, 2, 3}: #{table.tostring {1, 2, 3}}"
+print "  Expected: {[1] = 1, [2] = 2, [3] = 3}"
+
+print "\n=== END ARRAY TESTS ===\n"
+
 -- Screen dimensions (must be before camera)
 W, H = 480, 270
 
@@ -67,16 +482,16 @@ an\physics_sensor 'ball', 'slowing_zone'
 an\physics_hit 'ball', 'wall'
 
 -- Colors (twitter emoji theme)
-bg_color = rgba 231, 232, 233, 255
-green = rgba 122, 179, 87, 255
-blue = rgba 85, 172, 238, 255
-blue_transparent = rgba 85, 172, 238, 128
-yellow = rgba 255, 204, 77, 255
-red = rgba 221, 46, 68, 255
-orange = rgba 244, 144, 12, 255
-purple = rgba 170, 142, 214, 255
-black = rgba 0, 0, 0, 255
-white = rgba 255, 255, 255, 255
+bg_color = color 231, 232, 233
+green = color 122, 179, 87
+blue = color 85, 172, 238
+blue_transparent = color 85, 172, 238, 128
+yellow = color 255, 204, 77
+red = color 221, 46, 68
+orange = color 244, 144, 12
+purple = color 170, 142, 214
+black = color 0, 0, 0
+white = color 255, 255, 255
 
 -- Wall dimensions
 ground_width = W * 0.9
@@ -102,14 +517,14 @@ class wall extends object
   draw: (layer) =>
     if @rounded_top
       radius = @w / 2
-      layer\circle @x, @y - @h/2 + radius, radius, @color
-      layer\rectangle @x - @w/2, @y - @h/2 + radius, @w, @h - radius, @color
+      layer\circle @x, @y - @h/2 + radius, radius, @color!
+      layer\rectangle @x - @w/2, @y - @h/2 + radius, @w, @h - radius, @color!
     elseif @rounded_left
       radius = @h / 2
-      layer\circle @x - @w/2 + radius, @y, radius, @color
-      layer\rectangle @x - @w/2 + radius, @y - @h/2, @w - radius, @h, @color
+      layer\circle @x - @w/2 + radius, @y, radius, @color!
+      layer\rectangle @x - @w/2 + radius, @y - @h/2, @w - radius, @h, @color!
     else
-      layer\rectangle @x - @w/2, @y - @h/2, @w, @h, @color
+      layer\rectangle @x - @w/2, @y - @h/2, @w, @h, @color!
 
 -- Physics positions are center-based
 an\add wall ground_x + ground_width/2, ground_y + ground_height/2, ground_width, ground_height
@@ -143,7 +558,7 @@ class impulse_block extends object
 
   draw: (layer) =>
     layer\push @x, @y, 0, @spring.main.x, @spring.main.x
-    layer\rectangle -@w/2, -@h/2, @w, @h, @flash and white or blue
+    layer\rectangle -@w/2, -@h/2, @w, @h, @flash and white! or blue!
     layer\pop!
 
 an\add impulse_block impulse_x, impulse_y, impulse_width, impulse_height
@@ -165,7 +580,7 @@ class slowing_zone extends object
     @collider\set_position x, y
 
   draw: (layer) =>
-    layer\rectangle @x - @w/2, @y - @h/2, @w, @h, blue_transparent
+    layer\rectangle @x - @w/2, @y - @h/2, @w, @h, blue_transparent!
 
 an\add slowing_zone slowing_zone_x, slowing_zone_y, slowing_zone_width, slowing_zone_height
 
@@ -192,7 +607,7 @@ class ball extends object
     local angle = @collider\get_angle!
     local scale = ball_scale * @spring.main.x
     layer\push @x, @y, angle, scale, scale
-    layer\image an.images.ball, 0, 0, nil, @flash and white or nil
+    layer\image an.images.ball, 0, 0, nil, @flash and white! or nil
     layer\pop!
 
 -- Audio test state
@@ -202,35 +617,35 @@ audio_crossfade_enabled = false
 -- Audio tests: 1-0 keys (see controls printed below)
 an\action (dt) =>
   -- Audio tests
-  if key_is_pressed '1'
+  if an\key_is_pressed '1'
     an\sound_play 'death'
     print "Sound: death"
 
-  if key_is_pressed '2'
+  if an\key_is_pressed '2'
     an\music_play 'track1'
     print "Music: track1"
 
-  if key_is_pressed '3'
+  if an\key_is_pressed '3'
     an\music_stop!
     print "Music: stopped"
 
-  if key_is_pressed '4'
+  if an\key_is_pressed '4'
     an\playlist_play!
     print "Playlist: started"
 
-  if key_is_pressed '5'
+  if an\key_is_pressed '5'
     an\playlist_next!
     print "Playlist: next -> " .. an\playlist_current_track!
 
-  if key_is_pressed '6'
+  if an\key_is_pressed '6'
     an\playlist_prev!
     print "Playlist: prev -> " .. an\playlist_current_track!
 
-  if key_is_pressed '7'
+  if an\key_is_pressed '7'
     an\playlist_shuffle not an.playlist_shuffle_enabled
     print "Playlist shuffle: " .. tostring(an.playlist_shuffle_enabled)
 
-  if key_is_pressed '8'
+  if an\key_is_pressed '8'
     audio_crossfade_enabled = not audio_crossfade_enabled
     if audio_crossfade_enabled
       an\playlist_set_crossfade 2
@@ -239,63 +654,77 @@ an\action (dt) =>
       an\playlist_set_crossfade 0
       print "Playlist crossfade: instant"
 
-  if key_is_pressed '9'
+  if an\key_is_pressed '9'
     an\music_crossfade 'track2', 2
     print "Music: crossfade to track2"
 
-  if key_is_pressed '0'
+  if an\key_is_pressed '0'
     an\playlist_stop!
     print "Playlist: stopped"
-  if key_is_pressed 'k'
+
+  if an\key_is_pressed 'k'
     spawn_x = left_wall_x + wall_width + ball_radius + 20
     spawn_y = wall_top - ball_radius - 5
     new_ball = ball spawn_x, spawn_y
     an\add new_ball
     -- an.camera\follow new_ball, 0.9, 0.1
 
-  if key_is_pressed 'p'
+  if an\key_is_pressed 'p'
     for b in *an\all 'ball'
       b.collider\apply_impulse 200, 0
 
-  if key_is_pressed 'r'
+  if an\key_is_pressed 'r'
     an.spring\pull 'camera_rotation', math.pi / 12  -- 15 degrees
 
-  if key_is_pressed 't'
+  if an\key_is_pressed 't'
     an.camera.shake\trauma 1, 1
 
-  if key_is_pressed 'y'
+  if an\key_is_pressed 'y'
     an.camera.shake\push random_float(0, 2 * math.pi), 20
 
-  if key_is_pressed 'u'
+  if an\key_is_pressed 'u'
     an.camera.shake\shake 15, 0.5
 
-  if key_is_pressed 'i'
+  if an\key_is_pressed 'i'
     an.camera.shake\sine random_float(0, 2 * math.pi), 15, 8, 0.5
 
-  if key_is_pressed 'o'
+  if an\key_is_pressed 'o'
     an.camera.shake\square random_float(0, 2 * math.pi), 15, 8, 0.5
 
-  if key_is_pressed 'h'
+  if an\key_is_pressed 'h'
     an.camera.shake\handcam not an.camera.shake.handcam_enabled
 
   an.camera.rotation = an.spring.camera_rotation.x
 
   -- Screen -> world test: click on ball to flash + jiggle
-  if mouse_is_pressed 1
+  if an\mouse_is_pressed 1
     for b in *an\query_point an.camera.mouse.x, an.camera.mouse.y, 'ball'
       b.flash = true
       b.timer\after 0.15, 'flash', -> b.flash = false
       b.spring\pull 'main', 0.2, 5, 0.8
 
   camera_speed = 200
-  if key_is_down('w') or key_is_down('up')
+  if an\key_is_down('w') or an\key_is_down('up')
     an.camera.y -= camera_speed * dt
-  if key_is_down('s') or key_is_down('down')
+  if an\key_is_down('s') or an\key_is_down('down')
     an.camera.y += camera_speed * dt
-  if key_is_down('a') or key_is_down('left')
+  if an\key_is_down('a') or an\key_is_down('left')
     an.camera.x -= camera_speed * dt
-  if key_is_down('d') or key_is_down('right')
+  if an\key_is_down('d') or an\key_is_down('right')
     an.camera.x += camera_speed * dt
+
+  -- Engine state test (press 'e' to print dynamic values)
+  if an\key_is_pressed 'e'
+    print "=== ENGINE STATE (dynamic) ==="
+    print "  an.frame = #{an.frame}"
+    print "  an.step = #{an.step}"
+    print "  an.time = #{string.format('%.2f', an.time)}"
+    print "  an.window_width = #{an.window_width}"
+    print "  an.window_height = #{an.window_height}"
+    print "  an.scale = #{an.scale}"
+    print "  an.fullscreen = #{an.fullscreen}"
+    print "  an.fps = #{string.format('%.1f', an.fps)}"
+    print "  an.draw_calls = #{an.draw_calls}"
 
 -- Handle collisions
 an\early_action 'handle_collisions', =>
@@ -335,7 +764,7 @@ an\early_action 'handle_collisions', =>
 -- Queue draw commands during update
 an\late_action 'draw', =>
   -- Draw background
-  bg\rectangle 0, 0, W, H, bg_color
+  bg\rectangle 0, 0, W, H, bg_color!
 
   -- Draw all drawable objects to game layer
   for obj in *an\all 'drawable'
@@ -352,7 +781,7 @@ an\late_action 'draw', =>
   -- World -> screen test: draw UI marker above each ball
   for b in *an\all 'ball'
     screen_x, screen_y = an.camera\to_screen b.x, b.y
-    ui\circle screen_x, screen_y - 20, 5, red
+    ui\circle screen_x, screen_y - 20, 5, red!
 
   -- Audio status display (check current channel OR if crossfade is in progress)
   is_playing = music_is_playing(an.playlist_channel) or (an.crossfade_state and music_is_playing(an.crossfade_state.to_channel))
@@ -367,8 +796,8 @@ an\late_action 'draw', =>
     order_parts = [tostring(i) for i in *an.playlist_shuffled]
     shuffle_order = " Order: [" .. table.concat(order_parts, ",") .. "]"
 
-  ui\text "Track: #{current_track} [#{an.playlist_index}/#{#an.playlist}]", 'main', 5, 5, white
-  ui\text "Status: #{playing_status} | Shuffle: #{shuffle_status}#{shuffle_order} | Crossfade: #{crossfade_status}", 'main', 5, 18, white
+  ui\text "Track: #{current_track} [#{an.playlist_index}/#{#an.playlist}]", 'main', 5, 5, white!
+  ui\text "Status: #{playing_status} | Shuffle: #{shuffle_status}#{shuffle_order} | Crossfade: #{crossfade_status}", 'main', 5, 18, white!
 
 -- Global draw function - called by C after update
 -- Handles: render source layers, create derived layers, composite to screen

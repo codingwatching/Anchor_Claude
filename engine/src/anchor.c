@@ -61,6 +61,12 @@
 
 #include <box2d.h>
 
+// Miniz for zip archive support (single exe distribution)
+#ifndef __EMSCRIPTEN__
+#define MINIZ_IMPL
+#include <miniz.h>
+#endif
+
 // ============================================================================
 // CONFIGURATION & CONSTANTS
 // ============================================================================
@@ -84,6 +90,207 @@
 
 // Forward declaration (defined at ~line 6050 in MAIN LOOP section)
 static void timing_resync(void);
+
+// ============================================================================
+// ZIP ARCHIVE SUPPORT (Desktop only - single exe distribution)
+// Detects zip data appended to executable and reads assets from it
+// ============================================================================
+
+#ifndef __EMSCRIPTEN__
+static mz_zip_archive zip_archive;
+static bool zip_initialized = false;
+static unsigned char* zip_data = NULL;
+static size_t zip_data_size = 0;
+
+// Initialize zip archive from executable if present
+// Returns true if zip was found and initialized, false otherwise
+static bool zip_init(const char* exe_path) {
+    FILE* f = fopen(exe_path, "rb");
+    if (!f) return false;
+
+    // Get file size
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    if (file_size < 22) {  // Minimum size for zip end-of-central-dir header
+        fclose(f);
+        return false;
+    }
+
+    // Read entire file
+    fseek(f, 0, SEEK_SET);
+    unsigned char* full_file = (unsigned char*)malloc(file_size);
+    if (!full_file) {
+        fclose(f);
+        return false;
+    }
+    if (fread(full_file, 1, file_size, f) != (size_t)file_size) {
+        free(full_file);
+        fclose(f);
+        return false;
+    }
+    fclose(f);
+
+    // Search backwards for EOCD signature (PK\x05\x06)
+    // EOCD can have a comment (up to 65535 bytes), so search from end
+    long search_start = file_size - 22;
+    long search_end = file_size - 65535 - 22;
+    if (search_end < 0) search_end = 0;
+
+    long eocd_pos = -1;
+    for (long i = search_start; i >= search_end; i--) {
+        if (full_file[i] == 0x50 && full_file[i+1] == 0x4b &&
+            full_file[i+2] == 0x05 && full_file[i+3] == 0x06) {
+            eocd_pos = i;
+            break;
+        }
+    }
+
+    if (eocd_pos < 0) {
+        free(full_file);
+        return false;
+    }
+
+    // Found EOCD - read central directory offset and size
+    // EOCD structure: signature(4) + disk stuff(4) + cd_entries(4) + cd_size(4) + cd_offset(4) + comment_len(2)
+    uint32_t cd_size = *(uint32_t*)(full_file + eocd_pos + 12);
+    uint32_t cd_offset = *(uint32_t*)(full_file + eocd_pos + 16);
+
+    // Central directory ends right before EOCD, so CD starts at (eocd_pos - cd_size)
+    long cd_start_absolute = eocd_pos - cd_size;
+    if (cd_start_absolute < 0) {
+        free(full_file);
+        return false;
+    }
+
+    // The cd_offset is relative to zip start, so: zip_start = cd_start_absolute - cd_offset
+    long zip_start = cd_start_absolute - cd_offset;
+    if (zip_start < 0) {
+        free(full_file);
+        return false;
+    }
+
+    // Verify zip start looks like a local file header (PK\x03\x04)
+    if (full_file[zip_start] != 0x50 || full_file[zip_start+1] != 0x4b ||
+        full_file[zip_start+2] != 0x03 || full_file[zip_start+3] != 0x04) {
+        free(full_file);
+        return false;
+    }
+
+    // Extract just the zip portion
+    zip_data_size = file_size - zip_start;
+    zip_data = (unsigned char*)malloc(zip_data_size);
+    if (!zip_data) {
+        free(full_file);
+        return false;
+    }
+    memcpy(zip_data, full_file + zip_start, zip_data_size);
+    free(full_file);
+
+    // Initialize miniz with the zip data
+    memset(&zip_archive, 0, sizeof(zip_archive));
+    if (!mz_zip_reader_init_mem(&zip_archive, zip_data, zip_data_size, 0)) {
+        free(zip_data);
+        zip_data = NULL;
+        return false;
+    }
+
+    zip_initialized = true;
+    printf("Loaded %d files from embedded zip (%zu bytes)\n",
+           (int)mz_zip_reader_get_num_files(&zip_archive), zip_data_size);
+    return true;
+}
+
+// Read a file from zip archive or disk
+// Returns malloc'd buffer (caller must free), sets *out_size
+// Returns NULL if file not found
+static void* zip_read_file(const char* path, size_t* out_size) {
+    // Try zip first if initialized
+    if (zip_initialized) {
+        // Try original path first
+        void* data = mz_zip_reader_extract_file_to_heap(&zip_archive, path, out_size, 0);
+        if (data) return data;
+
+        // PowerShell's Compress-Archive uses backslashes on Windows
+        // Try with opposite separator if original path failed
+        char alt_path[512];
+        size_t len = strlen(path);
+        if (len < sizeof(alt_path)) {
+            strcpy(alt_path, path);
+            for (char* p = alt_path; *p; p++) {
+                if (*p == '/') *p = '\\';
+                else if (*p == '\\') *p = '/';
+            }
+            data = mz_zip_reader_extract_file_to_heap(&zip_archive, alt_path, out_size, 0);
+            if (data) return data;
+        }
+    }
+
+    // Fall back to disk
+    FILE* f = fopen(path, "rb");
+    if (!f) return NULL;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    void* data = malloc(size);
+    if (!data) {
+        fclose(f);
+        return NULL;
+    }
+
+    if (fread(data, 1, size, f) != (size_t)size) {
+        free(data);
+        fclose(f);
+        return NULL;
+    }
+
+    fclose(f);
+    *out_size = size;
+    return data;
+}
+
+// Cleanup zip archive
+static void zip_shutdown(void) {
+    if (zip_initialized) {
+        mz_zip_reader_end(&zip_archive);
+        zip_initialized = false;
+    }
+    if (zip_data) {
+        free(zip_data);
+        zip_data = NULL;
+    }
+}
+#else
+// Emscripten - use regular file loading (files are preloaded via --preload-file)
+static bool zip_initialized = false;
+static bool zip_init(const char* exe_path) { (void)exe_path; return false; }
+static void* zip_read_file(const char* path, size_t* out_size) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return NULL;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    void* data = malloc(size);
+    if (!data) {
+        fclose(f);
+        return NULL;
+    }
+
+    if (fread(data, 1, size, f) != (size_t)size) {
+        free(data);
+        fclose(f);
+        return NULL;
+    }
+
+    fclose(f);
+    *out_size = size;
+    return data;
+}
+static void zip_shutdown(void) {}
+#endif
 
 // Transform stack depth
 #define MAX_TRANSFORM_DEPTH 32
@@ -507,13 +714,24 @@ typedef struct {
     int height;
 } Texture;
 
-// Load a texture from file using stb_image
+// Load a texture from file using stb_image (supports zip archive)
 static Texture* texture_load(const char* path) {
     int width, height, channels;
     stbi_set_flip_vertically_on_load(0);  // Don't flip - we handle Y in our coordinate system
-    unsigned char* data = stbi_load(path, &width, &height, &channels, 4);  // Force RGBA
-    if (!data) {
+
+    // Load file data from zip or disk
+    size_t file_size;
+    unsigned char* file_data = (unsigned char*)zip_read_file(path, &file_size);
+    if (!file_data) {
         fprintf(stderr, "Failed to load texture: %s\n", path);
+        return NULL;
+    }
+
+    // Decode image from memory
+    unsigned char* data = stbi_load_from_memory(file_data, (int)file_size, &width, &height, &channels, 4);
+    free(file_data);
+    if (!data) {
+        fprintf(stderr, "Failed to decode texture: %s\n", path);
         return NULL;
     }
 
@@ -622,7 +840,7 @@ static uint32_t utf8_decode(const char** str) {
     return codepoint;
 }
 
-// Load a font from TTF file using FreeType
+// Load a font from TTF file using FreeType (supports zip archive)
 // Uses global filter_mode: FILTER_ROUGH = 1-bit mono, FILTER_SMOOTH = 8-bit grayscale AA
 static Font* font_load(const char* name, const char* path, float size) {
     // Check if font already exists
@@ -646,10 +864,19 @@ static Font* font_load(const char* name, const char* path, float size) {
         }
     }
 
-    // Load font face
+    // Load font file from zip or disk
+    size_t font_data_size;
+    unsigned char* font_data = (unsigned char*)zip_read_file(path, &font_data_size);
+    if (!font_data) {
+        fprintf(stderr, "Failed to load font file: %s\n", path);
+        return NULL;
+    }
+
+    // Load font face from memory
     FT_Face face;
-    if (FT_New_Face(ft_library, path, 0, &face)) {
+    if (FT_New_Memory_Face(ft_library, font_data, (FT_Long)font_data_size, 0, &face)) {
         fprintf(stderr, "Failed to load font: %s\n", path);
+        free(font_data);
         return NULL;
     }
 
@@ -661,6 +888,7 @@ static Font* font_load(const char* name, const char* path, float size) {
     Font* font = (Font*)malloc(sizeof(Font));
     if (!font) {
         FT_Done_Face(face);
+        free(font_data);
         return NULL;
     }
     memset(font, 0, sizeof(Font));
@@ -681,6 +909,7 @@ static Font* font_load(const char* name, const char* path, float size) {
     if (!rgba_bitmap) {
         free(font);
         FT_Done_Face(face);
+        free(font_data);
         return NULL;
     }
 
@@ -767,6 +996,7 @@ static Font* font_load(const char* name, const char* path, float size) {
     }
 
     FT_Done_Face(face);
+    free(font_data);  // Font data no longer needed after face processing
 
     // Create OpenGL texture from RGBA atlas
     // Use appropriate filtering based on mode
@@ -848,12 +1078,14 @@ static float font_get_char_width(const char* font_name, uint32_t codepoint) {
     return 0.0f;
 }
 
-// Sound - stores path for fire-and-forget playback
+// Sound - stores audio data for fire-and-forget playback (supports zip archive)
 // Each play creates a new ma_sound instance that self-destructs when done
 #define MAX_SOUND_PATH 256
 
 typedef struct {
-    char path[MAX_SOUND_PATH];
+    char path[MAX_SOUND_PATH];  // For debug logging
+    void* data;                 // Raw audio file data (WAV, OGG, etc.)
+    size_t data_size;           // Size of audio data
 } Sound;
 
 static Sound* sound_load(const char* path) {
@@ -863,25 +1095,37 @@ static Sound* sound_load(const char* path) {
     strncpy(sound->path, path, MAX_SOUND_PATH - 1);
     sound->path[MAX_SOUND_PATH - 1] = '\0';
 
-    // Verify the file can be loaded by attempting to init a sound
-    // This also pre-caches the decoded audio in miniaudio's resource manager
+    // Load audio data from zip or disk
+    sound->data = zip_read_file(path, &sound->data_size);
+    if (!sound->data) {
+        fprintf(stderr, "Failed to load sound file: %s\n", path);
+        free(sound);
+        return NULL;
+    }
+
+    // Verify the file can be decoded by attempting to init a sound
     if (audio_initialized) {
-        ma_sound test_sound;
-        ma_result result = ma_sound_init_from_file(&audio_engine, path, MA_SOUND_FLAG_DECODE, NULL, NULL, &test_sound);
+        ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_f32, 2, audio_engine.sampleRate);
+        ma_decoder decoder;
+        ma_result result = ma_decoder_init_memory(sound->data, sound->data_size, &decoder_config, &decoder);
         if (result != MA_SUCCESS) {
-            fprintf(stderr, "Failed to load sound: %s (error %d)\n", path, result);
+            fprintf(stderr, "Failed to decode sound: %s (error %d)\n", path, result);
+            free(sound->data);
             free(sound);
             return NULL;
         }
-        ma_sound_uninit(&test_sound);
+        ma_decoder_uninit(&decoder);
     }
 
-    printf("Loaded sound: %s\n", path);
+    printf("Loaded sound: %s (%zu bytes)\n", path, sound->data_size);
     return sound;
 }
 
 static void sound_destroy(Sound* sound) {
-    if (sound) free(sound);
+    if (sound) {
+        if (sound->data) free(sound->data);
+        free(sound);
+    }
 }
 
 // Sound instance pool for fire-and-forget playback
@@ -890,6 +1134,7 @@ static void sound_destroy(Sound* sound) {
 
 typedef struct {
     ma_sound sound;
+    ma_decoder decoder;  // Decoder for memory-based sounds
     bool in_use;
 } PlayingSound;
 
@@ -904,6 +1149,7 @@ static void sound_cleanup_finished(void) {
         if (playing_sounds[i].in_use) {
             if (!ma_sound_is_playing(&playing_sounds[i].sound)) {
                 ma_sound_uninit(&playing_sounds[i].sound);
+                ma_decoder_uninit(&playing_sounds[i].decoder);
                 playing_sounds[i].in_use = false;
             }
         }
@@ -916,6 +1162,7 @@ static void sound_cleanup_all(void) {
         if (playing_sounds[i].in_use) {
             ma_sound_stop(&playing_sounds[i].sound);
             ma_sound_uninit(&playing_sounds[i].sound);
+            ma_decoder_uninit(&playing_sounds[i].decoder);
             playing_sounds[i].in_use = false;
         }
     }
@@ -955,10 +1202,19 @@ static void sound_play(Sound* sound, float volume, float pitch) {
         return;
     }
 
-    // Initialize sound in this slot
-    ma_result result = ma_sound_init_from_file(&audio_engine, sound->path, MA_SOUND_FLAG_DECODE, NULL, NULL, &playing_sounds[slot].sound);
+    // Initialize decoder from memory
+    ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_f32, 2, audio_engine.sampleRate);
+    ma_result result = ma_decoder_init_memory(sound->data, sound->data_size, &decoder_config, &playing_sounds[slot].decoder);
+    if (result != MA_SUCCESS) {
+        fprintf(stderr, "Failed to decode sound: %s (error %d)\n", sound->path, result);
+        return;
+    }
+
+    // Initialize sound from decoder
+    result = ma_sound_init_from_data_source(&audio_engine, &playing_sounds[slot].decoder, 0, NULL, &playing_sounds[slot].sound);
     if (result != MA_SUCCESS) {
         fprintf(stderr, "Failed to play sound: %s (error %d)\n", sound->path, result);
+        ma_decoder_uninit(&playing_sounds[slot].decoder);
         return;
     }
 
@@ -972,9 +1228,12 @@ static void sound_play(Sound* sound, float volume, float pitch) {
     ma_sound_start(&playing_sounds[slot].sound);
 }
 
-// Music - streaming tracks with two channels for crossfade support
+// Music - streaming tracks with two channels for crossfade support (supports zip archive)
 typedef struct {
     ma_sound sound;
+    ma_decoder decoder;     // Decoder for memory-based music
+    void* data;             // Raw audio file data
+    size_t data_size;       // Size of audio data
     bool initialized;
 } Music;
 
@@ -991,17 +1250,38 @@ static Music* music_load(const char* path) {
 
     Music* music = (Music*)malloc(sizeof(Music));
     if (!music) return NULL;
+    memset(music, 0, sizeof(Music));
 
-    // MA_SOUND_FLAG_STREAM for streaming (not fully loaded into memory)
-    ma_result result = ma_sound_init_from_file(&audio_engine, path, MA_SOUND_FLAG_STREAM, NULL, NULL, &music->sound);
+    // Load audio data from zip or disk
+    music->data = zip_read_file(path, &music->data_size);
+    if (!music->data) {
+        fprintf(stderr, "Failed to load music file: %s\n", path);
+        free(music);
+        return NULL;
+    }
+
+    // Initialize decoder from memory
+    ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_f32, 2, audio_engine.sampleRate);
+    ma_result result = ma_decoder_init_memory(music->data, music->data_size, &decoder_config, &music->decoder);
+    if (result != MA_SUCCESS) {
+        fprintf(stderr, "Failed to decode music: %s (error %d)\n", path, result);
+        free(music->data);
+        free(music);
+        return NULL;
+    }
+
+    // Initialize sound from decoder (no streaming flag - decoder handles it)
+    result = ma_sound_init_from_data_source(&audio_engine, &music->decoder, 0, NULL, &music->sound);
     if (result != MA_SUCCESS) {
         fprintf(stderr, "Failed to load music: %s (error %d)\n", path, result);
+        ma_decoder_uninit(&music->decoder);
+        free(music->data);
         free(music);
         return NULL;
     }
 
     music->initialized = true;
-    printf("Loaded music: %s\n", path);
+    printf("Loaded music: %s (%zu bytes)\n", path, music->data_size);
     return music;
 }
 
@@ -1009,7 +1289,9 @@ static void music_destroy(Music* music) {
     if (!music) return;
     if (music->initialized) {
         ma_sound_uninit(&music->sound);
+        ma_decoder_uninit(&music->decoder);
     }
+    if (music->data) free(music->data);
     free(music);
 }
 
@@ -1449,6 +1731,7 @@ static void layer_set_blend_mode(Layer* layer, uint8_t mode) {
 static float batch_vertices[MAX_BATCH_VERTICES * VERTEX_FLOATS];
 static int batch_vertex_count = 0;
 static GLuint current_batch_texture = 0;  // Currently bound texture for batching
+static int draw_calls = 0;  // Draw call counter (reset each render frame)
 
 // Transform a point by a 2x3 matrix: [m0 m1 m2] [x]   [m0*x + m1*y + m2]
 //                                    [m3 m4 m5] [y] = [m3*x + m4*y + m5]
@@ -2978,6 +3261,7 @@ static void batch_flush(void) {
     glBindVertexArray(0);
 
     batch_vertex_count = 0;
+    draw_calls++;
 }
 
 // Process a rectangle command (SDF-based, UV-space approach)
@@ -6124,6 +6408,91 @@ static int l_input_set_deadzone(lua_State* L) {
 }
 
 // ============================================================================
+// ENGINE STATE GETTERS
+// Expose engine state to Lua
+// ============================================================================
+
+// Forward declarations for main loop state (defined below)
+static Uint64 frame;
+static Uint64 step;
+static double game_time;
+static double fps;
+
+static int l_engine_get_frame(lua_State* L) {
+    lua_pushinteger(L, (lua_Integer)frame);
+    return 1;
+}
+
+static int l_engine_get_step(lua_State* L) {
+    lua_pushinteger(L, (lua_Integer)step);
+    return 1;
+}
+
+static int l_engine_get_time(lua_State* L) {
+    lua_pushnumber(L, game_time);
+    return 1;
+}
+
+static int l_engine_get_dt(lua_State* L) {
+    lua_pushnumber(L, PHYSICS_RATE);
+    return 1;
+}
+
+static int l_engine_get_width(lua_State* L) {
+    lua_pushinteger(L, GAME_WIDTH);
+    return 1;
+}
+
+static int l_engine_get_height(lua_State* L) {
+    lua_pushinteger(L, GAME_HEIGHT);
+    return 1;
+}
+
+static int l_engine_get_window_size(lua_State* L) {
+    int w, h;
+    SDL_GetWindowSize(window, &w, &h);
+    lua_pushinteger(L, w);
+    lua_pushinteger(L, h);
+    return 2;
+}
+
+static int l_engine_get_scale(lua_State* L) {
+    int window_w, window_h;
+    SDL_GetWindowSize(window, &window_w, &window_h);
+    float scale_x = (float)window_w / GAME_WIDTH;
+    float scale_y = (float)window_h / GAME_HEIGHT;
+    int int_scale = (int)((scale_x < scale_y) ? scale_x : scale_y);
+    if (int_scale < 1) int_scale = 1;
+    lua_pushinteger(L, int_scale);
+    return 1;
+}
+
+static int l_engine_is_fullscreen(lua_State* L) {
+    Uint32 flags = SDL_GetWindowFlags(window);
+    lua_pushboolean(L, (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0);
+    return 1;
+}
+
+static int l_engine_get_platform(lua_State* L) {
+#ifdef __EMSCRIPTEN__
+    lua_pushstring(L, "web");
+#else
+    lua_pushstring(L, "windows");
+#endif
+    return 1;
+}
+
+static int l_engine_get_fps(lua_State* L) {
+    lua_pushnumber(L, fps);
+    return 1;
+}
+
+static int l_engine_get_draw_calls(lua_State* L) {
+    lua_pushinteger(L, draw_calls);
+    return 1;
+}
+
+// ============================================================================
 // LUA REGISTRATION
 // Binds all C functions to Lua global namespace
 // ============================================================================
@@ -6315,6 +6684,19 @@ static void register_lua_bindings(lua_State* L) {
     // --- Input: Gamepad ---
     lua_register(L, "gamepad_is_connected", l_gamepad_is_connected);
     lua_register(L, "gamepad_get_axis", l_gamepad_get_axis);
+    // --- Engine State ---
+    lua_register(L, "engine_get_frame", l_engine_get_frame);
+    lua_register(L, "engine_get_step", l_engine_get_step);
+    lua_register(L, "engine_get_time", l_engine_get_time);
+    lua_register(L, "engine_get_dt", l_engine_get_dt);
+    lua_register(L, "engine_get_width", l_engine_get_width);
+    lua_register(L, "engine_get_height", l_engine_get_height);
+    lua_register(L, "engine_get_window_size", l_engine_get_window_size);
+    lua_register(L, "engine_get_scale", l_engine_get_scale);
+    lua_register(L, "engine_is_fullscreen", l_engine_is_fullscreen);
+    lua_register(L, "engine_get_platform", l_engine_get_platform);
+    lua_register(L, "engine_get_fps", l_engine_get_fps);
+    lua_register(L, "engine_get_draw_calls", l_engine_get_draw_calls);
 }
 
 // Main loop state (needed for emscripten)
@@ -6326,6 +6708,7 @@ static double render_lag = 0.0;
 static Uint64 step = 0;
 static double game_time = 0.0;
 static Uint64 frame = 0;
+static double fps = 0.0;
 
 // VSync snap frequencies (computed at init based on display refresh rate)
 static double snap_frequencies[8];
@@ -6559,25 +6942,22 @@ static GLuint create_shader_program(const char* vert_src, const char* frag_src) 
 }
 
 // Effect shader loading
-// Read entire file into malloc'd string (caller must free)
+// Read entire file into malloc'd string (caller must free) - supports zip archive
 static char* read_file_to_string(const char* path) {
-    FILE* f = fopen(path, "rb");
-    if (!f) {
+    size_t size;
+    char* buffer = (char*)zip_read_file(path, &size);
+    if (!buffer) {
         fprintf(stderr, "Failed to open file: %s\n", path);
         return NULL;
     }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* buffer = (char*)malloc(size + 1);
-    if (!buffer) {
-        fclose(f);
+    // Ensure null termination (realloc to add space for null if needed)
+    char* result = (char*)realloc(buffer, size + 1);
+    if (!result) {
+        free(buffer);
         return NULL;
     }
-    size_t read_size = fread(buffer, 1, size, f);
-    buffer[read_size] = '\0';
-    fclose(f);
-    return buffer;
+    result[size] = '\0';
+    return result;
 }
 
 // Create an effect shader program from fragment source (uses screen_vertex_source)
@@ -6614,6 +6994,103 @@ static int traceback(lua_State* L) {
     const char* msg = lua_tostring(L, 1);
     luaL_traceback(L, L, msg, 1);
     return 1;
+}
+
+// Custom Lua module searcher that loads from embedded zip
+// Called by require() - tries module.lua and module/init.lua
+static int zip_searcher(lua_State* L) {
+    const char* modname = luaL_checkstring(L, 1);
+
+    // Convert module name to path
+    // Note: PowerShell's Compress-Archive creates zips with backslash paths on Windows,
+    // so we try both forward slashes and backslashes
+    char path[512];
+    size_t len = strlen(modname);
+    if (len >= sizeof(path) - 15) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    size_t script_size;
+    char* script_data = NULL;
+
+    // Try modname.lua with forward slashes (e.g., "anchor.lua")
+    strcpy(path, modname);
+    for (char* p = path; *p; p++) {
+        if (*p == '.') *p = '/';
+    }
+    strcat(path, ".lua");
+    script_data = (char*)zip_read_file(path, &script_size);
+
+    // Try modname.lua with backslashes (e.g., "anchor.lua" -> no change for single name)
+    if (!script_data) {
+        strcpy(path, modname);
+        for (char* p = path; *p; p++) {
+            if (*p == '.') *p = '\\';
+        }
+        strcat(path, ".lua");
+        script_data = (char*)zip_read_file(path, &script_size);
+    }
+
+    // Try modname/init.lua with forward slashes (e.g., "anchor/init.lua")
+    if (!script_data) {
+        strcpy(path, modname);
+        for (char* p = path; *p; p++) {
+            if (*p == '.') *p = '/';
+        }
+        strcat(path, "/init.lua");
+        script_data = (char*)zip_read_file(path, &script_size);
+    }
+
+    // Try modname\init.lua with backslashes (e.g., "anchor\init.lua")
+    if (!script_data) {
+        strcpy(path, modname);
+        for (char* p = path; *p; p++) {
+            if (*p == '.') *p = '\\';
+        }
+        strcat(path, "\\init.lua");
+        script_data = (char*)zip_read_file(path, &script_size);
+    }
+
+    if (!script_data) {
+        // Not found - return nil and error message
+        lua_pushnil(L);
+        lua_pushfstring(L, "no file '%s.lua' or '%s/init.lua' in embedded zip", modname, modname);
+        return 2;
+    }
+
+    // Found - compile and return the loader
+    char chunkname[520];
+    snprintf(chunkname, sizeof(chunkname), "@%s", path);
+    if (luaL_loadbuffer(L, script_data, script_size, chunkname) != LUA_OK) {
+        free(script_data);
+        return lua_error(L);  // Propagate compile error
+    }
+    free(script_data);
+
+    // Return the compiled chunk (loader function)
+    lua_pushstring(L, path);  // Second return value: file path
+    return 2;
+}
+
+// Register the zip searcher as the first searcher in package.searchers
+static void register_zip_searcher(lua_State* L) {
+    // Get package.searchers table
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "searchers");
+
+    // Shift existing searchers down (1->2, 2->3, etc.)
+    int n = (int)lua_rawlen(L, -1);
+    for (int i = n; i >= 1; i--) {
+        lua_rawgeti(L, -1, i);
+        lua_rawseti(L, -2, i + 1);
+    }
+
+    // Insert zip_searcher at position 1
+    lua_pushcfunction(L, zip_searcher);
+    lua_rawseti(L, -2, 1);
+
+    lua_pop(L, 2);  // Pop searchers and package
 }
 
 static void engine_shutdown(void) {
@@ -6661,6 +7138,8 @@ static void engine_shutdown(void) {
     if (gl_context) { SDL_GL_DeleteContext(gl_context); gl_context = NULL; }
     if (window) { SDL_DestroyWindow(window); window = NULL; }
     SDL_Quit();
+    // Zip archive cleanup
+    zip_shutdown();
 }
 
 // One frame of the main loop
@@ -6899,6 +7378,15 @@ static void main_loop_iteration(void) {
     if (render_lag >= RENDER_RATE) {
         render_lag -= RENDER_RATE;
         frame++;
+        draw_calls = 0;  // Reset draw call counter for this frame
+
+        // Calculate FPS from dt_history average
+        if (dt_history_filled) {
+            double avg_dt = 0;
+            for (int i = 0; i < DT_HISTORY_COUNT; i++) avg_dt += dt_history[i];
+            avg_dt /= DT_HISTORY_COUNT;
+            fps = (avg_dt > 0) ? 1.0 / avg_dt : 0;
+        }
 
         // Set up orthographic projection (game coordinates)
         // Maps (0,0) at top-left to (width, height) at bottom-right
@@ -7041,8 +7529,15 @@ static void main_loop_iteration(void) {
 int main(int argc, char* argv[]) {
     printf("Anchor Engine starting...\n");
 
+    // Try to load embedded zip from executable (for distribution)
+    // This must happen before changing working directory
+    if (zip_init(argv[0])) {
+        printf("Running from packaged executable\n");
+    }
+
     // Change working directory to game folder (passed as argument, like LÖVE)
-    if (argc > 1) {
+    // When running from packaged exe, no folder argument is needed
+    if (argc > 1 && !zip_initialized) {
         const char* game_folder = argv[1];
         #ifdef _WIN32
         _chdir(game_folder);
@@ -7211,6 +7706,7 @@ int main(int argc, char* argv[]) {
     }
     luaL_openlibs(L);
     register_lua_bindings(L);
+    register_zip_searcher(L);  // Enable require() from embedded zip
 
     // Initialize gamepad (check for already-connected controllers)
     for (int i = 0; i < SDL_NumJoysticks(); i++) {
@@ -7236,18 +7732,31 @@ int main(int argc, char* argv[]) {
     // Load and run script with traceback
     lua_pushcfunction(L, traceback);
     int err_handler = lua_gettop(L);
-    if (luaL_loadfile(L, "main.lua") != LUA_OK) {
-        snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
+
+    // Load main.lua from zip or disk
+    size_t script_size;
+    char* script_data = (char*)zip_read_file("main.lua", &script_size);
+    if (!script_data) {
+        snprintf(error_message, sizeof(error_message), "Failed to read main.lua");
         fprintf(stderr, "ERROR: %s\n", error_message);
-        lua_pop(L, 2);  // error + traceback
+        lua_pop(L, 1);  // traceback
         error_state = true;
-    } else if (lua_pcall(L, 0, 0, err_handler) != LUA_OK) {
+    } else if (luaL_loadbuffer(L, script_data, script_size, "@main.lua") != LUA_OK) {
         snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
         fprintf(stderr, "ERROR: %s\n", error_message);
         lua_pop(L, 2);  // error + traceback
+        free(script_data);
         error_state = true;
     } else {
-        lua_pop(L, 1);  // traceback
+        free(script_data);
+        if (lua_pcall(L, 0, 0, err_handler) != LUA_OK) {
+            snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
+            fprintf(stderr, "ERROR: %s\n", error_message);
+            lua_pop(L, 2);  // error + traceback
+            error_state = true;
+        } else {
+            lua_pop(L, 1);  // traceback
+        }
     }
 
     printf("Initialization complete. Press ESC to exit, F11 for fullscreen.\n");
