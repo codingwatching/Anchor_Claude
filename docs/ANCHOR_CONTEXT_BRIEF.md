@@ -27,12 +27,19 @@ Code should be understandable by looking at one place. This serves:
 - LLM cognition (finite context window)
 - Solo developer workflow (must understand own code months later)
 
-The operator syntax exists because it lets you declare an object, its properties, its behaviors, and its place in the tree *in one expression*:
+A class definition keeps everything together — properties, behaviors, and relationships are all visible in one place:
 
 ```yuescript
-E 'player' ^ {x: 100, y: 100}
-  / X 'movement', (dt) => @x += @vx * dt
-  >> arena
+class player extends object
+  new: (@x, @y) =>
+    super!
+    @\tag 'player'
+    @\add collider 'player', 'dynamic', 'circle', 16
+    @\add timer!
+
+  update: (dt) =>
+    @x += @vx * dt
+    game\circle @x, @y, 16, white!
 ```
 
 Compare to systems where you define a class in one file, register components elsewhere, wire up behaviors in a third place. Same expressiveness, but the understanding is scattered.
@@ -44,22 +51,12 @@ Compare to systems where you define a class in one file, register components els
 Imports, exports, dependency injection, configuration objects, registration systems — these are bureaucracy. They may be necessary in large teams, but for solo development they're friction.
 
 Anchor prefers:
-- Globals that are just available (`an`, `E`, `U`, `L`, `X`, `A`)
+- Globals that are just available (`an`, common classes)
 - Direct mutation over message passing
 - Explicit calls over implicit event systems
 - Things that work without setup
 
 **When evaluating features:** Does this require ceremony to use, or does it just work?
-
-### Alien But Right
-
-The operator syntax (`^`, `/`, `+`, `>>`) and single-letter aliases (`E`, `U`, `L`, `X`, `A`) are deliberately unusual. Inspired by Hoon's rune system — symbols that seem foreign at first but become natural with use.
-
-The goal isn't familiarity, it's terseness and visual distinctiveness. `E 'player'` is weirder than `Object.new('player')` but it's shorter and once learned, instantly recognizable.
-
-Single-letter aliases follow a preference for angular, symmetrical letters: E, X, A, T, L, V, U, Y, I, H. Avoid round letters (O, Q, C, G).
-
-**When evaluating features:** Does this earn its complexity? Is the weirdness worth it?
 
 ---
 
@@ -86,24 +83,6 @@ This avoids premature optimization. The tree structure, timers, springs, actions
 The gameplay programmer never touches C. The engine layer (also in YueScript) wraps C calls. Raw pointers flow from C to Lua and back; Lua is responsible for calling destroy functions.
 
 **When evaluating features:** Should this be C (performance-critical, low-level) or YueScript (game logic, flexible)?
-
----
-
-## Deliberate Deferrals
-
-Some features are intentionally left for later:
-
-- **High-res text layer:** Bitmap fonts at game resolution first. High-res text layer (rendering at window resolution) adds quality for UI text. Slot in later without changing text effect architecture.
-
-- **Hot reloading:** Would require runtime YueScript compilation. Nice for iteration but not essential. Add when the pain of restart-to-test becomes significant.
-
-- **Debug tooling:** Console overlay, variable inspector, etc. Add when needed for specific debugging problems.
-
-- **Steam Input:** Basic SDL2 gamepad first. Steam Input when preparing for actual Steam release.
-
-These aren't forgotten — they're scoped out of initial build to maintain focus.
-
-**When evaluating features:** Is this essential now, or a later enhancement?
 
 ---
 

@@ -850,10 +850,11 @@ an.query_capsule = (x1, y1, x2, y2, radius, tags) =>
   Queries for objects within a polygon shape.
 
   Usage:
-    verts = {{0, 0}, {100, 0}, {50, 100}}
+    verts = {0, 0, 100, 0, 50, 100}
     for object in *an\query_polygon x, y, verts, 'enemy'
       object\damage!
 
+  Vertices are a flat array: {x1, y1, x2, y2, ...}
   Returns array of objects whose colliders overlap the polygon.
 ]]
 an.query_polygon = (x, y, vertices, tags) =>

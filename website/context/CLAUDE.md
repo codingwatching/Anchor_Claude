@@ -26,6 +26,10 @@ This is the **Engine** and **Framework** repository. For Game Mode, work from a 
 - `docs/ENGINE_API_QUICK.md` — compact function signatures, one per line (for quick lookup)
 - `docs/ENGINE_API.md` — detailed documentation with examples for every function
 
+**Framework API:**
+- `docs/FRAMEWORK_API_QUICK.md` — compact function signatures for YueScript framework classes
+- `docs/FRAMEWORK_API.md` — detailed documentation with examples for framework classes
+
 **Context:**
 - `docs/ANCHOR_CONTEXT_BRIEF.md` — design reasoning, developer working style, how to evaluate features
 
@@ -86,12 +90,6 @@ cd E:/a327ex/anchor.blot.im && git add -A && git commit --allow-empty-message -m
 ```bash
 ~/bin/neovim.exe reference/filename.md -- -c "MarkdownPreview"   # Open markdown with preview
 ```
-
----
-
-## Session Workflow
-
-When the user asks to end the session, see `docs/SESSION_WORKFLOW.md` for the full workflow (transcript conversion, summary writing, commit format, pushing).
 
 ---
 

@@ -813,7 +813,7 @@ draw = ->
   shadow\draw_from game, an.shaders.shadow
   shadow\draw_from game_2, an.shaders.shadow
 
-  shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
+  shader_set_vec2_immediate an.shaders.outline, "u_pixel_size", 1/W, 1/H
   game_outline\clear!
   game_outline\draw_from game, an.shaders.outline
   game_2_outline\clear!

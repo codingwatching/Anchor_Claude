@@ -577,7 +577,7 @@ The rendering pipeline uses explicit control via a global `draw()` function call
 For shaders used with `draw_from`, set uniforms immediately before the call:
 
 ```yuescript
-shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
+shader_set_vec2_immediate an.shaders.outline, "u_pixel_size", 1/W, 1/H
 outline\draw_from game, an.shaders.outline
 ```
 
@@ -595,7 +595,7 @@ draw = ->
   shadow\draw_from game, an.shaders.shadow
 
   outline\clear!
-  shader_set_vec2 an.shaders.outline, "u_pixel_size", 1/W, 1/H
+  shader_set_vec2_immediate an.shaders.outline, "u_pixel_size", 1/W, 1/H
   outline\draw_from game, an.shaders.outline
 
   -- 3. Composite to screen (visual back-to-front order)

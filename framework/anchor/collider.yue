@@ -125,9 +125,10 @@ class collider extends object
     Adds an additional polygon shape to this body.
 
     Usage:
-      verts = {{-16, -16}, {16, -16}, {16, 16}, {-16, 16}}
+      verts = {-16, -16, 16, -16, 16, 16, -16, 16}
       shape = @collider\add_polygon 'hitbox', verts
 
+    Vertices are a flat array: {x1, y1, x2, y2, ...}
     Returns: shape handle
   ]]
   add_polygon: (tag, vertices, opts={}) =>

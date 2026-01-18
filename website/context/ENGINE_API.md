@@ -151,44 +151,44 @@ layer_draw_from(shadow_layer, game_layer, shadow_shader)
 layer_draw_from(composite_layer, game_layer)
 ```
 
-### shader_set_float
+### shader_set_float_immediate
 
-`shader_set_float(shader, name, value)`
+`shader_set_float_immediate(shader, name, value)`
 
-Sets a float uniform on a shader. Use before `layer_draw_from` for immediate effect.
+Sets a float uniform on a shader immediately. Use before `layer_draw_from`.
 
 ```lua
-shader_set_float(blur_shader, "u_radius", 5.0)
+shader_set_float_immediate(blur_shader, "u_radius", 5.0)
 ```
 
-### shader_set_vec2
+### shader_set_vec2_immediate
 
-`shader_set_vec2(shader, name, x, y)`
+`shader_set_vec2_immediate(shader, name, x, y)`
 
-Sets a vec2 uniform on a shader.
+Sets a vec2 uniform on a shader immediately.
 
 ```lua
-shader_set_vec2(outline_shader, "u_pixel_size", 1/480, 1/270)
+shader_set_vec2_immediate(outline_shader, "u_pixel_size", 1/480, 1/270)
 ```
 
-### shader_set_vec4
+### shader_set_vec4_immediate
 
-`shader_set_vec4(shader, name, x, y, z, w)`
+`shader_set_vec4_immediate(shader, name, x, y, z, w)`
 
-Sets a vec4 uniform on a shader.
+Sets a vec4 uniform on a shader immediately.
 
 ```lua
-shader_set_vec4(tint_shader, "u_color", 1.0, 0.5, 0.0, 1.0)
+shader_set_vec4_immediate(tint_shader, "u_color", 1.0, 0.5, 0.0, 1.0)
 ```
 
-### shader_set_int
+### shader_set_int_immediate
 
-`shader_set_int(shader, name, value)`
+`shader_set_int_immediate(shader, name, value)`
 
-Sets an int uniform on a shader.
+Sets an int uniform on a shader immediately.
 
 ```lua
-shader_set_int(effect_shader, "u_mode", 2)
+shader_set_int_immediate(effect_shader, "u_mode", 2)
 ```
 
 ### texture_load
@@ -1295,10 +1295,10 @@ local in_path = physics_query_capsule(start_x, start_y, end_x, end_y, 10, {"wall
 
 `physics_query_polygon(x, y, vertices, tags) -> [body, ...]`
 
-Finds all bodies overlapping a polygon. Vertices are {{x,y}, {x,y}, ...}.
+Finds all bodies overlapping a polygon. Vertices are a flat array: {x1, y1, x2, y2, ...}.
 
 ```lua
-local verts = {{-20, -20}, {20, -20}, {0, 30}}
+local verts = {-20, -20, 20, -20, 0, 30}
 local in_triangle = physics_query_polygon(100, 100, verts, {"enemy"})
 ```
 

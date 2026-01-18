@@ -2,19 +2,18 @@
  * Anchor Engine - Single-file C implementation
  * SDL2 + OpenGL 3.3 (WebGL 2.0) + Lua 5.4 + Box2D 3.x
  *
- * FILE STRUCTURE:
+ * FILE STRUCTURE (search for section banners):
  *
- * [Lines 1-200]      Includes, constants, core structs (DrawCommand, Layer)
- * [Lines 200-500]    Physics foundation (tags, events, PCG32 random)
- * [Lines 500-1100]   Resources (Texture, Font, Sound, Music)
- * [Lines 1100-1550]  Layer system (FBO, transforms, command queue, batching)
- * [Lines 1550-2750]  Input system (keyboard, mouse, gamepad, actions, chords, sequences, holds)
- * [Lines 2750-3250]  Rendering pipeline (shader execution, command processing)
- * [Lines 3250-5250]  Lua bindings: Rendering, Physics
- * [Lines 5250-5900]  Lua bindings: Random, Input
- * [Lines 5900-6100]  Lua registration (register_lua_bindings)
- * [Lines 6100-6350]  Shader sources and compilation
- * [Lines 6350-6950]  Main loop, initialization, shutdown
+ * - Includes, constants, core structs (DrawCommand, Layer)
+ * - Physics foundation (tags, events, PCG32 random)
+ * - Resources (Texture, Font, Sound, Music)
+ * - Layer system (FBO, transforms, command queue, batching)
+ * - Input system (keyboard, mouse, gamepad, actions, chords, sequences, holds)
+ * - Rendering pipeline (shader execution, command processing)
+ * - Lua bindings: Rendering, Physics, Random, Input
+ * - Lua registration (register_lua_bindings)
+ * - Shader sources and compilation
+ * - Main loop, initialization, shutdown
  */
 
 #include <stdio.h>
@@ -3990,8 +3989,8 @@ static int l_shader_destroy(lua_State* L) {
     return 0;
 }
 
-// Immediate shader uniform setters (for use with draw_from)
-static int l_shader_set_float(lua_State* L) {
+// Immediate shader uniform setters (applied now, for use with layer_draw_from)
+static int l_shader_set_float_immediate(lua_State* L) {
     GLuint shader = (GLuint)luaL_checkinteger(L, 1);
     const char* name = luaL_checkstring(L, 2);
     float value = (float)luaL_checknumber(L, 3);
@@ -4001,7 +4000,7 @@ static int l_shader_set_float(lua_State* L) {
     return 0;
 }
 
-static int l_shader_set_vec2(lua_State* L) {
+static int l_shader_set_vec2_immediate(lua_State* L) {
     GLuint shader = (GLuint)luaL_checkinteger(L, 1);
     const char* name = luaL_checkstring(L, 2);
     float x = (float)luaL_checknumber(L, 3);
@@ -4012,7 +4011,7 @@ static int l_shader_set_vec2(lua_State* L) {
     return 0;
 }
 
-static int l_shader_set_vec4(lua_State* L) {
+static int l_shader_set_vec4_immediate(lua_State* L) {
     GLuint shader = (GLuint)luaL_checkinteger(L, 1);
     const char* name = luaL_checkstring(L, 2);
     float x = (float)luaL_checknumber(L, 3);
@@ -4025,7 +4024,7 @@ static int l_shader_set_vec4(lua_State* L) {
     return 0;
 }
 
-static int l_shader_set_int(lua_State* L) {
+static int l_shader_set_int_immediate(lua_State* L) {
     GLuint shader = (GLuint)luaL_checkinteger(L, 1);
     const char* name = luaL_checkstring(L, 2);
     int value = (int)luaL_checkinteger(L, 3);
@@ -4695,7 +4694,6 @@ static int l_physics_add_polygon(lua_State* L) {
     return 1;
 }
 
-// Step 7: Body properties - Position/rotation setters
 static int l_physics_set_position(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
     if (!body_id || !b2Body_IsValid(*body_id)) {
@@ -4731,7 +4729,6 @@ static int l_physics_set_transform(lua_State* L) {
     return 0;
 }
 
-// Step 7: Body properties - Velocity
 static int l_physics_get_velocity(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
     if (!body_id || !b2Body_IsValid(*body_id)) {
@@ -4774,7 +4771,6 @@ static int l_physics_set_angular_velocity(lua_State* L) {
     return 0;
 }
 
-// Step 7: Body properties - Forces/impulses
 static int l_physics_apply_force(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
     if (!body_id || !b2Body_IsValid(*body_id)) {
@@ -4845,7 +4841,6 @@ static int l_physics_apply_angular_impulse(lua_State* L) {
     return 0;
 }
 
-// Step 7: Body properties - Damping, gravity scale, fixed rotation, bullet
 static int l_physics_set_linear_damping(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
     if (!body_id || !b2Body_IsValid(*body_id)) {
@@ -4898,7 +4893,6 @@ static int l_physics_set_bullet(lua_State* L) {
     return 0;
 }
 
-// Step 7: Body properties - User data
 static int l_physics_set_user_data(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
     if (!body_id || !b2Body_IsValid(*body_id)) {
@@ -4919,7 +4913,6 @@ static int l_physics_get_user_data(lua_State* L) {
     return 1;
 }
 
-// Step 7: Shape properties - Friction and restitution
 static int l_physics_shape_set_friction(lua_State* L) {
     b2ShapeId* shape_id = (b2ShapeId*)lua_touserdata(L, 1);
     if (!shape_id || !b2Shape_IsValid(*shape_id)) {
@@ -5047,7 +5040,6 @@ static int l_physics_set_awake(lua_State* L) {
     return 0;
 }
 
-// Step 8: Debug function to print event counts
 static int l_physics_debug_events(lua_State* L) {
     printf("Physics Events - Contact Begin: %d, End: %d, Hit: %d | Sensor Begin: %d, End: %d\n",
            contact_begin_count, contact_end_count, hit_count,
@@ -5056,7 +5048,6 @@ static int l_physics_debug_events(lua_State* L) {
 }
 
 // Event query functions
-// See also: Event buffer structs at ~line 250, event processing at ~line 370
 // Helper to check if two tag indices match (in either order)
 static bool tags_match(int event_tag_a, int event_tag_b, int query_tag_a, int query_tag_b) {
     return (event_tag_a == query_tag_a && event_tag_b == query_tag_b) ||
@@ -5541,30 +5532,31 @@ static int l_physics_query_capsule(lua_State* L) {
 }
 
 // physics_query_polygon(x, y, vertices, tags) -> array of bodies
+// vertices is a flat array: {x1, y1, x2, y2, ...}
 static int l_physics_query_polygon(lua_State* L) {
     float x = (float)luaL_checknumber(L, 1) / pixels_per_meter;
     float y = (float)luaL_checknumber(L, 2) / pixels_per_meter;
     luaL_checktype(L, 3, LUA_TTABLE);
     luaL_checktype(L, 4, LUA_TTABLE);
 
-    // Get vertices from table
-    int vertex_count = (int)lua_rawlen(L, 3);
-    if (vertex_count < 3 || vertex_count > B2_MAX_POLYGON_VERTICES) {
-        return luaL_error(L, "Polygon must have 3-%d vertices, got %d", B2_MAX_POLYGON_VERTICES, vertex_count);
+    // Get vertices from flat array {x1, y1, x2, y2, ...}
+    int len = (int)lua_rawlen(L, 3);
+    if (len < 6 || len % 2 != 0) {
+        return luaL_error(L, "Polygon needs at least 3 vertices (6 numbers)");
+    }
+
+    int vertex_count = len / 2;
+    if (vertex_count > B2_MAX_POLYGON_VERTICES) {
+        return luaL_error(L, "Too many vertices (max %d)", B2_MAX_POLYGON_VERTICES);
     }
 
     b2Vec2 points[B2_MAX_POLYGON_VERTICES];
     for (int i = 0; i < vertex_count; i++) {
-        lua_rawgeti(L, 3, i + 1);  // Get vertex table at index i+1
-        if (!lua_istable(L, -1)) {
-            return luaL_error(L, "Vertex %d must be a table {x, y}", i + 1);
-        }
-        lua_rawgeti(L, -1, 1);  // Get x
-        lua_rawgeti(L, -2, 2);  // Get y
-        float vx = (float)lua_tonumber(L, -2) / pixels_per_meter;
-        float vy = (float)lua_tonumber(L, -1) / pixels_per_meter;
-        points[i] = (b2Vec2){vx, vy};
-        lua_pop(L, 3);  // Pop x, y, vertex table
+        lua_rawgeti(L, 3, i * 2 + 1);
+        lua_rawgeti(L, 3, i * 2 + 2);
+        points[i].x = (float)lua_tonumber(L, -2) / pixels_per_meter;
+        points[i].y = (float)lua_tonumber(L, -1) / pixels_per_meter;
+        lua_pop(L, 2);
     }
 
     uint64_t mask = build_query_mask_from_table(L, 4);
@@ -6545,10 +6537,10 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "shader_load_file", l_shader_load_file);
     lua_register(L, "shader_load_string", l_shader_load_string);
     lua_register(L, "shader_destroy", l_shader_destroy);
-    lua_register(L, "shader_set_float", l_shader_set_float);
-    lua_register(L, "shader_set_vec2", l_shader_set_vec2);
-    lua_register(L, "shader_set_vec4", l_shader_set_vec4);
-    lua_register(L, "shader_set_int", l_shader_set_int);
+    lua_register(L, "shader_set_float_immediate", l_shader_set_float_immediate);
+    lua_register(L, "shader_set_vec2_immediate", l_shader_set_vec2_immediate);
+    lua_register(L, "shader_set_vec4_immediate", l_shader_set_vec4_immediate);
+    lua_register(L, "shader_set_int_immediate", l_shader_set_int_immediate);
     lua_register(L, "layer_shader_set_float", l_layer_shader_set_float);
     lua_register(L, "layer_shader_set_vec2", l_layer_shader_set_vec2);
     lua_register(L, "layer_shader_set_vec4", l_layer_shader_set_vec4);
