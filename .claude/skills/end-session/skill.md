@@ -18,8 +18,8 @@ Ask the user for a session title (max 30 characters). Examples: "Anchor Phase 10
 ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -2
 
 # The SECOND file is the session to summarize (the first is this current end-session conversation)
-# Convert to markdown (use lowercase hyphenated slug)
-python E:/a327ex/Anchor/scripts/jsonl-to-markdown.py [SECOND_JSONL_PATH] E:/a327ex/Anchor/website/logs/[slug].md
+# Convert to markdown directly to Blot folder (use lowercase hyphenated slug)
+python E:/a327ex/Anchor/scripts/jsonl-to-markdown.py [SECOND_JSONL_PATH] E:/a327ex/anchor.blot.im/logs/[slug].md
 ```
 
 **Note:** When running this skill in a fresh session, the most recent transcript is the current end-session conversation. The second most recent is the actual work session to summarize.
@@ -98,15 +98,20 @@ Show the title and summary to the user. Wait for approval before proceeding. If 
 
 Replace the default header (`# Session YYYY-MM-DD...`) with the approved title and summary.
 
-## Step 7: Sync and Commit
+## Step 7: Sync Context Files to Blot
 
 ```bash
-# Sync context files
-cp E:/a327ex/Anchor/.claude/CLAUDE.md E:/a327ex/Anchor/docs/* E:/a327ex/Anchor/website/context/
+# Sync context files directly to Blot repo (rename CLAUDE.md to avoid conflicts)
+cp E:/a327ex/Anchor/.claude/CLAUDE.md E:/a327ex/anchor.blot.im/context/CLAUDE-anchor.md
+cp E:/a327ex/Anchor/docs/* E:/a327ex/anchor.blot.im/context/
+```
 
+## Step 8: Commit Anchor Repo
+
+```bash
 # Stage files (exclude build artifacts and temp files)
 cd E:/a327ex/Anchor
-git add .claude/ docs/ framework/ engine/ scripts/ website/ reference/
+git add .claude/ docs/ framework/ engine/ scripts/ reference/
 
 # Check what's staged
 git status
@@ -127,18 +132,17 @@ EOF
 )"
 ```
 
-## Step 8: Push
+## Step 9: Push Both Repos
 
 ```bash
-# Push to GitHub
+# Push Anchor to GitHub
 git push origin main
 
-# Push website to Blot (separate repo, not subtree)
-cp -r E:/a327ex/Anchor/website/* E:/a327ex/anchor.blot.im/
+# Push Blot repo (logs and context are already there)
 cd E:/a327ex/anchor.blot.im && git add -A && git commit -m "[Title]" && git push origin master
 ```
 
-## Step 9: Confirm
+## Step 10: Confirm
 
 Tell the user:
 - Commit hash

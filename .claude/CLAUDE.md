@@ -36,12 +36,13 @@ This is the **Engine** and **Framework** repository. For Game Mode, work from a 
 **YueScript Framework:**
 - `framework/anchor/` — framework classes (object, layer, image, font, etc.)
 - `framework/main.yue` — test file for framework development
-- `reference/phase-10-implementation-plan.md` — Phase 10 implementation details
 
-**Archived docs** (superseded by anchor.c, kept for historical reference):
+**Archived docs** (superseded, kept for historical reference):
 - `reference/archives/ANCHOR_IMPLEMENTATION_PLAN.md` — original phased implementation plan
 - `reference/archives/ANCHOR.md` — original engine specification
 - `reference/archives/ANCHOR_API_PATTERNS.md` — speculative API patterns
+- `reference/archives/phase-10-implementation-plan.md` — Phase 10 implementation details
+- `reference/archives/PHASE_10_PROGRESS.md` — Phase 10 progress tracking
 
 ---
 
@@ -67,21 +68,20 @@ cd E:/a327ex/Anchor/framework && ./run-web.bat   # Compile .yue + build web + ru
 
 ```bash
 ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -1   # Find latest transcript
-python scripts/jsonl-to-markdown.py [in.jsonl] website/logs/title-slug.md     # Convert transcript
-cp .claude/CLAUDE.md docs/* website/context/                                   # Sync context files
-git add -A && git commit -m "Title..."                                         # Commit (see format below)
+python scripts/jsonl-to-markdown.py [in.jsonl] E:/a327ex/anchor.blot.im/logs/title-slug.md  # Convert transcript
+cp .claude/CLAUDE.md E:/a327ex/anchor.blot.im/context/CLAUDE-anchor.md         # Sync CLAUDE.md (renamed)
+cp docs/* E:/a327ex/anchor.blot.im/context/                                    # Sync other docs
+git add -A && git commit -m "Title..."                                         # Commit
 git push origin main                                                           # Push to GitHub
-# Push website to Blot (separate repo)
-cp -r website/* E:/a327ex/anchor.blot.im/
+# Push to Blot
 cd E:/a327ex/anchor.blot.im && git add -A && git commit -m "Title" && git push origin master
 ```
 
-**Note:** If files are removed from `docs/`, also remove them from `website/context/`.
+**Note:** If files are removed from `docs/`, also remove them from `anchor.blot.im/context/`.
 
 ### Quick Website Push
 
 ```bash
-cp -r website/* E:/a327ex/anchor.blot.im/
 cd E:/a327ex/anchor.blot.im && git add -A && git commit --allow-empty-message -m "" && git push origin master
 ```
 
