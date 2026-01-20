@@ -2,7 +2,42 @@
 
 Function signatures for YueScript framework classes. See `FRAMEWORK_API.md` for detailed documentation with examples.
 
+## Initialization
+
+```
+require('anchor')
+  width: 640        -- game resolution width (default: 480)
+  height: 360       -- game resolution height (default: 270)
+  title: "My Game"  -- window title (default: "Anchor")
+  scale: 2          -- initial window scale (default: 3)
+  vsync: true       -- vertical sync (default: true)
+  fullscreen: false -- start fullscreen (default: false)
+  resizable: true   -- window resizable (default: true)
+  filter: "rough"   -- "rough" or "smooth" (default: "rough")
+```
+
 ## Root Object (an)
+
+### Engine State (Static)
+```
+an.width -> int           -- game resolution width
+an.height -> int          -- game resolution height
+an.dt -> number           -- fixed delta time (1/120)
+an.platform -> string     -- "web" or "windows"
+```
+
+### Engine State (Dynamic - updated every frame)
+```
+an.frame -> int           -- current render frame
+an.step -> int            -- current physics step
+an.time -> number         -- elapsed game time
+an.window_width -> int    -- actual window width
+an.window_height -> int   -- actual window height
+an.scale -> int           -- current render scale
+an.fullscreen -> bool     -- fullscreen state
+an.fps -> number          -- current FPS
+an.draw_calls -> int      -- draw calls last frame
+```
 
 ### Resource Registration
 ```

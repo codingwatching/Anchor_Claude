@@ -70,10 +70,15 @@
 // CONFIGURATION & CONSTANTS
 // ============================================================================
 
-#define WINDOW_TITLE "Anchor"
-#define GAME_WIDTH 480
-#define GAME_HEIGHT 270
-#define INITIAL_SCALE 3
+// Default configuration (can be changed via Lua before engine_init)
+static char window_title[256] = "Anchor";
+static int game_width = 480;
+static int game_height = 270;
+static float initial_scale = 3.0f;
+static bool vsync_enabled = true;
+static bool start_fullscreen = false;
+static bool window_resizable = true;
+// filter_mode is defined later in the font section
 
 // Timing configuration
 #define PHYSICS_RATE (1.0 / 120.0)  // 120 Hz physics/input timestep
@@ -87,8 +92,14 @@
 // Mathematical constants
 #define PI 3.14159265358979323846
 
-// Forward declaration (defined at ~line 6050 in MAIN LOOP section)
+// Forward declarations
 static void timing_resync(void);
+static GLuint create_shader_program(const char* vert_src, const char* frag_src);
+// Shader sources (defined in SHADERS section, needed by engine_init)
+extern const char* vertex_shader_source;
+extern const char* fragment_shader_source;
+extern const char* screen_vertex_source;
+extern const char* screen_fragment_source;
 
 // ============================================================================
 // ZIP ARCHIVE SUPPORT (Desktop only - single exe distribution)
@@ -2289,27 +2300,26 @@ static bool mouse_to_game_coords(int win_x, int win_y, float* game_x, float* gam
     SDL_GetWindowSize(window, &window_w, &window_h);
 
     // Calculate scale (same logic as render)
-    float scale_x = (float)window_w / GAME_WIDTH;
-    float scale_y = (float)window_h / GAME_HEIGHT;
+    float scale_x = (float)window_w / game_width;
+    float scale_y = (float)window_h / game_height;
     float scale = (scale_x < scale_y) ? scale_x : scale_y;
-    int int_scale = (int)scale;
-    if (int_scale < 1) int_scale = 1;
+    if (scale < 1.0f) scale = 1.0f;
 
     // Calculate letterbox offset
-    int scaled_w = GAME_WIDTH * int_scale;
-    int scaled_h = GAME_HEIGHT * int_scale;
+    int scaled_w = (int)(game_width * scale);
+    int scaled_h = (int)(game_height * scale);
     int offset_x = (window_w - scaled_w) / 2;
     int offset_y = (window_h - scaled_h) / 2;
 
     // Convert to game coordinates
-    float gx = (float)(win_x - offset_x) / int_scale;
-    float gy = (float)(win_y - offset_y) / int_scale;
+    float gx = (float)(win_x - offset_x) / scale;
+    float gy = (float)(win_y - offset_y) / scale;
 
     *game_x = gx;
     *game_y = gy;
 
     // Check if inside game area
-    return (gx >= 0 && gx < GAME_WIDTH && gy >= 0 && gy < GAME_HEIGHT);
+    return (gx >= 0 && gx < game_width && gy >= 0 && gy < game_height);
 }
 
 // Action binding system
@@ -3592,7 +3602,7 @@ static Layer* layer_get_or_create(const char* name) {
         return NULL;
     }
 
-    Layer* layer = layer_create(GAME_WIDTH, GAME_HEIGHT);
+    Layer* layer = layer_create(game_width, game_height);
     if (!layer) {
         fprintf(stderr, "Error: Failed to create layer '%s'\n", name);
         return NULL;
@@ -6129,14 +6139,13 @@ static int l_mouse_delta(lua_State* L) {
     // Delta is in window pixels, scale to game pixels
     int window_w, window_h;
     SDL_GetWindowSize(window, &window_w, &window_h);
-    float scale_x = (float)window_w / GAME_WIDTH;
-    float scale_y = (float)window_h / GAME_HEIGHT;
+    float scale_x = (float)window_w / game_width;
+    float scale_y = (float)window_h / game_height;
     float scale = (scale_x < scale_y) ? scale_x : scale_y;
-    int int_scale = (int)scale;
-    if (int_scale < 1) int_scale = 1;
+    if (scale < 1.0f) scale = 1.0f;
 
-    lua_pushnumber(L, (float)mouse_dx / int_scale);
-    lua_pushnumber(L, (float)mouse_dy / int_scale);
+    lua_pushnumber(L, (float)mouse_dx / scale);
+    lua_pushnumber(L, (float)mouse_dy / scale);
     return 2;
 }
 
@@ -6431,12 +6440,12 @@ static int l_engine_get_dt(lua_State* L) {
 }
 
 static int l_engine_get_width(lua_State* L) {
-    lua_pushinteger(L, GAME_WIDTH);
+    lua_pushinteger(L, game_width);
     return 1;
 }
 
 static int l_engine_get_height(lua_State* L) {
-    lua_pushinteger(L, GAME_HEIGHT);
+    lua_pushinteger(L, game_height);
     return 1;
 }
 
@@ -6451,11 +6460,11 @@ static int l_engine_get_window_size(lua_State* L) {
 static int l_engine_get_scale(lua_State* L) {
     int window_w, window_h;
     SDL_GetWindowSize(window, &window_w, &window_h);
-    float scale_x = (float)window_w / GAME_WIDTH;
-    float scale_y = (float)window_h / GAME_HEIGHT;
-    int int_scale = (int)((scale_x < scale_y) ? scale_x : scale_y);
-    if (int_scale < 1) int_scale = 1;
-    lua_pushinteger(L, int_scale);
+    float scale_x = (float)window_w / game_width;
+    float scale_y = (float)window_h / game_height;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    if (scale < 1.0f) scale = 1.0f;
+    lua_pushnumber(L, scale);
     return 1;
 }
 
@@ -6482,6 +6491,192 @@ static int l_engine_get_fps(lua_State* L) {
 static int l_engine_get_draw_calls(lua_State* L) {
     lua_pushinteger(L, draw_calls);
     return 1;
+}
+
+// ============================================================================
+// ENGINE CONFIGURATION (called before engine_init)
+// ============================================================================
+
+static bool engine_initialized = false;
+
+static int l_engine_set_game_size(lua_State* L) {
+    if (engine_initialized) {
+        return luaL_error(L, "engine_set_game_size must be called before engine_init");
+    }
+    game_width = luaL_checkinteger(L, 1);
+    game_height = luaL_checkinteger(L, 2);
+    return 0;
+}
+
+static int l_engine_set_title(lua_State* L) {
+    const char* title = luaL_checkstring(L, 1);
+    strncpy(window_title, title, sizeof(window_title) - 1);
+    window_title[sizeof(window_title) - 1] = '\0';
+    // If window already exists, update title immediately
+    if (window) {
+        SDL_SetWindowTitle(window, window_title);
+    }
+    return 0;
+}
+
+static int l_engine_set_scale(lua_State* L) {
+    if (engine_initialized) {
+        return luaL_error(L, "engine_set_scale must be called before engine_init");
+    }
+    initial_scale = (float)luaL_checknumber(L, 1);
+    return 0;
+}
+
+static int l_engine_set_vsync(lua_State* L) {
+    vsync_enabled = lua_toboolean(L, 1);
+    // If window already exists, apply immediately
+    if (window) {
+        SDL_GL_SetSwapInterval(vsync_enabled ? 1 : 0);
+    }
+    return 0;
+}
+
+static int l_engine_set_fullscreen(lua_State* L) {
+    start_fullscreen = lua_toboolean(L, 1);
+    return 0;
+}
+
+static int l_engine_set_resizable(lua_State* L) {
+    if (engine_initialized) {
+        return luaL_error(L, "engine_set_resizable must be called before engine_init");
+    }
+    window_resizable = lua_toboolean(L, 1);
+    return 0;
+}
+
+// engine_init: Creates window and initializes graphics
+// Must be called from Lua (via framework) after configuration is set
+static int l_engine_init(lua_State* L) {
+    if (engine_initialized) {
+        return luaL_error(L, "engine_init can only be called once");
+    }
+
+    // Build window flags
+    Uint32 window_flags = SDL_WINDOW_OPENGL;
+    if (window_resizable) {
+        window_flags |= SDL_WINDOW_RESIZABLE;
+    }
+    if (start_fullscreen) {
+        window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    }
+
+    window = SDL_CreateWindow(
+        window_title,
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        (int)(game_width * initial_scale), (int)(game_height * initial_scale),
+        window_flags
+    );
+    if (!window) {
+        return luaL_error(L, "SDL_CreateWindow failed: %s", SDL_GetError());
+    }
+
+    gl_context = SDL_GL_CreateContext(window);
+    if (!gl_context) {
+        return luaL_error(L, "SDL_GL_CreateContext failed: %s", SDL_GetError());
+    }
+
+    SDL_GL_SetSwapInterval(vsync_enabled ? 1 : 0);
+
+    #ifndef __EMSCRIPTEN__
+    // Load OpenGL functions (desktop only - Emscripten provides them)
+    int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
+    if (version == 0) {
+        return luaL_error(L, "gladLoadGL failed");
+    }
+    printf("OpenGL %d.%d loaded\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+    #else
+    printf("WebGL 2.0 (OpenGL ES 3.0) context created\n");
+    #endif
+    printf("Renderer: %s\n", glGetString(GL_RENDERER));
+
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Create shader program
+    shader_program = create_shader_program(vertex_shader_source, fragment_shader_source);
+    if (!shader_program) {
+        return luaL_error(L, "Failed to create shader program");
+    }
+    printf("Shader program created\n");
+
+    // Set up VAO and VBO for dynamic quad rendering
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * VERTEX_FLOATS * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+
+    int stride = VERTEX_FLOATS * sizeof(float);
+
+    // Position attribute (location 0): 2 floats at offset 0
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // UV attribute (location 1): 2 floats at offset 2
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // Color attribute (location 2): 4 floats at offset 4
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, (void*)(4 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    // Type attribute (location 3): 1 float at offset 8
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+
+    // Shape attribute (location 4): 4 floats at offset 9
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(9 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+
+    // AddColor attribute (location 5): 3 floats at offset 13
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, (void*)(13 * sizeof(float)));
+    glEnableVertexAttribArray(5);
+
+    glBindVertexArray(0);
+    printf("Game VAO/VBO created (stride=%d bytes)\n", stride);
+
+    // Create screen shader for blitting layers
+    screen_shader = create_shader_program(screen_vertex_source, screen_fragment_source);
+    if (!screen_shader) {
+        return luaL_error(L, "Failed to create screen shader");
+    }
+    printf("Screen shader created\n");
+
+    // Set up screen quad VAO/VBO
+    float screen_vertices[] = {
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f,
+        -1.0f,  1.0f,  0.0f, 1.0f,
+    };
+
+    glGenVertexArrays(1, &screen_vao);
+    glGenBuffers(1, &screen_vbo);
+
+    glBindVertexArray(screen_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, screen_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(screen_vertices), screen_vertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+    printf("Screen VAO/VBO created\n");
+
+    engine_initialized = true;
+    printf("Engine initialized: %dx%d @ %.1fx scale\n", game_width, game_height, initial_scale);
+
+    return 0;
 }
 
 // ============================================================================
@@ -6689,6 +6884,14 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "engine_get_platform", l_engine_get_platform);
     lua_register(L, "engine_get_fps", l_engine_get_fps);
     lua_register(L, "engine_get_draw_calls", l_engine_get_draw_calls);
+    // --- Engine Configuration ---
+    lua_register(L, "engine_set_game_size", l_engine_set_game_size);
+    lua_register(L, "engine_set_title", l_engine_set_title);
+    lua_register(L, "engine_set_scale", l_engine_set_scale);
+    lua_register(L, "engine_set_vsync", l_engine_set_vsync);
+    lua_register(L, "engine_set_fullscreen", l_engine_set_fullscreen);
+    lua_register(L, "engine_set_resizable", l_engine_set_resizable);
+    lua_register(L, "engine_init", l_engine_init);
 }
 
 // Main loop state (needed for emscripten)
@@ -6739,7 +6942,7 @@ static void timing_resync(void) {
 #endif
 
 // Shader sources (no version line - header prepended at compile time)
-static const char* vertex_shader_source =
+const char* vertex_shader_source =
     "layout (location = 0) in vec2 aPos;\n"
     "layout (location = 1) in vec2 aUV;\n"
     "layout (location = 2) in vec4 aColor;\n"
@@ -6766,7 +6969,7 @@ static const char* vertex_shader_source =
     "    vAddColor = aAddColor;\n"
     "}\n";
 
-static const char* fragment_shader_source =
+const char* fragment_shader_source =
     "in vec2 vPos;\n"
     "in vec2 vUV;\n"
     "in vec4 vColor;\n"
@@ -6853,7 +7056,7 @@ static const char* fragment_shader_source =
     "    FragColor = vec4(vColor.rgb + vAddColor, vColor.a * alpha);\n"
     "}\n";
 
-static const char* screen_vertex_source =
+const char* screen_vertex_source =
     "layout (location = 0) in vec2 aPos;\n"
     "layout (location = 1) in vec2 aTexCoord;\n"
     "uniform vec2 u_offset;\n"  // Offset in NDC (-1 to 1 range)
@@ -6863,7 +7066,7 @@ static const char* screen_vertex_source =
     "    TexCoord = aTexCoord;\n"
     "}\n";
 
-static const char* screen_fragment_source =
+const char* screen_fragment_source =
     "in vec2 TexCoord;\n"
     "out vec4 FragColor;\n"
     "uniform sampler2D screenTexture;\n"
@@ -7383,8 +7586,8 @@ static void main_loop_iteration(void) {
         // Set up orthographic projection (game coordinates)
         // Maps (0,0) at top-left to (width, height) at bottom-right
         float projection[16] = {
-            2.0f / GAME_WIDTH, 0.0f, 0.0f, 0.0f,
-            0.0f, -2.0f / GAME_HEIGHT, 0.0f, 0.0f,
+            2.0f / game_width, 0.0f, 0.0f, 0.0f,
+            0.0f, -2.0f / game_height, 0.0f, 0.0f,
             0.0f, 0.0f, -1.0f, 0.0f,
             -1.0f, 1.0f, 0.0f, 1.0f
         };
@@ -7427,16 +7630,15 @@ static void main_loop_iteration(void) {
         SDL_GetWindowSize(window, &window_w, &window_h);
 
         // Calculate scale to fit window while maintaining aspect ratio
-        // Use integer scaling for pixel-perfect rendering
-        float scale_x = (float)window_w / GAME_WIDTH;
-        float scale_y = (float)window_h / GAME_HEIGHT;
+        // Calculate scale to fit window while maintaining aspect ratio
+        float scale_x = (float)window_w / game_width;
+        float scale_y = (float)window_h / game_height;
         float scale = (scale_x < scale_y) ? scale_x : scale_y;
-        int int_scale = (int)scale;
-        if (int_scale < 1) int_scale = 1;
+        if (scale < 1.0f) scale = 1.0f;
 
         // Calculate centered position with letterboxing
-        int scaled_w = GAME_WIDTH * int_scale;
-        int scaled_h = GAME_HEIGHT * int_scale;
+        int scaled_w = (int)(game_width * scale);
+        int scaled_h = (int)(game_height * scale);
         int offset_x = (window_w - scaled_w) / 2;
         int offset_y = (window_h - scaled_h) / 2;
 
@@ -7466,8 +7668,8 @@ static void main_loop_iteration(void) {
                 // Game coords: (0,0) top-left, positive Y down
                 // NDC: (-1,-1) bottom-left, positive Y up
                 // Offset in NDC = (game_offset / game_size) * 2
-                float ndc_x = (cmd->x / GAME_WIDTH) * 2.0f;
-                float ndc_y = -(cmd->y / GAME_HEIGHT) * 2.0f;  // Flip Y
+                float ndc_x = (cmd->x / game_width) * 2.0f;
+                float ndc_y = -(cmd->y / game_height) * 2.0f;  // Flip Y
                 glUniform2f(offset_loc, ndc_x, ndc_y);
 
                 glActiveTexture(GL_TEXTURE0);
@@ -7547,6 +7749,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Set OpenGL attributes (before window creation)
     #ifdef __EMSCRIPTEN__
     // Request WebGL 2.0 (OpenGL ES 3.0)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -7561,135 +7764,7 @@ int main(int argc, char* argv[]) {
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
 
-    window = SDL_CreateWindow(
-        WINDOW_TITLE,
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        GAME_WIDTH * INITIAL_SCALE, GAME_HEIGHT * INITIAL_SCALE,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
-    );
-    if (!window) {
-        fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
-        engine_shutdown();
-        return 1;
-    }
-
-    gl_context = SDL_GL_CreateContext(window);
-    if (!gl_context) {
-        fprintf(stderr, "SDL_GL_CreateContext failed: %s\n", SDL_GetError());
-        engine_shutdown();
-        return 1;
-    }
-
-    SDL_GL_SetSwapInterval(1);  // VSync
-
-    #ifndef __EMSCRIPTEN__
-    // Load OpenGL functions (desktop only - Emscripten provides them)
-    int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
-    if (version == 0) {
-        fprintf(stderr, "gladLoadGL failed\n");
-        engine_shutdown();
-        return 1;
-    }
-    printf("OpenGL %d.%d loaded\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
-    #else
-    printf("WebGL 2.0 (OpenGL ES 3.0) context created\n");
-    #endif
-    printf("Renderer: %s\n", glGetString(GL_RENDERER));
-
-    glEnable(GL_BLEND);
-    // Use glBlendFuncSeparate to preserve alpha correctly when drawing to FBOs
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,  // RGB
-                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);       // Alpha
-
-    // Create shader program
-    shader_program = create_shader_program(vertex_shader_source, fragment_shader_source);
-    if (!shader_program) {
-        fprintf(stderr, "Failed to create shader program\n");
-        engine_shutdown();
-        return 1;
-    }
-    printf("Shader program created\n");
-
-    // Set up VAO and VBO for dynamic quad rendering
-    // Vertex format: x, y, u, v, r, g, b, a, type, shape[4] (13 floats per vertex)
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    // Allocate space for batch rendering
-    glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * VERTEX_FLOATS * sizeof(float), NULL, GL_DYNAMIC_DRAW);
-
-    // Stride = 16 floats = 64 bytes
-    int stride = VERTEX_FLOATS * sizeof(float);
-
-    // Position attribute (location 0): 2 floats at offset 0
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // UV attribute (location 1): 2 floats at offset 2
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // Color attribute (location 2): 4 floats at offset 4
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride, (void*)(4 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-    // Type attribute (location 3): 1 float at offset 8
-    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-
-    // Shape attribute (location 4): 4 floats at offset 9
-    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(9 * sizeof(float)));
-    glEnableVertexAttribArray(4);
-
-    // AddColor attribute (location 5): 3 floats at offset 13 (additive flash color)
-    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, (void*)(13 * sizeof(float)));
-    glEnableVertexAttribArray(5);
-
-    glBindVertexArray(0);
-    printf("Game VAO/VBO created (stride=%d bytes)\n", stride);
-
-    // Create screen shader for blitting layers
-    screen_shader = create_shader_program(screen_vertex_source, screen_fragment_source);
-    if (!screen_shader) {
-        fprintf(stderr, "Failed to create screen shader\n");
-        engine_shutdown();
-        return 1;
-    }
-    printf("Screen shader created\n");
-
-    // Set up screen quad VAO/VBO (fullscreen quad in NDC, viewport handles positioning)
-    // Vertex format: x, y, u, v (4 floats per vertex)
-    float screen_vertices[] = {
-        // pos         // tex
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f, 1.0f,
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f,  1.0f,  1.0f, 1.0f,
-        -1.0f,  1.0f,  0.0f, 1.0f,
-    };
-
-    glGenVertexArrays(1, &screen_vao);
-    glGenBuffers(1, &screen_vbo);
-
-    glBindVertexArray(screen_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, screen_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(screen_vertices), screen_vertices, GL_STATIC_DRAW);
-
-    // Position attribute (location 0): 2 floats
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // TexCoord attribute (location 1): 2 floats
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    glBindVertexArray(0);
-    printf("Screen VAO/VBO created\n");
-
-    // Initialize Lua
+    // Initialize Lua (before window so game can configure via engine_set_* functions)
     L = luaL_newstate();
     if (!L) {
         fprintf(stderr, "luaL_newstate failed\n");
@@ -7721,11 +7796,10 @@ int main(int argc, char* argv[]) {
         printf("Audio engine initialized\n");
     }
 
-    // Load and run script with traceback
+    // Load and run main.lua (this should call engine_init via framework)
     lua_pushcfunction(L, traceback);
     int err_handler = lua_gettop(L);
 
-    // Load main.lua from zip or disk
     size_t script_size;
     char* script_data = (char*)zip_read_file("main.lua", &script_size);
     if (!script_data) {
@@ -7749,6 +7823,13 @@ int main(int argc, char* argv[]) {
         } else {
             lua_pop(L, 1);  // traceback
         }
+    }
+
+    // Check that engine_init was called by the game/framework
+    if (!engine_initialized && !error_state) {
+        snprintf(error_message, sizeof(error_message), "engine_init() was not called. Did you forget to require 'anchor'?");
+        fprintf(stderr, "ERROR: %s\n", error_message);
+        error_state = true;
     }
 
     printf("Initialization complete. Press ESC to exit, F11 for fullscreen.\n");

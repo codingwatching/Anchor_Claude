@@ -130,6 +130,7 @@ physics_add_capsule(self.body, tag, length, radius, opts)end, add_polygon = func
 
 
 
+
 opts == nil then opts = {  }end;return 
 physics_add_polygon(self.body, tag, vertices, opts)end, get_mass = function(self)return 
 

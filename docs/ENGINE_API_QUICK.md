@@ -248,3 +248,32 @@ input_get_pressed_action() -> string | nil
 gamepad_is_connected() -> bool
 gamepad_get_axis(axis) -> number
 ```
+
+## Engine State
+
+```
+engine_get_frame() -> int
+engine_get_step() -> int
+engine_get_time() -> number
+engine_get_dt() -> number
+engine_get_width() -> int
+engine_get_height() -> int
+engine_get_window_size() -> int, int
+engine_get_scale() -> int
+engine_is_fullscreen() -> bool
+engine_get_platform() -> string
+engine_get_fps() -> number
+engine_get_draw_calls() -> int
+```
+
+## Engine Configuration
+
+```
+engine_set_game_size(width, height)
+engine_set_title(title)
+engine_set_scale(scale)
+engine_set_vsync(enabled)
+engine_set_fullscreen(enabled)
+engine_set_resizable(enabled)
+engine_init()
+```

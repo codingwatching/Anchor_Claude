@@ -4,9 +4,86 @@ Complete documentation for YueScript framework classes. For quick reference sign
 
 ---
 
+## Initialization
+
+The Anchor framework is initialized by requiring it with a configuration table:
+
+```yuescript
+require('anchor')
+  width: 640
+  height: 360
+  title: "My Game"
+  scale: 2
+  vsync: true
+  fullscreen: false
+  resizable: true
+  filter: "rough"
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `width` | int | 480 | Game resolution width |
+| `height` | int | 270 | Game resolution height |
+| `title` | string | "Anchor" | Window title |
+| `scale` | int | 3 | Initial window scale multiplier |
+| `vsync` | bool | true | Enable vertical sync |
+| `fullscreen` | bool | false | Start in fullscreen mode |
+| `resizable` | bool | true | Window can be resized |
+| `filter` | string | "rough" | Texture filter mode: "rough" (pixel-perfect) or "smooth" (anti-aliased) |
+
+All options are optional. Omitted options use their defaults:
+
+```yuescript
+-- Minimal initialization with defaults (480x270)
+require('anchor') {}
+
+-- Just set resolution
+require('anchor')
+  width: 640
+  height: 360
+```
+
+---
+
 ## Root Object (an)
 
 The global `an` object is the entry point for all framework functionality. It manages resources, physics, input, and the object tree.
+
+### Engine State Properties
+
+These properties provide access to engine state. Some are static (set once at init), others update every frame.
+
+#### Static Properties (set at initialization)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `an.width` | int | Game resolution width |
+| `an.height` | int | Game resolution height |
+| `an.dt` | number | Fixed delta time (1/120 for 120Hz physics) |
+| `an.platform` | string | Platform: "web" or "windows" |
+
+#### Dynamic Properties (updated every frame)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `an.frame` | int | Current render frame number |
+| `an.step` | int | Current physics step count |
+| `an.time` | number | Elapsed game time in seconds |
+| `an.window_width` | int | Actual window width in pixels |
+| `an.window_height` | int | Actual window height in pixels |
+| `an.scale` | int | Current integer render scale |
+| `an.fullscreen` | bool | Whether window is fullscreen |
+| `an.fps` | number | Current frames per second |
+| `an.draw_calls` | int | Draw calls in previous frame |
+
+```yuescript
+-- Access engine state
+print "Game size: #{an.width}x#{an.height}"
+print "Time: #{an.time}, FPS: #{an.fps}"
+print "Window: #{an.window_width}x#{an.window_height} @ #{an.scale}x"
+```
 
 ### Resource Registration
 

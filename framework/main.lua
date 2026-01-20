@@ -1,6 +1,9 @@
 
 
-require('anchor')
+
+require('anchor')({ width = 480, height = 
+270, title = 
+"Anchor Framework Test" })
 
 
 

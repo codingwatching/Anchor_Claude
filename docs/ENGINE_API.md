@@ -1863,3 +1863,216 @@ Returns a gamepad axis value (-1 to 1). Axes: "leftx", "lefty", "rightx", "right
 local lx = gamepad_get_axis("leftx")
 local ly = gamepad_get_axis("lefty")
 ```
+
+---
+
+## Engine State
+
+### engine_get_frame
+
+`engine_get_frame() -> int`
+
+Returns the current frame number (increments each render frame).
+
+```lua
+local frame = engine_get_frame()
+```
+
+### engine_get_step
+
+`engine_get_step() -> int`
+
+Returns the current physics step count (increments each physics tick at 120Hz).
+
+```lua
+local step = engine_get_step()
+```
+
+### engine_get_time
+
+`engine_get_time() -> number`
+
+Returns the elapsed game time in seconds.
+
+```lua
+local time = engine_get_time()
+```
+
+### engine_get_dt
+
+`engine_get_dt() -> number`
+
+Returns the fixed delta time (1/120 for 120Hz physics).
+
+```lua
+local dt = engine_get_dt()
+```
+
+### engine_get_width
+
+`engine_get_width() -> int`
+
+Returns the game width in pixels.
+
+```lua
+local w = engine_get_width()
+```
+
+### engine_get_height
+
+`engine_get_height() -> int`
+
+Returns the game height in pixels.
+
+```lua
+local h = engine_get_height()
+```
+
+### engine_get_window_size
+
+`engine_get_window_size() -> int, int`
+
+Returns the actual window dimensions in pixels.
+
+```lua
+local window_w, window_h = engine_get_window_size()
+```
+
+### engine_get_scale
+
+`engine_get_scale() -> int`
+
+Returns the integer render scale factor.
+
+```lua
+local scale = engine_get_scale()  -- e.g., 3 for 3x scaling
+```
+
+### engine_is_fullscreen
+
+`engine_is_fullscreen() -> bool`
+
+Returns true if the window is in fullscreen mode.
+
+```lua
+if engine_is_fullscreen() then
+    print("Fullscreen mode")
+end
+```
+
+### engine_get_platform
+
+`engine_get_platform() -> string`
+
+Returns the platform: "web" or "windows".
+
+```lua
+if engine_get_platform() == "web" then
+    -- Web-specific behavior
+end
+```
+
+### engine_get_fps
+
+`engine_get_fps() -> number`
+
+Returns the current frames per second.
+
+```lua
+local fps = engine_get_fps()
+```
+
+### engine_get_draw_calls
+
+`engine_get_draw_calls() -> int`
+
+Returns the number of draw calls in the previous frame.
+
+```lua
+local draws = engine_get_draw_calls()
+```
+
+---
+
+## Engine Configuration
+
+These functions configure the engine and must be called before `engine_init()`.
+
+### engine_set_game_size
+
+`engine_set_game_size(width, height)`
+
+Sets the game resolution. Must be called before `engine_init()`.
+
+```lua
+engine_set_game_size(640, 360)  -- 640x360 game resolution
+```
+
+### engine_set_title
+
+`engine_set_title(title)`
+
+Sets the window title. Can be called at any time.
+
+```lua
+engine_set_title("My Game")
+```
+
+### engine_set_scale
+
+`engine_set_scale(scale)`
+
+Sets the initial window scale multiplier. Must be called before `engine_init()`.
+
+```lua
+engine_set_scale(2)  -- 2x window size
+```
+
+### engine_set_vsync
+
+`engine_set_vsync(enabled)`
+
+Enables or disables vertical sync. Can be called at any time.
+
+```lua
+engine_set_vsync(true)   -- VSync on
+engine_set_vsync(false)  -- VSync off
+```
+
+### engine_set_fullscreen
+
+`engine_set_fullscreen(enabled)`
+
+Sets whether to start in fullscreen mode. Should be called before `engine_init()`.
+
+```lua
+engine_set_fullscreen(true)
+```
+
+### engine_set_resizable
+
+`engine_set_resizable(enabled)`
+
+Sets whether the window is resizable. Must be called before `engine_init()`.
+
+```lua
+engine_set_resizable(false)  -- Fixed size window
+```
+
+### engine_init
+
+`engine_init()`
+
+Initializes the engine, creating the window and graphics context. Must be called once after configuration is set.
+
+```lua
+-- Set configuration
+engine_set_game_size(640, 360)
+engine_set_title("My Game")
+engine_set_scale(2)
+
+-- Initialize engine
+engine_init()
+```
+
+**Note:** When using the Anchor framework, `engine_init()` is called automatically by `require('anchor')`. You don't need to call it directly.

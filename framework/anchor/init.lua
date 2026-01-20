@@ -13,6 +13,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 require('anchor.object')
 require('anchor.layer')
 require('anchor.image')
@@ -25,7 +36,31 @@ require('anchor.camera')
 require('anchor.shake')
 require('anchor.random')
 require('anchor.color')
-require('anchor.array')
+require('anchor.array')return function(config)if 
+
+
+config == nil then config = {  }end;if 
+
+config.width and config.height then
+engine_set_game_size(config.width, config.height)end;if 
+config.title then
+engine_set_title(config.title)end;if 
+config.scale then
+engine_set_scale(config.scale)end;if 
+config.vsync ~= nil then
+engine_set_vsync(config.vsync)end;if 
+config.fullscreen ~= nil then
+engine_set_fullscreen(config.fullscreen)end;if 
+config.resizable ~= nil then
+engine_set_resizable(config.resizable)end;if 
+config.filter then
+set_filter_mode(config.filter)end
+
+
+engine_init()
+
+
+
 
 
 
@@ -437,7 +472,7 @@ music_set_volume(1 - progress, crossfade.from_channel)return
 music_set_volume(progress, crossfade.to_channel)end end)
 
 
-an:early_action('playlist', function(self, dt)if #
+an:early_action('playlist_auto_advance', function(self, dt)if #
 self.playlist == 0 then return end;if 
 
 self.playlist_just_advanced then
@@ -845,6 +880,7 @@ self.colliders[id]if
 collider then
 result[#result + 1] = collider.parent end end;return 
 result end
+
 
 
 
@@ -1321,4 +1357,4 @@ an:cleanup()for name, layer in
 
 pairs(an.layers) do if 
 layer.camera then
-layer.camera:detach(layer)end end end
+layer.camera:detach(layer)end end end end
