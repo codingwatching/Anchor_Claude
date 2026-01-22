@@ -64,6 +64,185 @@ class layer
     layer_circle @handle, x, y, radius, color
 
   --[[
+    Queues a rectangle outline at (x, y).
+
+    Usage:
+      layer\rectangle_line 100, 100, 50, 30, rgba(255, 0, 0, 255)
+      layer\rectangle_line 100, 100, 50, 30, rgba(255, 0, 0, 255), 2  -- 2px line
+
+    Parameters:
+      x, y       - top-left position
+      w, h       - width and height
+      color      - packed RGBA (use rgba() helper)
+      line_width - outline thickness (default: 1)
+  ]]
+  rectangle_line: (x, y, w, h, color, line_width) =>
+    layer_rectangle_line @handle, x, y, w, h, color, line_width or 1
+
+  --[[
+    Queues a circle outline centered at (x, y).
+
+    Usage:
+      layer\circle_line 200, 150, 25, rgba(0, 255, 0, 255)
+      layer\circle_line 200, 150, 25, rgba(0, 255, 0, 255), 2  -- 2px line
+
+    Parameters:
+      x, y       - center position
+      radius     - circle radius
+      color      - packed RGBA (use rgba() helper)
+      line_width - outline thickness (default: 1)
+  ]]
+  circle_line: (x, y, radius, color, line_width) =>
+    layer_circle_line @handle, x, y, radius, color, line_width or 1
+
+  --[[
+    Queues a line from (x1, y1) to (x2, y2).
+
+    Usage:
+      layer\line 100, 100, 200, 150, 2, rgba(255, 255, 255, 255)
+
+    Parameters:
+      x1, y1 - start position
+      x2, y2 - end position
+      width  - line thickness
+      color  - packed RGBA (use rgba() helper)
+  ]]
+  line: (x1, y1, x2, y2, width, color) =>
+    layer_line @handle, x1, y1, x2, y2, width, color
+
+  --[[
+    Queues a filled capsule (stadium shape) from (x1, y1) to (x2, y2).
+
+    Usage:
+      layer\capsule 100, 100, 200, 100, 10, rgba(0, 128, 255, 255)
+
+    Parameters:
+      x1, y1 - start center position
+      x2, y2 - end center position
+      radius - capsule radius (half-width)
+      color  - packed RGBA (use rgba() helper)
+  ]]
+  capsule: (x1, y1, x2, y2, radius, color) =>
+    layer_capsule @handle, x1, y1, x2, y2, radius, color
+
+  --[[
+    Queues a capsule outline from (x1, y1) to (x2, y2).
+
+    Usage:
+      layer\capsule_line 100, 100, 200, 100, 10, rgba(0, 128, 255, 255)
+      layer\capsule_line 100, 100, 200, 100, 10, rgba(0, 128, 255, 255), 2
+
+    Parameters:
+      x1, y1     - start center position
+      x2, y2     - end center position
+      radius     - capsule radius (half-width)
+      color      - packed RGBA (use rgba() helper)
+      line_width - outline thickness (default: 1)
+  ]]
+  capsule_line: (x1, y1, x2, y2, radius, color, line_width) =>
+    layer_capsule_line @handle, x1, y1, x2, y2, radius, color, line_width or 1
+
+  --[[
+    Queues a filled triangle with vertices at (x1,y1), (x2,y2), (x3,y3).
+
+    Usage:
+      layer\triangle 100, 100, 150, 50, 200, 100, rgba(255, 128, 0, 255)
+
+    Parameters:
+      x1, y1 - first vertex
+      x2, y2 - second vertex
+      x3, y3 - third vertex
+      color  - packed RGBA (use rgba() helper)
+  ]]
+  triangle: (x1, y1, x2, y2, x3, y3, color) =>
+    layer_triangle @handle, x1, y1, x2, y2, x3, y3, color
+
+  --[[
+    Queues a triangle outline with vertices at (x1,y1), (x2,y2), (x3,y3).
+
+    Usage:
+      layer\triangle_line 100, 100, 150, 50, 200, 100, rgba(255, 128, 0, 255)
+      layer\triangle_line 100, 100, 150, 50, 200, 100, rgba(255, 128, 0, 255), 2
+
+    Parameters:
+      x1, y1     - first vertex
+      x2, y2     - second vertex
+      x3, y3     - third vertex
+      color      - packed RGBA (use rgba() helper)
+      line_width - outline thickness (default: 1)
+  ]]
+  triangle_line: (x1, y1, x2, y2, x3, y3, color, line_width) =>
+    layer_triangle_line @handle, x1, y1, x2, y2, x3, y3, color, line_width or 1
+
+  --[[
+    Queues a filled polygon (up to 8 vertices).
+
+    Usage:
+      -- Hexagon centered at (200, 135)
+      layer\polygon {
+        200, 100,   -- top
+        240, 117,   -- top-right
+        240, 153,   -- bottom-right
+        200, 170,   -- bottom
+        160, 153,   -- bottom-left
+        160, 117    -- top-left
+      }, rgba(128, 0, 255, 255)
+
+    Parameters:
+      vertices - table of {x1, y1, x2, y2, ...} (3-8 vertices)
+      color    - packed RGBA (use rgba() helper)
+  ]]
+  polygon: (vertices, color) =>
+    layer_polygon @handle, vertices, color
+
+  --[[
+    Queues a polygon outline (up to 8 vertices).
+
+    Usage:
+      layer\polygon_line {200, 100, 240, 117, 240, 153, 200, 170, 160, 153, 160, 117}, rgba(128, 0, 255, 255)
+      layer\polygon_line vertices, rgba(128, 0, 255, 255), 2  -- 2px line
+
+    Parameters:
+      vertices   - table of {x1, y1, x2, y2, ...} (3-8 vertices)
+      color      - packed RGBA (use rgba() helper)
+      line_width - outline thickness (default: 1)
+  ]]
+  polygon_line: (vertices, color, line_width) =>
+    layer_polygon_line @handle, vertices, color, line_width or 1
+
+  --[[
+    Queues a filled rounded rectangle at (x, y).
+
+    Usage:
+      layer\rounded_rectangle 100, 100, 50, 30, 8, rgba(255, 0, 0, 255)
+
+    Parameters:
+      x, y   - top-left position
+      w, h   - width and height
+      radius - corner radius
+      color  - packed RGBA (use rgba() helper)
+  ]]
+  rounded_rectangle: (x, y, w, h, radius, color) =>
+    layer_rounded_rectangle @handle, x, y, w, h, radius, color
+
+  --[[
+    Queues a rounded rectangle outline at (x, y).
+
+    Usage:
+      layer\rounded_rectangle_line 100, 100, 50, 30, 8, rgba(255, 0, 0, 255)
+      layer\rounded_rectangle_line 100, 100, 50, 30, 8, rgba(255, 0, 0, 255), 2  -- 2px line
+
+    Parameters:
+      x, y       - top-left position
+      w, h       - width and height
+      radius     - corner radius
+      color      - packed RGBA (use rgba() helper)
+      line_width - outline thickness (default: 1)
+  ]]
+  rounded_rectangle_line: (x, y, w, h, radius, color, line_width) =>
+    layer_rounded_rectangle_line @handle, x, y, w, h, radius, color, line_width or 1
+
+  --[[
     Queues an image (texture) centered at (x, y).
 
     Usage:
@@ -81,6 +260,45 @@ class layer
   ]]
   image: (image, x, y, color, flash) =>
     layer_draw_texture @handle, image.handle, x, y, color or 0xFFFFFFFF, flash or 0
+
+  --[[
+    Queues a spritesheet frame centered at (x, y).
+
+    Usage:
+      layer\spritesheet an.spritesheets.hit, 1, 100, 100
+      layer\spritesheet an.spritesheets.hit, 3, 100, 100, rgba(255, 255, 255, 128)  -- tinted
+      layer\spritesheet an.spritesheets.hit, 5, 100, 100, 0xFFFFFFFF, rgba(255, 0, 0, 255)  -- flash
+
+    Parameters:
+      sheet - spritesheet object (from an\spritesheet)
+      frame - frame index (1-based, left-to-right, top-to-bottom)
+      x, y  - center position
+      color - tint/multiply color (default: white/opaque)
+      flash - additive flash color (default: none)
+
+    Note: Use push/pop for rotation and scaling.
+  ]]
+  spritesheet: (sheet, frame, x, y, color, flash) =>
+    layer_draw_spritesheet_frame @handle, sheet.handle, frame, x, y, color or 0xFFFFFFFF, flash or 0
+
+  --[[
+    Queues an animation's current frame centered at (x, y).
+
+    Usage:
+      layer\animation animation_object, 100, 100
+      layer\animation animation_object, 100, 100, rgba(255, 255, 255, 128)  -- tinted
+      layer\animation animation_object, 100, 100, 0xFFFFFFFF, rgba(255, 0, 0, 255)  -- flash
+
+    Parameters:
+      animation_object - animation object
+      x, y             - center position
+      color            - tint/multiply color (default: white/opaque)
+      flash            - additive flash color (default: none)
+
+    Note: Use push/pop for rotation and scaling.
+  ]]
+  animation: (animation_object, x, y, color, flash) =>
+    layer_draw_spritesheet_frame @handle, animation_object.spritesheet.handle, animation_object.frame, x, y, color or 0xFFFFFFFF, flash or 0
 
   --[[
     Queues text at position (x, y).

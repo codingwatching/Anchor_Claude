@@ -36,7 +36,9 @@ require('anchor.camera')
 require('anchor.shake')
 require('anchor.random')
 require('anchor.color')
-require('anchor.array')return function(config)if 
+require('anchor.array')
+require('anchor.spritesheet')
+require('anchor.animation')return function(config)if 
 
 
 config == nil then config = {  }end;if 
@@ -81,13 +83,21 @@ an.fonts = {  }
 an.shaders = {  }
 an.sounds = {  }
 an.tracks = {  }
+an.spritesheets = {  }
 an:add(random())
+an:add(timer())
 
 
 an.width = engine_get_width()
 an.height = engine_get_height()
-an.dt = engine_get_dt()
+an.unscaled_dt = engine_get_unscaled_dt()
 an.platform = engine_get_platform()
+
+
+an.time_scale = 1.0
+an.dt = an.unscaled_dt
+an.hit_stop_active = false
+an.hit_stop_excluded_tags = {  }
 
 
 
@@ -124,6 +134,32 @@ an.image = function(self, name, path)local handle =
 texture_load(path)
 self.images[name] = image(handle)return 
 self.images[name]end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.spritesheet = function(self, name, path, frame_width, frame_height, padding)if padding == nil then padding = 0 end;local handle = 
+spritesheet_load(path, frame_width, frame_height, padding)
+self.spritesheets[name] = spritesheet(handle)return 
+self.spritesheets[name]end
 
 
 
@@ -486,6 +522,108 @@ self.playlist_index = (self.playlist_index % #self.playlist) + 1;if
 self.playlist_index == 1 and self.playlist_shuffle_enabled then
 self:playlist_generate_shuffle()end;return 
 self:playlist_play()end end)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.slow = function(self, amount, duration, easing, tag)if duration == nil then duration = 0 end;if easing == nil then easing = math.cubic_in_out end;if tag == nil then tag = 'slow'end
+self.time_scale = amount;if 
+duration > 0 then return 
+self.timer:tween(duration, tag, self, { time_scale = 1 }, easing)end end
+
+
+
+
+
+
+
+
+
+an.cancel_slow = function(self, tag)if tag == nil then tag = 'slow'end
+self.timer:cancel(tag)
+self.time_scale = 1 end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+an.hit_stop = function(self, duration, options)if options == nil then options = {  }end;local except = 
+
+options.except;if 
+except then if 
+type(except) == 'string' then
+self.hit_stop_excluded_tags = { [except] = true }else
+
+self.hit_stop_excluded_tags = {  }for _index_0 = 
+1, #except do local tag = except[_index_0]
+self.hit_stop_excluded_tags[tag] = true end end else
+
+self.hit_stop_excluded_tags = {  }end;if not 
+
+
+self.hit_stop_active then
+self.pre_hitstop_time_scale = self.time_scale end
+
+
+self.hit_stop_active = true
+self.hit_stop_remaining = duration
+self.time_scale = 0 end
+
+
+
+
+
+
+
+
+
+
+
+an.get_dt_for = function(self, object)if 
+self.hit_stop_active and object.tags then for tag, _ in 
+pairs(object.tags) do if 
+self.hit_stop_excluded_tags[tag] then return 
+self.unscaled_dt end end end;return 
+self.dt end
+
+
+an:early_action('hit_stop_countdown', function(self, dt)if not 
+self.hit_stop_active then return end
+self.hit_stop_remaining = self.hit_stop_remaining - self.unscaled_dt;if 
+self.hit_stop_remaining <= 0 then
+self.hit_stop_active = false
+self.hit_stop_excluded_tags = {  }
+self.time_scale = self.pre_hitstop_time_scale end end)
 
 
 an.colliders = {  }
@@ -1345,13 +1483,22 @@ an.draw_calls = engine_get_draw_calls()for name, layer in
 
 pairs(an.layers) do if 
 layer.camera then
-layer.camera:attach(layer, layer.parallax_x, layer.parallax_y)end end;local all_objects = { 
+layer.camera:attach(layer, layer.parallax_x, layer.parallax_y)end end
+
+
+engine_set_time_scale(an.time_scale)
+an.dt = engine_get_dt()
+an.unscaled_dt = engine_get_unscaled_dt()local all_objects = { 
 
 an }local _list_0 = 
 an:all()for _index_0 = 1, #_list_0 do local obj = _list_0[_index_0]all_objects[#all_objects + 1] = obj end;for _index_0 = 
-1, #all_objects do local obj = all_objects[_index_0]obj:_early_update(dt)end;for _index_0 = 
-1, #all_objects do local obj = all_objects[_index_0]obj:_update(dt)end;for _index_0 = 
-1, #all_objects do local obj = all_objects[_index_0]obj:_late_update(dt)end
+
+
+1, #all_objects do local obj = all_objects[_index_0]obj:_early_update(an:get_dt_for(obj))end;for _index_0 = 
+
+1, #all_objects do local obj = all_objects[_index_0]obj:_update(an:get_dt_for(obj))end;for _index_0 = 
+
+1, #all_objects do local obj = all_objects[_index_0]obj:_late_update(an:get_dt_for(obj))end
 an:cleanup()for name, layer in 
 
 

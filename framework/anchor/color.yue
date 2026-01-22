@@ -168,7 +168,7 @@ class color
     Returns: packed RGBA integer
   ]]
   __call: =>
-    rgba @data.r, @data.g, @data.b, @data.a
+    rgba math.floor(@data.r + 0.5), math.floor(@data.g + 0.5), math.floor(@data.b + 0.5), math.floor(@data.a + 0.5)
 
   --[[
     Multiply RGB by scalar or another color's RGB.

@@ -37,6 +37,8 @@ require 'anchor.shake'
 require 'anchor.random'
 require 'anchor.color'
 require 'anchor.array'
+require 'anchor.spritesheet'
+require 'anchor.animation'
 
 -- Return initialization function that takes config
 return (config={}) ->
@@ -81,13 +83,21 @@ return (config={}) ->
   an.shaders = {}
   an.sounds = {}
   an.tracks = {}
+  an.spritesheets = {}
   an\add random!
+  an\add timer!
 
   -- Engine state: static values (don't change during runtime)
   an.width = engine_get_width!
   an.height = engine_get_height!
-  an.dt = engine_get_dt!
+  an.unscaled_dt = engine_get_unscaled_dt!
   an.platform = engine_get_platform!
+
+  -- Time scale state
+  an.time_scale = 1.0         -- Current time scale multiplier
+  an.dt = an.unscaled_dt      -- Scaled dt (updated each frame)
+  an.hit_stop_active = false  -- True during hitstop
+  an.hit_stop_excluded_tags = {}  -- Tags that ignore hitstop
 
   --[[
     Registers a named layer.
@@ -124,7 +134,33 @@ return (config={}) ->
     handle = texture_load path
     @images[name] = image handle
     @images[name]
-  
+
+  --[[
+    Registers a named spritesheet.
+
+    Usage:
+      an\spritesheet 'hit', 'assets/hit1.png', 96, 48
+      an\spritesheet 'explosion', 'assets/explosion.png', 32, 32, 1  -- with 1px padding
+
+    Parameters:
+      name         - string name for later access
+      path         - file path to spritesheet image
+      frame_width  - width of each frame in pixels
+      frame_height - height of each frame in pixels
+      padding      - (optional) pixels between frames, default 0
+
+    Behavior:
+      - Loads spritesheet from path with frame dimensions
+      - Creates a spritesheet wrapper and stores in an.spritesheets[name]
+      - Subsequent access via an.spritesheets.hit, etc.
+
+    Returns: the created spritesheet object
+  ]]
+  an.spritesheet = (name, path, frame_width, frame_height, padding=0) =>
+    handle = spritesheet_load path, frame_width, frame_height, padding
+    @spritesheets[name] = spritesheet handle
+    @spritesheets[name]
+
   --[[
     Registers a named font.
   
@@ -487,6 +523,108 @@ return (config={}) ->
         @\playlist_generate_shuffle!
       @\playlist_play!
   
+  -- =============================================================================
+  -- TIME SCALE SYSTEM
+  -- =============================================================================
+
+  --[[
+    Applies slow-motion effect with optional tween recovery.
+
+    Usage:
+      an\slow 0.5                                    -- slow to 0.5, instant
+      an\slow 0.5, 0.3                               -- recover over 0.3s
+      an\slow 0.2, 0.5, math.elastic_out             -- with easing
+      an\slow 0.2, 0.5, math.elastic_out, 'combat'   -- with tag for cancellation
+
+    Parameters:
+      amount   - time scale (0 = frozen, 1 = normal, 0.5 = half speed)
+      duration - (optional) recovery duration in seconds (default 0)
+      easing   - (optional) easing function for recovery (default math.cubic_in_out)
+      tag      - (optional) string tag for cancellation via cancel_slow
+  ]]
+  an.slow = (amount, duration=0, easing=math.cubic_in_out, tag='slow') =>
+    @time_scale = amount
+    if duration > 0
+      @timer\tween duration, tag, @, {time_scale: 1}, easing
+
+  --[[
+    Cancels a slow-motion effect by tag.
+
+    Usage:
+      an\cancel_slow 'combat'
+
+    Immediately restores time_scale to 1.0 and cancels the tween.
+  ]]
+  an.cancel_slow = (tag='slow') =>
+    @timer\cancel tag
+    @time_scale = 1
+
+  --[[
+    Applies hitstop (global freeze with tag-based exclusion).
+
+    Usage:
+      an\hit_stop 0.1                              -- freeze everything for 0.1s
+      an\hit_stop 0.05, except: 'ui'               -- 'ui' tagged objects use unscaled_dt
+      an\hit_stop 0.1, except: {'ui', 'particles'} -- multiple exclusions
+
+    Parameters:
+      duration - freeze duration in seconds (uses unscaled time)
+      options  - (optional) table with:
+                   except: tag or array of tags to exclude from hitstop
+
+    During hitstop:
+      - an.time_scale = 0, an.dt = 0
+      - Physics is stepped with dt = 0 (maintains collisions, no movement)
+      - Objects with excluded tags get unscaled_dt via get_dt_for
+  ]]
+  an.hit_stop = (duration, options={}) =>
+    -- Handle exclusions
+    except = options.except
+    if except
+      if type(except) == 'string'
+        @hit_stop_excluded_tags = {[except]: true}
+      else
+        @hit_stop_excluded_tags = {}
+        for tag in *except
+          @hit_stop_excluded_tags[tag] = true
+    else
+      @hit_stop_excluded_tags = {}
+
+    -- Only save pre_hitstop_time_scale if not already in hitstop
+    unless @hit_stop_active
+      @pre_hitstop_time_scale = @time_scale
+
+    -- Activate hitstop (engine sync happens in update loop)
+    @hit_stop_active = true
+    @hit_stop_remaining = duration
+    @time_scale = 0
+
+  --[[
+    Returns the appropriate dt for an object based on hitstop state.
+
+    Usage (internal, called by main loop):
+      dt = an\get_dt_for object
+
+    Returns:
+      - unscaled_dt if hitstop is active AND object has an excluded tag
+      - an.dt otherwise (which is 0 during hitstop, scaled_dt otherwise)
+  ]]
+  an.get_dt_for = (object) =>
+    if @hit_stop_active and object.tags
+      for tag, _ in pairs object.tags
+        if @hit_stop_excluded_tags[tag]
+          return @unscaled_dt
+    @dt
+
+  -- Hitstop countdown action (uses unscaled time)
+  an\early_action 'hit_stop_countdown', (dt) =>
+    return unless @hit_stop_active
+    @hit_stop_remaining -= @unscaled_dt
+    if @hit_stop_remaining <= 0
+      @hit_stop_active = false
+      @hit_stop_excluded_tags = {}
+      @time_scale = @pre_hitstop_time_scale
+
   -- Physics world state
   an.colliders = {}        -- body_handle -> collider (internal registry)
   an.collision_pairs = {}  -- tracks enabled pairs for queries
@@ -1347,11 +1485,20 @@ return (config={}) ->
       if layer.camera
         layer.camera\attach layer, layer.parallax_x, layer.parallax_y
   
+    -- Update time scale values and sync to engine
+    engine_set_time_scale an.time_scale
+    an.dt = engine_get_dt!
+    an.unscaled_dt = engine_get_unscaled_dt!
+
     all_objects = {an}
     all_objects[] = obj for obj in *an\all!
-    obj\_early_update dt for obj in *all_objects
-    obj\_update dt for obj in *all_objects
-    obj\_late_update dt for obj in *all_objects
+
+    -- Early phase (uses per-object dt based on hitstop exclusion)
+    obj\_early_update an\get_dt_for(obj) for obj in *all_objects
+    -- Main phase
+    obj\_update an\get_dt_for(obj) for obj in *all_objects
+    -- Late phase
+    obj\_late_update an\get_dt_for(obj) for obj in *all_objects
     an\cleanup!
   
     -- Detach camera transforms after all drawing is done

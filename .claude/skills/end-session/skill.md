@@ -14,15 +14,32 @@ Ask the user for a session title (max 30 characters). Examples: "Anchor Phase 10
 ## Step 2: Find and Convert Transcript
 
 ```bash
-# Find the two most recent transcripts (current session + previous session to summarize)
-ls -t ~/.claude/projects/E--a327ex-Anchor/*.jsonl | grep -v agent | head -2
-
-# The SECOND file is the session to summarize (the first is this current end-session conversation)
-# Convert to markdown directly to Blot folder (use lowercase hyphenated slug)
-python E:/a327ex/Anchor/scripts/jsonl-to-markdown.py [SECOND_JSONL_PATH] E:/a327ex/anchor.blot.im/logs/[slug].md
+# Find recent sessions by LAST MESSAGE TIMESTAMP (not file modification time)
+# This searches both Anchor and emoji-ball-battles project folders
+python E:/a327ex/Anchor/scripts/find-recent-session.py --limit 5
 ```
 
-**Note:** When running this skill in a fresh session, the most recent transcript is the current end-session conversation. The second most recent is the actual work session to summarize.
+The script shows sessions sorted by when they ended. The output looks like:
+```
+2026-01-22T16:24:41.240Z 4e1a899e-926e-4c61-b79e-e52963e65e04 <-- MOST RECENT
+   <command-message>end-session</command-message>...
+   [path]
+
+2026-01-22T15:50:21.940Z d3fb49a7-95bc-4c98-9347-3cf97dc54f98
+   Hello. Let's implement ENGINE_WANTS...
+   [path]
+```
+
+- The **first result** is the current end-session conversation (skip it)
+- The **second result** is the work session to summarize
+
+**Verify with the user** that the second session's first message matches what they worked on. Then convert:
+
+```bash
+python E:/a327ex/Anchor/scripts/jsonl-to-markdown.py [SECOND_SESSION_PATH] E:/a327ex/anchor.blot.im/logs/[slug].md
+```
+
+Use lowercase hyphenated slug derived from the title (e.g., "anchor-primitives-hitstop-animation").
 
 ## Step 3: Read the Full Log (CRITICAL)
 

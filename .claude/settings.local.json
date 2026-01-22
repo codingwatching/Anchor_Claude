@@ -50,7 +50,8 @@
       "Bash(powershell -NoProfile -Command \"Compress-Archive -Path * -DestinationPath /tmp/test.zip -Force\")",
       "Bash(unzip:*)",
       "Bash(./package.bat ../framework)",
-      "WebFetch(domain:earclacks-fighting.fandom.com)"
+      "WebFetch(domain:earclacks-fighting.fandom.com)",
+      "WebFetch(domain:partner.steamgames.com)"
     ]
   }
 }

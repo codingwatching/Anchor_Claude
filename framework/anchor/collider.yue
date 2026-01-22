@@ -140,6 +140,15 @@ class collider extends object
   get_mass: => physics_get_mass @body
 
   --[[
+    Sets the center of mass relative to the body origin (in pixels).
+    This overrides the computed center of mass from shapes.
+
+    Usage:
+      @collider\set_center_of_mass 0, 0  -- center at body origin
+  ]]
+  set_center_of_mass: (x, y) => physics_set_center_of_mass @body, x, y
+
+  --[[
     Returns the body type: 'static', 'kinematic', or 'dynamic'.
   ]]
   get_body_type: => physics_get_body_type @body

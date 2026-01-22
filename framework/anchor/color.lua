@@ -168,7 +168,7 @@ rawset(self, key, value)end end, __call = function(self)return
 
 
 
-rgba(self.data.r, self.data.g, self.data.b, self.data.a)end, __mul = function(self, other)if 
+rgba(math.floor(self.data.r + 0.5), math.floor(self.data.g + 0.5), math.floor(self.data.b + 0.5), math.floor(self.data.a + 0.5))end, __mul = function(self, other)if 
 
 
 

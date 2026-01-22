@@ -61,7 +61,118 @@ layer_rectangle(self.handle, x, y, w, h, color)end, circle = function(self, x, y
 
 
 
-layer_circle(self.handle, x, y, radius, color)end, image = function(self, image, x, y, color, flash)return 
+layer_circle(self.handle, x, y, radius, color)end, rectangle_line = function(self, x, y, w, h, color, line_width)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_rectangle_line(self.handle, x, y, w, h, color, line_width or 1)end, circle_line = function(self, x, y, radius, color, line_width)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_circle_line(self.handle, x, y, radius, color, line_width or 1)end, line = function(self, x1, y1, x2, y2, width, color)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_line(self.handle, x1, y1, x2, y2, width, color)end, capsule = function(self, x1, y1, x2, y2, radius, color)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_capsule(self.handle, x1, y1, x2, y2, radius, color)end, capsule_line = function(self, x1, y1, x2, y2, radius, color, line_width)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_capsule_line(self.handle, x1, y1, x2, y2, radius, color, line_width or 1)end, triangle = function(self, x1, y1, x2, y2, x3, y3, color)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_triangle(self.handle, x1, y1, x2, y2, x3, y3, color)end, triangle_line = function(self, x1, y1, x2, y2, x3, y3, color, line_width)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_triangle_line(self.handle, x1, y1, x2, y2, x3, y3, color, line_width or 1)end, polygon = function(self, vertices, color)return 
 
 
 
@@ -80,7 +191,114 @@ layer_circle(self.handle, x, y, radius, color)end, image = function(self, image,
 
 
 
-layer_draw_texture(self.handle, image.handle, x, y, color or 0xFFFFFFFF, flash or 0)end, text = function(self, text, font, x, y, color)
+
+
+layer_polygon(self.handle, vertices, color)end, polygon_line = function(self, vertices, color, line_width)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_polygon_line(self.handle, vertices, color, line_width or 1)end, rounded_rectangle = function(self, x, y, w, h, radius, color)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_rounded_rectangle(self.handle, x, y, w, h, radius, color)end, rounded_rectangle_line = function(self, x, y, w, h, radius, color, line_width)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_rounded_rectangle_line(self.handle, x, y, w, h, radius, color, line_width or 1)end, image = function(self, image, x, y, color, flash)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_draw_texture(self.handle, image.handle, x, y, color or 0xFFFFFFFF, flash or 0)end, spritesheet = function(self, sheet, frame, x, y, color, flash)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_draw_spritesheet_frame(self.handle, sheet.handle, frame, x, y, color or 0xFFFFFFFF, flash or 0)end, animation = function(self, animation_object, x, y, color, flash)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_draw_spritesheet_frame(self.handle, animation_object.spritesheet.handle, animation_object.frame, x, y, color or 0xFFFFFFFF, flash or 0)end, text = function(self, text, font, x, y, color)
 
 
 

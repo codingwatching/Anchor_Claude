@@ -3,7 +3,151 @@
 
 require('anchor')({ width = 480, height = 
 270, title = 
-"Anchor Framework Test" })
+"Primitives Test" })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -452,6 +596,15 @@ an:music('track2', 'assets/speder2_02.ogg')
 an:music('track3', 'assets/speder2_03.ogg')
 
 
+an:spritesheet('hit', 'assets/hit1.png', 96, 48)
+
+
+test_anim_loop = animation(an.spritesheets.hit, 0.1, 'loop')
+
+test_anim_once = animation(an.spritesheets.hit, 0.1, 'once', { [0] = function(self)return print("once animation completed!")end })
+test_anim_bounce = animation(an.spritesheets.hit, 0.1, 'bounce')
+
+
 an:playlist_set({ 'track1', 'track2', 'track3' })
 
 
@@ -466,6 +619,17 @@ print("7 - Toggle shuffle")
 print("8 - Toggle crossfade (0 or 2 seconds)")
 print("9 - Crossfade to track2 (2 seconds)")
 print("0 - Stop playlist")
+print("===========================")
+print("")
+print("=== TIME SCALE CONTROLS ===")
+print("F1 - Slow to 0.5 (instant)")
+print("F2 - Slow to 0.5 with 0.5s recovery (typical player hit)")
+print("F3 - Slow to 0.1 with 1s elastic recovery")
+print("F4 - Cancel slow")
+print("F5 - Hit stop 0.1s")
+print("F6 - Hit stop 0.2s (UI excluded)")
+print("F7 - Print time scale info")
+print("F8 - Reset 'once' animation")
 print("===========================")
 
 
@@ -726,8 +890,50 @@ print("  an.window_width = " .. tostring(an.window_width))
 print("  an.window_height = " .. tostring(an.window_height))
 print("  an.scale = " .. tostring(an.scale))
 print("  an.fullscreen = " .. tostring(an.fullscreen))
-print("  an.fps = " .. tostring(string.format('%.1f', an.fps)))return 
-print("  an.draw_calls = " .. tostring(an.draw_calls))end end)
+print("  an.fps = " .. tostring(string.format('%.1f', an.fps)))
+print("  an.draw_calls = " .. tostring(an.draw_calls))end;if 
+
+
+an:key_is_pressed('f1') then
+an:slow(0.5)
+print("Slow: 0.5 (instant)")end;if 
+
+an:key_is_pressed('f2') then
+an:slow(0.5, 0.5)
+print("Slow: 0.5 with 0.5s cubic_in_out recovery (typical player hit)")end;if 
+
+an:key_is_pressed('f3') then
+an:slow(0.1, 1, math.elastic_out)
+print("Slow: 0.1 with 1s elastic recovery")end;if 
+
+an:key_is_pressed('f4') then
+an:cancel_slow()
+print("Slow: cancelled")end;if 
+
+an:key_is_pressed('f5') then
+an:hit_stop(0.1)
+print("Hit stop: 0.1s")end;if 
+
+an:key_is_pressed('f6') then
+an:hit_stop(0.2, { except = 'ui' })
+print("Hit stop: 0.2s (UI excluded)")end;if 
+
+an:key_is_pressed('f7') then
+print("=== TIME SCALE STATE ===")
+print("  an.time_scale = " .. tostring(an.time_scale))
+print("  an.dt = " .. tostring(an.dt))
+print("  an.unscaled_dt = " .. tostring(an.unscaled_dt))
+print("  an.hit_stop_active = " .. tostring(an.hit_stop_active))end;if 
+
+
+an:key_is_pressed('f8') then
+test_anim_once:reset()
+print("Reset 'once' animation")end
+
+
+test_anim_loop:update(dt)
+test_anim_once:update(dt)return 
+test_anim_bounce:update(dt)end)
 
 
 an:early_action('handle_collisions', function(self)local _list_0 = 
@@ -784,7 +990,17 @@ zone:draw(ui)end;local _list_3 =
 
 an:all('ball')for _index_0 = 1, #_list_3 do local b = _list_3[_index_0]local screen_x,screen_y = 
 an.camera:to_screen(b.x, b.y)
-ui:circle(screen_x, screen_y - 20, 5, red())end;local is_playing = 
+ui:circle(screen_x, screen_y - 20, 5, red())end
+
+
+ui:text("loop", 'main', 60, H - 90, white())
+ui:animation(test_anim_loop, 80, H - 55)
+
+ui:text("once", 'main', 180, H - 90, white())
+ui:animation(test_anim_once, 200, H - 55)
+
+ui:text("bounce", 'main', 290, H - 90, white())
+ui:animation(test_anim_bounce, 320, H - 55)local is_playing = 
 
 
 music_is_playing(an.playlist_channel) or (an.crossfade_state and music_is_playing(an.crossfade_state.to_channel))local playing_status = 

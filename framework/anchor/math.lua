@@ -15,6 +15,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 PI = math.pi
 PI2 = math.pi / 2
 LN2 = math.log(2)
@@ -147,12 +159,253 @@ math.lerp_angle(1 - (1 - p) ^ (dt / t), source, destination)end
 
 
 
+math.sign = function(value)if 
+value > 0 then return 1 elseif 
+value < 0 then return -1 else return 
+0 end end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.length = function(x, y)return 
+math.sqrt(x * x + y * y)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 math.clamp = function(value, min, max)if 
 value < min then return min elseif 
 value > max then return max else return 
 value end end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.remap = function(value, old_min, old_max, new_min, new_max)return ((
+value - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.angle = function(x, y)return 
+math.atan2(y, x)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.angle_to_point = function(x1, y1, x2, y2)return 
+math.atan2(y2 - y1, x2 - x1)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.distance = function(x1, y1, x2, y2)local dx = 
+x2 - x1;local dy = 
+y2 - y1;return 
+math.sqrt(dx * dx + dy * dy)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.normalize = function(x, y)local len = 
+math.length(x, y)if 
+len > 0 then return 
+x / len, y / len else return 
+
+0, 0 end end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.direction = function(angle)return 
+math.cos(angle), math.sin(angle)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.rotate = function(x, y, angle)local c = 
+math.cos(angle)local s = 
+math.sin(angle)return 
+x * c - y * s, x * s + y * c end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.reflect = function(angle, normal_x, normal_y)local dx = 
+
+math.cos(angle)local dy = 
+math.sin(angle)local dot = 
+
+
+dx * normal_x + dy * normal_y;local rx = 
+dx - 2 * dot * normal_x;local ry = 
+dy - 2 * dot * normal_y;return 
+
+math.atan2(ry, rx)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.snap = function(value, grid)return 
+math.floor(value / grid + 0.5) * grid end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+math.limit = function(x, y, max)local len = 
+math.length(x, y)if 
+len > max then local scale = 
+max / len;return 
+x * scale, y * scale else return 
+
+x, y end end
 
 
 math.linear = function(t)return t end

@@ -137,7 +137,16 @@ physics_add_polygon(self.body, tag, vertices, opts)end, get_mass = function(self
 
 
 
-physics_get_mass(self.body)end, get_body_type = function(self)return 
+physics_get_mass(self.body)end, set_center_of_mass = function(self, x, y)return 
+
+
+
+
+
+
+
+
+physics_set_center_of_mass(self.body, x, y)end, get_body_type = function(self)return 
 
 
 

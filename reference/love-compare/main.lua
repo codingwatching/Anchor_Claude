@@ -354,7 +354,117 @@ function init()
   --]]
   --}}}
 
-  --{{{ Alpha blending test (multi-canvas)
+  --{{{ Primitives test
+  -- Colors (matching Anchor test)
+  local white = {r=1, g=1, b=1, a=1}
+  local red = {r=1, g=0.39, b=0.39, a=1}
+  local green = {r=0.39, g=1, b=0.39, a=1}
+  local blue = {r=0.39, g=0.39, b=1, a=1}
+  local yellow = {r=1, g=1, b=0.39, a=1}
+  local cyan = {r=0.39, g=1, b=1, a=1}
+  local magenta = {r=1, g=0.39, b=1, a=1}
+  local orange = {r=1, g=0.71, b=0.39, a=1}
+  local bg_prim = {r=0.16, g=0.17, b=0.2, a=1}
+
+  function an:draw_layers()
+    game:layer_draw_commands()
+    self:layer_draw_to_canvas('main', function()
+      game:layer_draw()
+    end)
+    self:layer_draw('main', 0, 0, 0, self.sx, self.sy)
+  end
+
+  an:action(function(self, dt)
+    -- Background
+    game:rectangle(screen_w/2, screen_h/2, screen_w, screen_h, 0, 0, bg_prim)
+
+    -- Row 1: Filled shapes (y = 50)
+    -- Rectangle (center, top-left at 10, 30 with w=50, h=40)
+    game:rectangle(35, 50, 50, 40, 0, 0, red)
+
+    -- Circle (center at 95, 50, r=18)
+    game:circle(95, 50, 18, green)
+
+    -- Triangle (using polygon with 3 vertices)
+    game:polygon({130, 70, 165, 70, 147, 30}, blue)
+
+    -- Line (LÖVE line with round caps)
+    game:line(180, 35, 230, 65, yellow, 6)
+
+    -- Capsule - LÖVE doesn't have capsule, leave empty space
+    -- (space at x=250-300 left intentionally empty)
+
+    -- Polygon (hexagon)
+    game:polygon({
+      345, 30,   -- top
+      365, 40,   -- top-right
+      365, 60,   -- bottom-right
+      345, 70,   -- bottom
+      325, 60,   -- bottom-left
+      325, 40    -- top-left
+    }, magenta)
+
+    -- Rounded rectangle (top-left at 390, 30, w=60, h=40, radius=10)
+    game:rectangle_lt(390, 30, 60, 40, 10, 10, orange)
+
+    -- Row 2: Outline shapes (y = 140)
+    -- Rectangle outline
+    game:rectangle(35, 140, 50, 40, 0, 0, red, 2)
+
+    -- Circle outline
+    game:circle(95, 140, 18, green, 2)
+
+    -- Triangle outline
+    game:polygon({130, 160, 165, 160, 147, 120}, blue, 2)
+
+    -- Line (thin)
+    game:line(180, 125, 230, 155, yellow, 2)
+
+    -- Capsule outline - LÖVE doesn't have capsule, leave empty space
+    -- (space at x=250-300 left intentionally empty)
+
+    -- Polygon outline (hexagon)
+    game:polygon({
+      345, 120,  -- top
+      365, 130,  -- top-right
+      365, 150,  -- bottom-right
+      345, 160,  -- bottom
+      325, 150,  -- bottom-left
+      325, 130   -- top-left
+    }, magenta, 2)
+
+    -- Rounded rectangle outline
+    game:rectangle_lt(390, 120, 60, 40, 10, 10, orange, 2)
+
+    -- Row 3: Mixed / transformed (y = 220)
+    -- Rotated rectangle
+    game:push_trs(50, 220, math.pi/6, 1, 1)
+        game:rectangle(0, 0, 50, 30, 0, 0, orange)
+    game:pop()
+
+    -- Scaled circle (ellipse)
+    game:push_trs(130, 220, 0, 1.5, 0.75)
+        game:circle(0, 0, 15, white)
+    game:pop()
+
+    -- Rotated triangle
+    game:push_trs(200, 220, math.pi/4, 1, 1)
+        game:polygon({-15, 15, 15, 15, 0, -15}, red)
+    game:pop()
+
+    -- Multiple overlapping (semi-transparent)
+    game:circle(280, 220, 25, {r=1, g=0, b=0, a=0.5})
+    game:circle(300, 220, 25, {r=0, g=1, b=0, a=0.5})
+    game:circle(290, 200, 25, {r=0, g=0, b=1, a=0.5})
+
+    -- Rotated rounded rectangle
+    game:push_trs(400, 220, math.pi/8, 1, 1)
+        game:rectangle(0, 0, 50, 30, 8, 8, cyan)
+    game:pop()
+  end)
+  --}}}
+
+  --[[ Alpha blending test (multi-canvas) - commented out
   -- Create a second layer for the transparent element
   ui_layer = object():layer()
 
@@ -391,7 +501,7 @@ function init()
     game:draw_text('Opaque (a=255)', 'lana_pixel', 70, screen_h/2 + 70, 0, 1, 1, 0, 0, {r=0, g=0, b=0, a=1})
     game:draw_text('Transparent (a=32)', 'lana_pixel', 295, screen_h/2 + 70, 0, 1, 1, 0, 0, {r=0, g=0, b=0, a=1})
   end)
-  --}}}
+  --]]
 
   --{{{ Combined bouncing circle and emoji test
   --[[

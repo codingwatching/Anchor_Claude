@@ -3,7 +3,151 @@ global *
 require('anchor')
   width: 480
   height: 270
-  title: "Anchor Framework Test"
+  title: "Primitives Test"
+
+--[[
+-- =============================================================================
+-- SHAPES TEST (commented out)
+-- =============================================================================
+
+-- Setup layer
+game = an\layer 'game'
+game.camera = nil  -- No camera, draw in screen space
+
+-- Colors
+white = color 255, 255, 255
+red = color 255, 100, 100
+green = color 100, 255, 100
+blue = color 100, 100, 255
+yellow = color 255, 255, 100
+cyan = color 100, 255, 255
+magenta = color 255, 100, 255
+orange = color 255, 180, 100
+bg = color 40, 44, 52
+
+-- Primitives test - static display
+an\late_action 'draw', =>
+  -- Background
+  game\rectangle 0, 0, 480, 270, bg!
+
+  -- Row 1: Filled shapes (y = 50)
+  -- Rectangle
+  game\rectangle 10, 30, 50, 40, red!
+
+  -- Circle
+  game\circle 95, 50, 18, green!
+
+  -- Triangle
+  game\triangle 130, 70, 165, 70, 147, 30, blue!
+
+  -- Line (capsule-style with width)
+  game\line 180, 35, 230, 65, 6, yellow!
+
+  -- Capsule
+  game\capsule 250, 35, 300, 65, 10, cyan!
+
+  -- Polygon (hexagon)
+  game\polygon {
+    345, 30,   -- top
+    365, 40,   -- top-right
+    365, 60,   -- bottom-right
+    345, 70,   -- bottom
+    325, 60,   -- bottom-left
+    325, 40    -- top-left
+  }, magenta!
+
+  -- Rounded rectangle
+  game\rounded_rectangle 390, 30, 60, 40, 10, orange!
+
+  -- Row 2: Outline shapes (y = 140)
+  -- Rectangle outline
+  game\rectangle_line 10, 120, 50, 40, red!, 2
+
+  -- Circle outline
+  game\circle_line 95, 140, 18, green!, 2
+
+  -- Triangle outline
+  game\triangle_line 130, 160, 165, 160, 147, 120, blue!, 2
+
+  -- Line (thin, acts as simple line)
+  game\line 180, 125, 230, 155, 2, yellow!
+
+  -- Capsule outline
+  game\capsule_line 250, 125, 300, 155, 10, cyan!, 2
+
+  -- Polygon outline (hexagon)
+  game\polygon_line {
+    345, 120,  -- top
+    365, 130,  -- top-right
+    365, 150,  -- bottom-right
+    345, 160,  -- bottom
+    325, 150,  -- bottom-left
+    325, 130   -- top-left
+  }, magenta!, 2
+
+  -- Rounded rectangle outline
+  game\rounded_rectangle_line 390, 120, 60, 40, 10, orange!, 2
+
+  -- Row 3: Mixed / transformed (y = 230)
+  -- Rotated rectangle
+  game\push 50, 220, math.pi/6, 1, 1
+  game\rectangle -25, -15, 50, 30, orange!
+  game\pop!
+
+  -- Scaled circle
+  game\push 130, 220, 0, 1.5, 0.75
+  game\circle 0, 0, 15, white!
+  game\pop!
+
+  -- Rotated triangle
+  game\push 200, 220, math.pi/4, 1, 1
+  game\triangle -15, 15, 15, 15, 0, -15, red!
+  game\pop!
+
+  -- Multiple overlapping
+  game\circle 280, 220, 25, (color 255, 0, 0, 128)!
+  game\circle 300, 220, 25, (color 0, 255, 0, 128)!
+  game\circle 290, 200, 25, (color 0, 0, 255, 128)!
+
+  -- Rotated rounded rectangle
+  game\push 400, 220, math.pi/8, 1, 1
+  game\rounded_rectangle -25, -15, 50, 30, 8, cyan!
+  game\pop!
+
+  -- Pentagon
+  game\polygon {
+    380, 195,  -- top
+    405, 210,  -- top-right
+    395, 240,  -- bottom-right
+    365, 240,  -- bottom-left
+    355, 210   -- top-left
+  }, yellow!
+
+  -- Octagon outline
+  game\polygon_line {
+    450, 195,  -- top
+    465, 200,  -- top-right 1
+    470, 215,  -- right
+    465, 230,  -- bottom-right
+    450, 235,  -- bottom
+    435, 230,  -- bottom-left
+    430, 215,  -- left
+    435, 200   -- top-left
+  }, cyan!, 1
+
+-- Draw function
+draw = ->
+  game\render!
+  game\draw!
+
+-- =============================================================================
+-- END SHAPES TEST
+-- =============================================================================
+--]]
+
+-- =============================================================================
+-- BASE TEST
+-- =============================================================================
 
 -- =============================================================================
 -- ENGINE STATE TESTS
@@ -451,6 +595,15 @@ an\music 'track1', 'assets/speder2_01.ogg'
 an\music 'track2', 'assets/speder2_02.ogg'
 an\music 'track3', 'assets/speder2_03.ogg'
 
+-- Spritesheet resources
+an\spritesheet 'hit', 'assets/hit1.png', 96, 48
+
+-- Animation test objects (three loop modes)
+test_anim_loop = animation an.spritesheets.hit, 0.1, 'loop'
+test_anim_once = animation an.spritesheets.hit, 0.1, 'once',
+  [0]: => print "once animation completed!"
+test_anim_bounce = animation an.spritesheets.hit, 0.1, 'bounce'
+
 -- Setup playlist
 an\playlist_set {'track1', 'track2', 'track3'}
 
@@ -466,6 +619,17 @@ print "7 - Toggle shuffle"
 print "8 - Toggle crossfade (0 or 2 seconds)"
 print "9 - Crossfade to track2 (2 seconds)"
 print "0 - Stop playlist"
+print "==========================="
+print ""
+print "=== TIME SCALE CONTROLS ==="
+print "F1 - Slow to 0.5 (instant)"
+print "F2 - Slow to 0.5 with 0.5s recovery (typical player hit)"
+print "F3 - Slow to 0.1 with 1s elastic recovery"
+print "F4 - Cancel slow"
+print "F5 - Hit stop 0.1s"
+print "F6 - Hit stop 0.2s (UI excluded)"
+print "F7 - Print time scale info"
+print "F8 - Reset 'once' animation"
 print "==========================="
 
 -- Initialize physics
@@ -729,6 +893,48 @@ an\action (dt) =>
     print "  an.fps = #{string.format('%.1f', an.fps)}"
     print "  an.draw_calls = #{an.draw_calls}"
 
+  -- Time scale tests
+  if an\key_is_pressed 'f1'
+    an\slow 0.5
+    print "Slow: 0.5 (instant)"
+
+  if an\key_is_pressed 'f2'
+    an\slow 0.5, 0.5
+    print "Slow: 0.5 with 0.5s cubic_in_out recovery (typical player hit)"
+
+  if an\key_is_pressed 'f3'
+    an\slow 0.1, 1, math.elastic_out
+    print "Slow: 0.1 with 1s elastic recovery"
+
+  if an\key_is_pressed 'f4'
+    an\cancel_slow!
+    print "Slow: cancelled"
+
+  if an\key_is_pressed 'f5'
+    an\hit_stop 0.1
+    print "Hit stop: 0.1s"
+
+  if an\key_is_pressed 'f6'
+    an\hit_stop 0.2, except: 'ui'
+    print "Hit stop: 0.2s (UI excluded)"
+
+  if an\key_is_pressed 'f7'
+    print "=== TIME SCALE STATE ==="
+    print "  an.time_scale = #{an.time_scale}"
+    print "  an.dt = #{an.dt}"
+    print "  an.unscaled_dt = #{an.unscaled_dt}"
+    print "  an.hit_stop_active = #{an.hit_stop_active}"
+
+  -- Animation tests
+  if an\key_is_pressed 'f8'
+    test_anim_once\reset!
+    print "Reset 'once' animation"
+
+  -- Update test animations
+  test_anim_loop\update dt
+  test_anim_once\update dt
+  test_anim_bounce\update dt
+
 -- Handle collisions
 an\early_action 'handle_collisions', =>
   for event in *an\collision_begin_events 'ball', 'impulse_block'
@@ -786,6 +992,16 @@ an\late_action 'draw', =>
     screen_x, screen_y = an.camera\to_screen b.x, b.y
     ui\circle screen_x, screen_y - 20, 5, red!
 
+  -- Animation test: three loop modes side by side
+  ui\text "loop", 'main', 60, H - 90, white!
+  ui\animation test_anim_loop, 80, H - 55
+
+  ui\text "once", 'main', 180, H - 90, white!
+  ui\animation test_anim_once, 200, H - 55
+
+  ui\text "bounce", 'main', 290, H - 90, white!
+  ui\animation test_anim_bounce, 320, H - 55
+
   -- Audio status display (check current channel OR if crossfade is in progress)
   is_playing = music_is_playing(an.playlist_channel) or (an.crossfade_state and music_is_playing(an.crossfade_state.to_channel))
   playing_status = is_playing and "PLAYING" or "STOPPED"
@@ -830,3 +1046,7 @@ draw = ->
   game_2_outline\draw!
   game_2\draw!
   ui\draw!
+
+-- =============================================================================
+-- END BASE TEST
+-- =============================================================================
