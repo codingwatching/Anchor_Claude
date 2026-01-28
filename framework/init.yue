@@ -1,0 +1,1512 @@
+--[[
+  Anchor framework initialization.
+
+  This file:
+    1. Requires all framework classes (object, layer, image, font)
+    2. Returns an init function that takes configuration
+    3. The init function creates the root 'an' object and sets up the framework
+    4. Defines the global update() function called by the C engine
+
+  Usage:
+    require('anchor') {
+      width: 640
+      height: 360
+      title: "My Game"
+      scale: 2
+      vsync: true
+      fullscreen: false
+      resizable: true
+      filter: "rough"
+    }
+
+  The 'an' object is the root of the object tree and the central access point
+  for all framework resources (layers, images, fonts).
+]]
+
+-- Load framework classes (doesn't require engine to be initialized)
+require 'anchor.object'
+require 'anchor.layer'
+require 'anchor.image'
+require 'anchor.font'
+require 'anchor.timer'
+require 'anchor.math'
+require 'anchor.collider'
+require 'anchor.spring'
+require 'anchor.camera'
+require 'anchor.shake'
+require 'anchor.random'
+require 'anchor.color'
+require 'anchor.array'
+require 'anchor.spritesheet'
+require 'anchor.animation'
+
+-- Return initialization function that takes config
+return (config={}) ->
+  -- Apply configuration before engine_init
+  if config.width and config.height
+    engine_set_game_size config.width, config.height
+  if config.title
+    engine_set_title config.title
+  if config.scale
+    engine_set_scale config.scale
+  if config.vsync != nil
+    engine_set_vsync config.vsync
+  if config.fullscreen != nil
+    engine_set_fullscreen config.fullscreen
+  if config.resizable != nil
+    engine_set_resizable config.resizable
+  if config.filter
+    set_filter_mode config.filter
+
+  -- Initialize engine (creates window, GL context, shaders)
+  engine_init!
+
+  -- Make all definitions global from here on
+  global *
+
+  --[[
+    Root object for the framework.
+
+    All game objects should be children of 'an' (directly or nested).
+    Resource registries (layers, images, fonts) live here.
+
+    Usage:
+      an\layer 'game'                  -- register layer
+      an\image 'player', 'path.png'    -- register image
+      an\font 'main', 'path.ttf', 16   -- register font
+      an\add player                    -- add child object
+  ]]
+  an = object 'an'
+  an.layers = {}
+  an.images = {}
+  an.fonts = {}
+  an.shaders = {}
+  an.sounds = {}
+  an.tracks = {}
+  an.spritesheets = {}
+  an\add random!
+  an\add timer!
+
+  -- Engine state: static values (don't change during runtime)
+  an.width = engine_get_width!
+  an.height = engine_get_height!
+  an.unscaled_dt = engine_get_unscaled_dt!
+  an.platform = engine_get_platform!
+
+  -- Time scale state
+  an.time_scale = 1.0         -- Current time scale multiplier
+  an.dt = an.unscaled_dt      -- Scaled dt (updated each frame)
+  an.hit_stop_active = false  -- True during hitstop
+  an.hit_stop_excluded_tags = {}  -- Tags that ignore hitstop
+
+  --[[
+    Registers a named layer.
+  
+    Usage:
+      an\layer 'game'
+      an\layer 'ui'
+  
+    Behavior:
+      - Creates a layer object and stores it in an.layers[name]
+      - Subsequent access via an.layers.game, an.layers.ui, etc.
+  
+    Returns: the created layer object
+  ]]
+  an.layer = (name) =>
+    @layers[name] = layer name
+    @layers[name]
+  
+  --[[
+    Registers a named image (texture).
+  
+    Usage:
+      an\image 'player', 'assets/player.png'
+      an\image 'enemy', 'assets/enemy.png'
+  
+    Behavior:
+      - Loads texture from path via texture_load()
+      - Creates an image wrapper and stores in an.images[name]
+      - Subsequent access via an.images.player, an.images.enemy, etc.
+  
+    Returns: the created image object
+  ]]
+  an.image = (name, path) =>
+    handle = texture_load path
+    @images[name] = image handle
+    @images[name]
+
+  --[[
+    Registers a named spritesheet.
+
+    Usage:
+      an\spritesheet 'hit', 'assets/hit1.png', 96, 48
+      an\spritesheet 'explosion', 'assets/explosion.png', 32, 32, 1  -- with 1px padding
+
+    Parameters:
+      name         - string name for later access
+      path         - file path to spritesheet image
+      frame_width  - width of each frame in pixels
+      frame_height - height of each frame in pixels
+      padding      - (optional) pixels between frames, default 0
+
+    Behavior:
+      - Loads spritesheet from path with frame dimensions
+      - Creates a spritesheet wrapper and stores in an.spritesheets[name]
+      - Subsequent access via an.spritesheets.hit, etc.
+
+    Returns: the created spritesheet object
+  ]]
+  an.spritesheet = (name, path, frame_width, frame_height, padding=0) =>
+    handle = spritesheet_load path, frame_width, frame_height, padding
+    @spritesheets[name] = spritesheet handle
+    @spritesheets[name]
+
+  --[[
+    Registers a named font.
+  
+    Usage:
+      an\font 'main', 'assets/LanaPixel.ttf', 11
+      an\font 'title', 'assets/BigFont.ttf', 32
+  
+    Behavior:
+      - Loads font from path at given size
+      - Creates a font wrapper and stores in an.fonts[name]
+      - Subsequent access via an.fonts.main, an.fonts.title, etc.
+  
+    Returns: the created font object
+  ]]
+  an.font = (name, path, size) =>
+    @fonts[name] = font name, path, size
+    @fonts[name]
+  
+  --[[
+    Registers a named shader from a file.
+  
+    Usage:
+      an\shader 'shadow', 'shaders/shadow.frag'
+      an\shader 'outline', 'shaders/outline.frag'
+  
+    Behavior:
+      - Loads shader from file path via shader_load_file()
+      - Stores shader handle in an.shaders[name]
+      - Subsequent access via an.shaders.shadow, an.shaders.outline, etc.
+  
+    Returns: the shader handle
+  ]]
+  an.shader = (name, path) =>
+    @shaders[name] = shader_load_file path
+    @shaders[name]
+  
+  --[[
+    Registers a named shader from source string.
+  
+    Usage:
+      an\shader_string 'invert', '...shader source...'
+  
+    Behavior:
+      - Compiles shader from source string via shader_load_string()
+      - Stores shader handle in an.shaders[name]
+      - Subsequent access via an.shaders[name]
+  
+    Returns: the shader handle
+  ]]
+  an.shader_string = (name, source) =>
+    @shaders[name] = shader_load_string source
+    @shaders[name]
+  
+  --[[
+    Registers a named sound effect.
+  
+    Usage:
+      an\sound 'hit', 'assets/hit.wav'
+      an\sound 'jump', 'assets/jump.ogg'
+  
+    Behavior:
+      - Loads sound from path via sound_load()
+      - Stores sound handle in an.sounds[name]
+      - Subsequent access via an.sounds.hit, an.sounds.jump, etc.
+  
+    Returns: the sound handle
+  ]]
+  an.sound = (name, path) =>
+    @sounds[name] = sound_load path
+    @sounds[name]
+  
+  --[[
+    Plays a sound effect by name.
+  
+    Usage:
+      an\sound_play 'hit'
+      an\sound_play 'hit', 0.5        -- half volume
+      an\sound_play 'hit', 1, 1.2     -- normal volume, higher pitch
+  
+    Parameters:
+      name   - sound name (registered via an\sound)
+      volume - (optional) volume 0-1, default 1
+      pitch  - (optional) pitch multiplier, default 1
+  ]]
+  an.sound_play = (name, volume=1, pitch=1) =>
+    sound_play @sounds[name], volume, pitch
+  
+  --[[
+    Sets the master volume for all sound effects.
+  
+    Usage:
+      an\sound_set_volume 0.5  -- half volume
+  ]]
+  an.sound_set_volume = (volume) =>
+    sound_set_volume volume
+  
+  --[[
+    Registers a named music track.
+  
+    Usage:
+      an\music 'battle', 'assets/battle.ogg'
+      an\music 'menu', 'assets/menu.ogg'
+  
+    Behavior:
+      - Loads music from path via music_load()
+      - Stores music handle in an.tracks[name]
+      - Subsequent access via an.tracks.battle, an.tracks.menu, etc.
+  
+    Returns: the music handle
+  ]]
+  an.music = (name, path) =>
+    @tracks[name] = music_load path
+    @tracks[name]
+  
+  --[[
+    Plays a music track by name.
+  
+    Usage:
+      an\music_play 'battle'           -- play once
+      an\music_play 'battle', true     -- loop
+      an\music_play 'battle', true, 1  -- loop on channel 1
+  
+    Parameters:
+      name    - music name (registered via an\music)
+      loop    - (optional) whether to loop, default false
+      channel - (optional) channel 0 or 1, default 0
+  ]]
+  an.music_play = (name, loop=false, channel=0) =>
+    -- Cancel crossfade if we're playing directly on a channel it uses
+    if @crossfade_state and (channel == @crossfade_state.from_channel or channel == @crossfade_state.to_channel)
+      music_set_volume @crossfade_state.original_from_volume, @crossfade_state.from_channel
+      music_set_volume @crossfade_state.original_to_volume, @crossfade_state.to_channel
+      @crossfade_state = nil
+    music_play @tracks[name], loop, channel
+  
+  --[[
+    Stops music playback.
+  
+    Usage:
+      an\music_stop!      -- stop all channels
+      an\music_stop 0     -- stop channel 0 only
+      an\music_stop 1     -- stop channel 1 only
+  ]]
+  an.music_stop = (channel=-1) =>
+    music_stop channel
+    -- Cancel any in-progress crossfade and restore original volumes
+    if @crossfade_state
+      music_set_volume @crossfade_state.original_from_volume, @crossfade_state.from_channel
+      music_set_volume @crossfade_state.original_to_volume, @crossfade_state.to_channel
+      @crossfade_state = nil
+    -- Reset playlist channel to 0 when stopping all channels
+    if channel == -1
+      @playlist_channel = 0
+  
+  --[[
+    Sets music volume.
+  
+    Usage:
+      an\music_set_volume 0.5          -- master volume
+      an\music_set_volume 0.5, 0       -- channel 0 volume
+      an\music_set_volume 0.5, 1       -- channel 1 volume
+  
+    Parameters:
+      volume  - volume 0-1
+      channel - (optional) channel 0 or 1, or -1 for master (default)
+  ]]
+  an.music_set_volume = (volume, channel=-1) =>
+    music_set_volume volume, channel
+  
+  --[[
+    Crossfades from current music to a new track.
+  
+    Usage:
+      an\music_crossfade 'battle', 2       -- crossfade over 2 seconds
+      an\music_crossfade 'battle', 2, true -- crossfade and loop
+  
+    Parameters:
+      name     - music name (registered via an\music)
+      duration - crossfade duration in seconds
+      loop     - (optional) whether to loop new track, default false
+  
+    Behavior:
+      - Starts new track on channel 1 at volume 0
+      - Tweens channel 0 from 1 to 0
+      - Tweens channel 1 from 0 to 1
+      - Stops channel 0 when done and swaps channels
+  ]]
+  an.music_crossfade = (name, duration, loop=false) =>
+    -- Determine channels: from current playlist channel, to the other one
+    from_channel = @playlist_channel
+    to_channel = 1 - @playlist_channel  -- toggles between 0 and 1
+  
+    -- Store original volumes before modifying
+    original_from_volume = music_get_volume from_channel
+    original_to_volume = music_get_volume to_channel
+  
+    -- Start new track on to_channel at volume 0
+    music_set_volume 0, to_channel
+    music_play @tracks[name], loop, to_channel
+  
+    -- Store crossfade state including original volumes for restoration if cancelled
+    @crossfade_state = {
+      :duration
+      time: 0
+      :from_channel
+      :to_channel
+      :original_from_volume
+      :original_to_volume
+    }
+  
+  -- Playlist state
+  an.playlist = {}           -- array of track names
+  an.playlist_index = 1      -- current index
+  an.playlist_shuffled = {}  -- shuffled order (when shuffle enabled)
+  an.playlist_shuffle_enabled = false
+  an.playlist_crossfade_duration = 0  -- 0 = instant switch
+  an.playlist_channel = 0             -- which channel playlist is currently using
+  an.playlist_just_advanced = false   -- skip at_end check for one frame after advancing
+  
+  --[[
+    Sets the playlist tracks.
+  
+    Usage:
+      an\playlist_set {'menu', 'battle', 'boss'}
+  
+    Parameters:
+      tracks - array of music names (registered via an\music)
+  ]]
+  an.playlist_set = (tracks) =>
+    @playlist = tracks
+    @playlist_index = 1
+    @playlist_shuffled = {}
+    @\playlist_generate_shuffle! if @playlist_shuffle_enabled
+  
+  --[[
+    Starts or resumes playlist playback.
+  
+    Usage:
+      an\playlist_play!
+  ]]
+  an.playlist_play = =>
+    return if #@playlist == 0
+    track = @\playlist_current_track!
+    if @playlist_crossfade_duration > 0
+      @\music_crossfade track, @playlist_crossfade_duration
+    else
+      @\music_play track, false, @playlist_channel
+    @playlist_just_advanced = true
+  
+  --[[
+    Stops playlist playback.
+  
+    Usage:
+      an\playlist_stop!
+  ]]
+  an.playlist_stop = =>
+    @\music_stop!
+    @playlist_channel = 0  -- reset to channel 0 for next start
+  
+  --[[
+    Advances to next track in playlist.
+  
+    Usage:
+      an\playlist_next!
+  ]]
+  an.playlist_next = =>
+    return if #@playlist == 0
+    @playlist_index = (@playlist_index % #@playlist) + 1
+    @\playlist_play!
+  
+  --[[
+    Goes to previous track in playlist.
+  
+    Usage:
+      an\playlist_prev!
+  ]]
+  an.playlist_prev = =>
+    return if #@playlist == 0
+    @playlist_index = ((@playlist_index - 2) % #@playlist) + 1
+    @\playlist_play!
+  
+  --[[
+    Enables or disables shuffle mode.
+  
+    Usage:
+      an\playlist_shuffle true   -- enable
+      an\playlist_shuffle false  -- disable
+  
+    Behavior:
+      When enabled, tracks play in random order.
+      Generates a new shuffle order each time the playlist loops.
+  ]]
+  an.playlist_shuffle = (enabled) =>
+    @playlist_shuffle_enabled = enabled
+    if enabled
+      @\playlist_generate_shuffle!
+    else
+      @playlist_shuffled = {}
+  
+  --[[
+    Sets the crossfade duration for playlist transitions.
+  
+    Usage:
+      an\playlist_set_crossfade 2  -- 2 second crossfade
+      an\playlist_set_crossfade 0  -- instant switch (default)
+  ]]
+  an.playlist_set_crossfade = (duration) =>
+    @playlist_crossfade_duration = duration
+  
+  -- Internal: generate shuffled order
+  an.playlist_generate_shuffle = =>
+    @playlist_shuffled = {}
+    indices = [i for i = 1, #@playlist]
+    while #indices > 0
+      index = @random\int 1, #indices
+      @playlist_shuffled[] = indices[index]
+      table.remove indices, index
+  
+  -- Internal: get current track name respecting shuffle
+  an.playlist_current_track = =>
+    if @playlist_shuffle_enabled and #@playlist_shuffled > 0
+      @playlist[@playlist_shuffled[@playlist_index]]
+    else
+      @playlist[@playlist_index]
+  
+  -- Crossfade update action
+  an\early_action 'crossfade', (dt) =>
+    return unless @crossfade_state
+    crossfade = @crossfade_state
+    crossfade.time += dt
+  
+    if crossfade.time >= crossfade.duration
+      -- Crossfade complete
+      music_set_volume 1, crossfade.to_channel
+      music_stop crossfade.from_channel
+      -- Restore from_channel's original volume so it's ready for future use
+      music_set_volume crossfade.original_from_volume, crossfade.from_channel
+      -- Swap playlist channel so it tracks the now-active channel
+      @playlist_channel = crossfade.to_channel
+      @crossfade_state = nil
+    else
+      -- Interpolate volumes
+      progress = crossfade.time / crossfade.duration
+      music_set_volume 1 - progress, crossfade.from_channel
+      music_set_volume progress, crossfade.to_channel
+  
+  -- Playlist auto-advance action
+  an\early_action 'playlist_auto_advance', (dt) =>
+    return if #@playlist == 0
+    -- Skip check for one frame after advancing (music_at_end can still be true briefly)
+    if @playlist_just_advanced
+      @playlist_just_advanced = false
+      return
+    -- Check current playlist channel for end of track
+    if music_at_end(@playlist_channel) and not music_is_playing(@playlist_channel)
+      -- Advance to next track
+      @playlist_index = (@playlist_index % #@playlist) + 1
+      -- Regenerate shuffle if we looped back to start
+      if @playlist_index == 1 and @playlist_shuffle_enabled
+        @\playlist_generate_shuffle!
+      @\playlist_play!
+  
+  -- =============================================================================
+  -- TIME SCALE SYSTEM
+  -- =============================================================================
+
+  --[[
+    Applies slow-motion effect with optional tween recovery.
+
+    Usage:
+      an\slow 0.5                                    -- slow to 0.5, instant
+      an\slow 0.5, 0.3                               -- recover over 0.3s
+      an\slow 0.2, 0.5, math.elastic_out             -- with easing
+      an\slow 0.2, 0.5, math.elastic_out, 'combat'   -- with tag for cancellation
+
+    Parameters:
+      amount   - time scale (0 = frozen, 1 = normal, 0.5 = half speed)
+      duration - (optional) recovery duration in seconds (default 0)
+      easing   - (optional) easing function for recovery (default math.cubic_in_out)
+      tag      - (optional) string tag for cancellation via cancel_slow
+  ]]
+  an.slow = (amount, duration=0, easing=math.cubic_in_out, tag='slow') =>
+    @time_scale = amount
+    if duration > 0
+      @timer\tween duration, tag, @, {time_scale: 1}, easing
+
+  --[[
+    Cancels a slow-motion effect by tag.
+
+    Usage:
+      an\cancel_slow 'combat'
+
+    Immediately restores time_scale to 1.0 and cancels the tween.
+  ]]
+  an.cancel_slow = (tag='slow') =>
+    @timer\cancel tag
+    @time_scale = 1
+
+  --[[
+    Applies hitstop (global freeze with tag-based exclusion).
+
+    Usage:
+      an\hit_stop 0.1                              -- freeze everything for 0.1s
+      an\hit_stop 0.05, except: 'ui'               -- 'ui' tagged objects use unscaled_dt
+      an\hit_stop 0.1, except: {'ui', 'particles'} -- multiple exclusions
+
+    Parameters:
+      duration - freeze duration in seconds (uses unscaled time)
+      options  - (optional) table with:
+                   except: tag or array of tags to exclude from hitstop
+
+    During hitstop:
+      - an.time_scale = 0, an.dt = 0
+      - Physics is stepped with dt = 0 (maintains collisions, no movement)
+      - Objects with excluded tags get unscaled_dt via get_dt_for
+  ]]
+  an.hit_stop = (duration, options={}) =>
+    -- Handle exclusions
+    except = options.except
+    if except
+      if type(except) == 'string'
+        @hit_stop_excluded_tags = {[except]: true}
+      else
+        @hit_stop_excluded_tags = {}
+        for tag in *except
+          @hit_stop_excluded_tags[tag] = true
+    else
+      @hit_stop_excluded_tags = {}
+
+    -- Only save pre_hitstop_time_scale if not already in hitstop
+    unless @hit_stop_active
+      @pre_hitstop_time_scale = @time_scale
+
+    -- Activate hitstop (engine sync happens in update loop)
+    @hit_stop_active = true
+    @hit_stop_remaining = duration
+    @time_scale = 0
+
+  --[[
+    Returns the appropriate dt for an object based on hitstop state.
+
+    Usage (internal, called by main loop):
+      dt = an\get_dt_for object
+
+    Returns:
+      - unscaled_dt if hitstop is active AND object has an excluded tag
+      - an.dt otherwise (which is 0 during hitstop, scaled_dt otherwise)
+  ]]
+  an.get_dt_for = (object) =>
+    if @hit_stop_active and object.tags
+      for tag, _ in pairs object.tags
+        if @hit_stop_excluded_tags[tag]
+          return @unscaled_dt
+    @dt
+
+  -- Hitstop countdown action (uses unscaled time)
+  an\early_action 'hit_stop_countdown', (dt) =>
+    return unless @hit_stop_active
+    @hit_stop_remaining -= @unscaled_dt
+    if @hit_stop_remaining <= 0
+      @hit_stop_active = false
+      @hit_stop_excluded_tags = {}
+      @time_scale = @pre_hitstop_time_scale
+
+  -- Physics world state
+  an.colliders = {}        -- body_handle -> collider (internal registry)
+  an.collision_pairs = {}  -- tracks enabled pairs for queries
+  an.sensor_pairs = {}
+  an.hit_pairs = {}
+  
+  --[[
+    Initializes the physics world.
+  
+    Usage:
+      an\physics_init!
+  
+    Must be called before creating any colliders or setting physics properties.
+  ]]
+  an.physics_init = =>
+    physics_init!
+  
+  --[[
+    Sets the gravity vector for the physics world.
+  
+    Usage:
+      an\physics_set_gravity 0, 500   -- down
+      an\physics_set_gravity 0, -500  -- up
+  ]]
+  an.physics_set_gravity = (gx, gy) =>
+    physics_set_gravity gx, gy
+  
+  --[[
+    Sets the meter scale (pixels per meter) for physics simulation.
+  
+    Usage:
+      an\physics_set_meter_scale 32
+  ]]
+  an.physics_set_meter_scale = (scale) =>
+    physics_set_meter_scale scale
+  
+  --[[
+    Enables or disables physics simulation.
+  
+    Usage:
+      an\physics_set_enabled false  -- pause physics
+      an\physics_set_enabled true   -- resume physics
+  ]]
+  an.physics_set_enabled = (enabled) =>
+    physics_set_enabled enabled
+  
+  --[[
+    Registers a physics tag for collision filtering.
+  
+    Usage:
+      an\physics_tag 'player'
+      an\physics_tag 'enemy'
+      an\physics_tag 'wall'
+  
+    Tags must be registered before enabling collisions between them.
+  ]]
+  an.physics_tag = (name) =>
+    physics_register_tag name
+  
+  --[[
+    Enables solid collision between two tags.
+  
+    Usage:
+      an\physics_collision 'player', 'wall'
+      an\physics_collision 'enemy', 'wall'
+  
+    Both tags must be registered first via physics_tag.
+  ]]
+  an.physics_collision = (tag_a, tag_b) =>
+    physics_enable_collision tag_a, tag_b
+    @collision_pairs[] = {a: tag_a, b: tag_b}
+  
+  --[[
+    Enables sensor (overlap) detection between two tags.
+  
+    Usage:
+      an\physics_sensor 'player', 'pickup'
+  
+    Sensors detect overlap without physical response.
+    Both tags must be registered first via physics_tag.
+  ]]
+  an.physics_sensor = (tag_a, tag_b) =>
+    physics_enable_sensor tag_a, tag_b
+    @sensor_pairs[] = {a: tag_a, b: tag_b}
+  
+  --[[
+    Enables hit events (collision with contact info) between two tags.
+  
+    Usage:
+      an\physics_hit 'bullet', 'enemy'
+  
+    Hit events include contact point, normal, and approach speed.
+    Both tags must be registered first via physics_tag.
+  ]]
+  an.physics_hit = (tag_a, tag_b) =>
+    physics_enable_hit tag_a, tag_b
+    @hit_pairs[] = {a: tag_a, b: tag_b}
+  
+  --[[
+    Returns collision begin events between two tags this frame.
+  
+    Usage:
+      for event in *an\collision_begin_events 'player', 'enemy'
+        event.a\take_damage 10
+        spawn_particles event.point_x, event.point_y
+  
+    Returns array of:
+      {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>,
+       point_x, point_y, normal_x, normal_y}
+  ]]
+  an.collision_begin_events = (tag_a, tag_b) =>
+    result = {}
+    for event in *physics_get_collision_begin tag_a, tag_b
+      id_a = physics_get_user_data event.body_a
+      id_b = physics_get_user_data event.body_b
+      collider_a = @colliders[id_a]
+      collider_b = @colliders[id_b]
+      if collider_a and collider_b
+        -- Normalize order: a should have tag_a, b should have tag_b
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.tag_a == tag_a and event.tag_b == tag_b
+          result[] = {
+            a: collider_a.parent
+            b: collider_b.parent
+            shape_a: event.shape_a
+            shape_b: event.shape_b
+            point_x: event.point_x
+            point_y: event.point_y
+            normal_x: event.normal_x
+            normal_y: event.normal_y
+          }
+        elseif event.tag_a == tag_b and event.tag_b == tag_a
+          result[] = {
+            a: collider_b.parent
+            b: collider_a.parent
+            shape_a: event.shape_b
+            shape_b: event.shape_a
+            point_x: event.point_x
+            point_y: event.point_y
+            normal_x: -event.normal_x
+            normal_y: -event.normal_y
+          }
+    result
+  
+  --[[
+    Returns collision end events between two tags this frame.
+  
+    Usage:
+      for event in *an\collision_end_events 'player', 'platform'
+        event.a.on_ground = false
+  
+    Returns array of:
+      {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>}
+  ]]
+  an.collision_end_events = (tag_a, tag_b) =>
+    result = {}
+    for event in *physics_get_collision_end tag_a, tag_b
+      id_a = physics_get_user_data event.body_a
+      id_b = physics_get_user_data event.body_b
+      collider_a = @colliders[id_a]
+      collider_b = @colliders[id_b]
+      if collider_a and collider_b
+        -- Normalize order: a should have tag_a, b should have tag_b
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.tag_a == tag_a and event.tag_b == tag_b
+          result[] = {
+            a: collider_a.parent
+            b: collider_b.parent
+            shape_a: event.shape_a
+            shape_b: event.shape_b
+          }
+        elseif event.tag_a == tag_b and event.tag_b == tag_a
+          result[] = {
+            a: collider_b.parent
+            b: collider_a.parent
+            shape_a: event.shape_b
+            shape_b: event.shape_a
+          }
+    result
+  
+  --[[
+    Returns sensor begin events between two tags this frame.
+  
+    Usage:
+      for event in *an\sensor_begin_events 'player', 'pickup'
+        event.a\collect event.b
+        event.b\kill!
+  
+    Returns array of:
+      {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>}
+  ]]
+  an.sensor_begin_events = (tag_a, tag_b) =>
+    result = {}
+    for event in *physics_get_sensor_begin tag_a, tag_b
+      id_a = physics_get_user_data event.sensor_body
+      id_b = physics_get_user_data event.visitor_body
+      collider_a = @colliders[id_a]
+      collider_b = @colliders[id_b]
+      if collider_a and collider_b
+        -- Normalize order: a should have tag_a, b should have tag_b
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.sensor_tag == tag_a and event.visitor_tag == tag_b
+          result[] = {
+            a: collider_a.parent
+            b: collider_b.parent
+            shape_a: event.sensor_shape
+            shape_b: event.visitor_shape
+          }
+        elseif event.sensor_tag == tag_b and event.visitor_tag == tag_a
+          result[] = {
+            a: collider_b.parent
+            b: collider_a.parent
+            shape_a: event.visitor_shape
+            shape_b: event.sensor_shape
+          }
+    result
+  
+  --[[
+    Returns sensor end events between two tags this frame.
+  
+    Usage:
+      for event in *an\sensor_end_events 'player', 'zone'
+        event.b\on_player_exit!
+  
+    Returns array of:
+      {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>}
+  ]]
+  an.sensor_end_events = (tag_a, tag_b) =>
+    result = {}
+    for event in *physics_get_sensor_end tag_a, tag_b
+      id_a = physics_get_user_data event.sensor_body
+      id_b = physics_get_user_data event.visitor_body
+      collider_a = @colliders[id_a]
+      collider_b = @colliders[id_b]
+      if collider_a and collider_b
+        -- Normalize order: a should have tag_a, b should have tag_b
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.sensor_tag == tag_a and event.visitor_tag == tag_b
+          result[] = {
+            a: collider_a.parent
+            b: collider_b.parent
+            shape_a: event.sensor_shape
+            shape_b: event.visitor_shape
+          }
+        elseif event.sensor_tag == tag_b and event.visitor_tag == tag_a
+          result[] = {
+            a: collider_b.parent
+            b: collider_a.parent
+            shape_a: event.visitor_shape
+            shape_b: event.sensor_shape
+          }
+    result
+  
+  --[[
+    Returns hit events between two tags this frame.
+  
+    Usage:
+      for hit in *an\hit_events 'bullet', 'enemy'
+        hit.a\kill!
+        hit.b\take_damage 10
+        spawn_particles hit.point_x, hit.point_y
+  
+    Returns array of:
+      {a: <object>, b: <object>, shape_a: <handle>, shape_b: <handle>,
+       point_x, point_y, normal_x, normal_y, approach_speed}
+  ]]
+  an.hit_events = (tag_a, tag_b) =>
+    result = {}
+    for event in *physics_get_hit tag_a, tag_b
+      id_a = physics_get_user_data event.body_a
+      id_b = physics_get_user_data event.body_b
+      collider_a = @colliders[id_a]
+      collider_b = @colliders[id_b]
+      if collider_a and collider_b
+        -- Normalize order: a should have tag_a, b should have tag_b
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.tag_a == tag_a and event.tag_b == tag_b
+          result[] = {
+            a: collider_a.parent
+            b: collider_b.parent
+            shape_a: event.shape_a
+            shape_b: event.shape_b
+            point_x: event.point_x
+            point_y: event.point_y
+            normal_x: event.normal_x
+            normal_y: event.normal_y
+            approach_speed: event.approach_speed
+          }
+        elseif event.tag_a == tag_b and event.tag_b == tag_a
+          result[] = {
+            a: collider_b.parent
+            b: collider_a.parent
+            shape_a: event.shape_b
+            shape_b: event.shape_a
+            point_x: event.point_x
+            point_y: event.point_y
+            normal_x: -event.normal_x
+            normal_y: -event.normal_y
+            approach_speed: event.approach_speed
+          }
+    result
+  
+  --[[
+    Queries for objects at a point.
+  
+    Usage:
+      for object in *an\query_point x, y, 'enemy'
+        object\highlight!
+      for object in *an\query_point x, y, {'enemy', 'pickup'}
+        object\highlight!
+  
+    Returns array of objects whose colliders contain the point.
+  ]]
+  an.query_point = (x, y, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for body in *physics_query_point x, y, tags
+      id = physics_get_user_data body
+      collider = @colliders[id]
+      if collider
+        result[] = collider.parent
+    result
+  
+  --[[
+    Queries for objects within a circle.
+  
+    Usage:
+      for object in *an\query_circle x, y, 50, 'enemy'
+        object\take_damage 10
+  
+    Returns array of objects whose colliders overlap the circle.
+  ]]
+  an.query_circle = (x, y, radius, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for body in *physics_query_circle x, y, radius, tags
+      id = physics_get_user_data body
+      collider = @colliders[id]
+      if collider
+        result[] = collider.parent
+    result
+  
+  --[[
+    Queries for objects within an axis-aligned bounding box.
+  
+    Usage:
+      for object in *an\query_aabb x, y, width, height, 'enemy'
+        object\alert!
+  
+    Returns array of objects whose colliders overlap the AABB.
+  ]]
+  an.query_aabb = (x, y, width, height, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for body in *physics_query_aabb x, y, width, height, tags
+      id = physics_get_user_data body
+      collider = @colliders[id]
+      if collider
+        result[] = collider.parent
+    result
+  
+  --[[
+    Queries for objects within a rotated box.
+  
+    Usage:
+      for object in *an\query_box x, y, width, height, angle, 'enemy'
+        object\alert!
+  
+    Returns array of objects whose colliders overlap the box.
+  ]]
+  an.query_box = (x, y, width, height, angle, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for body in *physics_query_box x, y, width, height, angle, tags
+      id = physics_get_user_data body
+      collider = @colliders[id]
+      if collider
+        result[] = collider.parent
+    result
+  
+  --[[
+    Queries for objects within a capsule shape.
+  
+    Usage:
+      for object in *an\query_capsule x1, y1, x2, y2, radius, 'enemy'
+        object\stun!
+  
+    Returns array of objects whose colliders overlap the capsule.
+  ]]
+  an.query_capsule = (x1, y1, x2, y2, radius, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for body in *physics_query_capsule x1, y1, x2, y2, radius, tags
+      id = physics_get_user_data body
+      collider = @colliders[id]
+      if collider
+        result[] = collider.parent
+    result
+  
+  --[[
+    Queries for objects within a polygon shape.
+  
+    Usage:
+      verts = {0, 0, 100, 0, 50, 100}
+      for object in *an\query_polygon x, y, verts, 'enemy'
+        object\damage!
+  
+    Vertices are a flat array: {x1, y1, x2, y2, ...}
+    Returns array of objects whose colliders overlap the polygon.
+  ]]
+  an.query_polygon = (x, y, vertices, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for body in *physics_query_polygon x, y, vertices, tags
+      id = physics_get_user_data body
+      collider = @colliders[id]
+      if collider
+        result[] = collider.parent
+    result
+  
+  --[[
+    Casts a ray and returns the first hit.
+  
+    Usage:
+      hit = an\raycast x1, y1, x2, y2, 'wall'
+      if hit
+        spawn_impact hit.point_x, hit.point_y
+        hit.object\take_damage 10
+  
+    Returns: {object, shape, point_x, point_y, normal_x, normal_y, fraction} or nil
+  ]]
+  an.raycast = (x1, y1, x2, y2, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    hit = physics_raycast x1, y1, x2, y2, tags
+    if hit
+      id = physics_get_user_data hit.body
+      collider = @colliders[id]
+      if collider
+        return {
+          object: collider.parent
+          shape: hit.shape
+          point_x: hit.point_x
+          point_y: hit.point_y
+          normal_x: hit.normal_x
+          normal_y: hit.normal_y
+          fraction: hit.fraction
+        }
+    nil
+  
+  --[[
+    Casts a ray and returns all hits.
+  
+    Usage:
+      for hit in *an\raycast_all x1, y1, x2, y2, 'enemy'
+        hit.object\take_damage 5
+  
+    Returns array of: {object, shape, point_x, point_y, normal_x, normal_y, fraction}
+  ]]
+  an.raycast_all = (x1, y1, x2, y2, tags) =>
+    tags = {tags} if type(tags) == 'string'
+    result = {}
+    for hit in *physics_raycast_all x1, y1, x2, y2, tags
+      id = physics_get_user_data hit.body
+      collider = @colliders[id]
+      if collider
+        result[] = {
+          object: collider.parent
+          shape: hit.shape
+          point_x: hit.point_x
+          point_y: hit.point_y
+          normal_x: hit.normal_x
+          normal_y: hit.normal_y
+          fraction: hit.fraction
+        }
+    result
+  
+  -- =============================================================================
+  -- INPUT SYSTEM
+  -- =============================================================================
+  
+  --[[
+    Binds a control to an action.
+  
+    Usage:
+      an\bind 'jump', 'key:space'
+      an\bind 'jump', 'button:a'
+      an\bind 'fire', 'mouse:1'
+      an\bind 'left', 'axis:leftx-'
+  
+    Control string formats:
+      key:a, key:space, key:lshift, key:up, key:1
+      mouse:1 (left), mouse:2 (middle), mouse:3 (right)
+      button:a, button:b, button:x, button:y, button:start, button:dpup, etc.
+      axis:leftx+, axis:leftx-, axis:lefty+, axis:lefty-, axis:triggerleft, etc.
+  ]]
+  an.bind = (action, control) =>
+    input_bind action, control
+  
+  --[[
+    Unbinds a specific control from an action.
+  
+    Usage:
+      an\unbind 'jump', 'key:space'
+  ]]
+  an.unbind = (action, control) =>
+    input_unbind action, control
+  
+  --[[
+    Unbinds all controls from an action.
+  
+    Usage:
+      an\unbind_all 'jump'
+  ]]
+  an.unbind_all = (action) =>
+    input_unbind_all action
+  
+  --[[
+    Binds default controls for all common keys/buttons.
+  
+    Usage:
+      an\bind_all!
+  
+    Creates actions like 'a', 'space', 'mouse_1', 'button_a', etc.
+  ]]
+  an.bind_all = =>
+    input_bind_all!
+  
+  --[[
+    Creates a chord (all actions must be held simultaneously).
+  
+    Usage:
+      an\bind_chord 'super_jump', {'shift', 'jump'}
+  
+    The chord triggers when ALL listed actions are held at once.
+  ]]
+  an.bind_chord = (name, actions) =>
+    input_bind_chord name, actions
+  
+  --[[
+    Creates a sequence (actions in order within time windows).
+  
+    Usage:
+      an\bind_sequence 'dash', {'right', 0.3, 'right'}
+      an\bind_sequence 'hadouken', {'down', 0.2, 'forward', 0.2, 'punch'}
+  
+    Format: {action1, delay1, action2, delay2, action3, ...}
+    The sequence triggers when actions are pressed in order within the delays.
+  ]]
+  an.bind_sequence = (name, sequence) =>
+    input_bind_sequence name, sequence
+  
+  --[[
+    Creates a hold action (triggers after holding for duration).
+  
+    Usage:
+      an\bind_hold 'charge', 1.0, 'attack'
+  
+    The hold triggers after holding source_action for duration seconds.
+  ]]
+  an.bind_hold = (name, duration, source_action) =>
+    input_bind_hold name, duration, source_action
+  
+  --[[
+    Returns true on the frame an action was pressed.
+  
+    Usage:
+      if an\is_pressed 'jump'
+        player\jump!
+  ]]
+  an.is_pressed = (action) =>
+    is_pressed action
+  
+  --[[
+    Returns true while an action is held.
+  
+    Usage:
+      if an\is_down 'fire'
+        player\shoot!
+  ]]
+  an.is_down = (action) =>
+    is_down action
+  
+  --[[
+    Returns true on the frame an action was released.
+  
+    Usage:
+      if an\is_released 'charge'
+        player\release_charge!
+  ]]
+  an.is_released = (action) =>
+    is_released action
+  
+  --[[
+    Returns -1, 0, or 1 based on two opposing actions.
+  
+    Usage:
+      horizontal = an\get_axis 'left', 'right'
+      player.vx = horizontal * speed
+  ]]
+  an.get_axis = (negative, positive) =>
+    input_get_axis negative, positive
+  
+  --[[
+    Returns a normalized 2D direction vector.
+  
+    Usage:
+      vx, vy = an\get_vector 'left', 'right', 'up', 'down'
+      player.vx = vx * speed
+      player.vy = vy * speed
+  
+    The vector is normalized so diagonal movement isn't faster.
+  ]]
+  an.get_vector = (left, right, up, down) =>
+    input_get_vector left, right, up, down
+  
+  --[[
+    Returns how long the source action has been held.
+  
+    Usage:
+      held = an\get_hold_duration 'charge'
+      power = math.min held / 1.0, 1.0
+  
+    Use for charge bar UI or variable-power attacks.
+  ]]
+  an.get_hold_duration = (name) =>
+    input_get_hold_duration name
+  
+  --[[
+    Returns true if any bound action was pressed this frame.
+  
+    Usage:
+      if an\any_pressed!
+        start_game!
+  ]]
+  an.any_pressed = =>
+    input_any_pressed!
+  
+  --[[
+    Returns the name of the action that was just pressed, or nil.
+  
+    Usage:
+      action = an\get_pressed_action!
+      if action
+        print "Pressed: " .. action
+  ]]
+  an.get_pressed_action = =>
+    input_get_pressed_action!
+  
+  --[[
+    Returns true if a keyboard key is held.
+  
+    Usage:
+      if an\key_is_down 'space'
+        -- charging
+  ]]
+  an.key_is_down = (key) =>
+    key_is_down key
+  
+  --[[
+    Returns true on the frame a keyboard key was pressed.
+  
+    Usage:
+      if an\key_is_pressed 'escape'
+        toggle_pause!
+  ]]
+  an.key_is_pressed = (key) =>
+    key_is_pressed key
+  
+  --[[
+    Returns true on the frame a keyboard key was released.
+  
+    Usage:
+      if an\key_is_released 'space'
+        release_attack!
+  ]]
+  an.key_is_released = (key) =>
+    key_is_released key
+  
+  --[[
+    Returns the mouse position in game coordinates.
+  
+    Usage:
+      mx, my = an\mouse_position!
+  ]]
+  an.mouse_position = =>
+    mouse_position!
+  
+  --[[
+    Returns the mouse movement this frame.
+  
+    Usage:
+      dx, dy = an\mouse_delta!
+  ]]
+  an.mouse_delta = =>
+    mouse_delta!
+  
+  --[[
+    Returns the mouse wheel movement this frame.
+  
+    Usage:
+      wx, wy = an\mouse_wheel!
+      zoom += wy * 0.1
+  ]]
+  an.mouse_wheel = =>
+    mouse_wheel!
+  
+  --[[
+    Returns true if a mouse button is held.
+  
+    Usage:
+      if an\mouse_is_down 1  -- left button
+        player\aim!
+  
+    Buttons: 1=left, 2=middle, 3=right
+  ]]
+  an.mouse_is_down = (button) =>
+    mouse_is_down button
+  
+  --[[
+    Returns true on the frame a mouse button was pressed.
+  
+    Usage:
+      if an\mouse_is_pressed 1
+        player\shoot!
+  ]]
+  an.mouse_is_pressed = (button) =>
+    mouse_is_pressed button
+  
+  --[[
+    Returns true on the frame a mouse button was released.
+  
+    Usage:
+      if an\mouse_is_released 1
+        player\release!
+  ]]
+  an.mouse_is_released = (button) =>
+    mouse_is_released button
+  
+  --[[
+    Shows or hides the system cursor.
+  
+    Usage:
+      an\mouse_set_visible false  -- hide cursor
+  ]]
+  an.mouse_set_visible = (visible) =>
+    mouse_set_visible visible
+  
+  --[[
+    Locks the cursor to the window.
+  
+    Usage:
+      an\mouse_set_grabbed true  -- for FPS-style control
+  ]]
+  an.mouse_set_grabbed = (grabbed) =>
+    mouse_set_grabbed grabbed
+  
+  --[[
+    Returns true if a gamepad is connected.
+  
+    Usage:
+      if an\gamepad_is_connected!
+        show_gamepad_prompts!
+  ]]
+  an.gamepad_is_connected = =>
+    gamepad_is_connected!
+  
+  --[[
+    Returns a gamepad axis value (-1 to 1).
+  
+    Usage:
+      lx = an\gamepad_get_axis 'leftx'
+      ly = an\gamepad_get_axis 'lefty'
+  
+    Axes: leftx, lefty, rightx, righty, triggerleft, triggerright
+  ]]
+  an.gamepad_get_axis = (axis) =>
+    gamepad_get_axis axis
+  
+  --[[
+    Returns the last input type: 'keyboard', 'mouse', or 'gamepad'.
+  
+    Usage:
+      if an\get_last_input_type! == 'gamepad'
+        show_gamepad_prompts!
+      else
+        show_keyboard_prompts!
+  ]]
+  an.get_last_input_type = =>
+    input_get_last_type!
+  
+  --[[
+    Starts capturing the next input for rebinding.
+  
+    Usage:
+      an\start_capture!
+      show_prompt "Press a key..."
+  ]]
+  an.start_capture = =>
+    input_start_capture!
+  
+  --[[
+    Returns the captured input string, or nil if still waiting.
+  
+    Usage:
+      captured = an\get_captured!
+      if captured
+        an\unbind_all 'jump'
+        an\bind 'jump', captured
+  ]]
+  an.get_captured = =>
+    input_get_captured!
+  
+  --[[
+    Stops capture mode without binding.
+  
+    Usage:
+      an\stop_capture!
+  ]]
+  an.stop_capture = =>
+    input_stop_capture!
+  
+  --[[
+    Sets the gamepad stick deadzone.
+  
+    Usage:
+      an\set_deadzone 0.2
+  ]]
+  an.set_deadzone = (deadzone) =>
+    input_set_deadzone deadzone
+  
+  --[[
+    Global update function called by the C engine each physics tick (144Hz).
+  
+    Behavior:
+      1. Attaches camera transforms to layers
+      2. Collects an + all descendants into a flat array
+      3. Runs early phase (_early_update) on all objects
+      4. Runs main phase (_update) on all objects
+      5. Runs late phase (_late_update) on all objects
+      6. Runs cleanup to remove dead objects and finished actions
+      7. Detaches camera transforms from layers
+  
+    The three phases allow proper ordering:
+      - early: input handling, pre-update logic
+      - main: game logic, movement, collisions
+      - late: drawing, post-update cleanup
+  
+    Note: This is called automatically by the C engine. Do not call manually.
+  ]]
+  update = (dt) ->
+    -- Update engine state: dynamic values
+    an.frame = engine_get_frame!
+    an.step = engine_get_step!
+    an.time = engine_get_time!
+    an.window_width, an.window_height = engine_get_window_size!
+    an.scale = engine_get_scale!
+    an.fullscreen = engine_is_fullscreen!
+    an.fps = engine_get_fps!
+    an.draw_calls = engine_get_draw_calls!
+  
+    -- Attach camera transforms to layers before any updates
+    for name, layer in pairs an.layers
+      if layer.camera
+        layer.camera\attach layer, layer.parallax_x, layer.parallax_y
+  
+    -- Update time scale values and sync to engine
+    engine_set_time_scale an.time_scale
+    an.dt = engine_get_dt!
+    an.unscaled_dt = engine_get_unscaled_dt!
+
+    all_objects = {an}
+    all_objects[] = obj for obj in *an\all!
+
+    -- Early phase (uses per-object dt based on hitstop exclusion)
+    obj\_early_update an\get_dt_for(obj) for obj in *all_objects
+    -- Main phase
+    obj\_update an\get_dt_for(obj) for obj in *all_objects
+    -- Late phase
+    obj\_late_update an\get_dt_for(obj) for obj in *all_objects
+    an\cleanup!
+  
+    -- Detach camera transforms after all drawing is done
+    for name, layer in pairs an.layers
+      if layer.camera
+        layer.camera\detach layer

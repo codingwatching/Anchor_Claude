@@ -321,11 +321,16 @@ enum {
     COMMAND_TRIANGLE,           // Triangle (3 vertices)
     COMMAND_POLYGON,            // Polygon (up to 8 vertices)
     COMMAND_ROUNDED_RECTANGLE,  // Rounded rectangle
+    COMMAND_RECTANGLE_GRADIENT_H, // Horizontal gradient rectangle (left to right)
+    COMMAND_RECTANGLE_GRADIENT_V, // Vertical gradient rectangle (top to bottom)
     COMMAND_APPLY_SHADER,       // Post-process layer through a shader
     COMMAND_SET_UNIFORM_FLOAT,  // Set float uniform on shader
     COMMAND_SET_UNIFORM_VEC2,   // Set vec2 uniform on shader
     COMMAND_SET_UNIFORM_VEC4,   // Set vec4 uniform on shader
     COMMAND_SET_UNIFORM_INT,    // Set int uniform on shader
+    COMMAND_STENCIL_MASK,       // Start writing to stencil buffer (don't draw to color)
+    COMMAND_STENCIL_TEST,       // Start testing against stencil (only draw where stencil is set)
+    COMMAND_STENCIL_OFF,        // Disable stencil, return to normal drawing
 };
 
 // Blend modes
@@ -386,6 +391,7 @@ typedef struct {
 typedef struct {
     GLuint fbo;
     GLuint color_texture;
+    GLuint stencil_rbo;     // Stencil renderbuffer for masking
     int width;
     int height;
 
@@ -1536,11 +1542,18 @@ static Layer* layer_create(int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    // Attach to FBO
+    // Attach color texture to FBO
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, layer->color_texture, 0);
+
+    // Create stencil renderbuffer (using depth-stencil for wider compatibility)
+    glGenRenderbuffers(1, &layer->stencil_rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, layer->stencil_rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, layer->stencil_rbo);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         fprintf(stderr, "Layer FBO not complete\n");
+        glDeleteRenderbuffers(1, &layer->stencil_rbo);
         glDeleteTextures(1, &layer->color_texture);
         glDeleteFramebuffers(1, &layer->fbo);
         free(layer);
@@ -1555,6 +1568,7 @@ static void layer_destroy(Layer* layer) {
     if (!layer) return;
     if (layer->commands) free(layer->commands);
     if (layer->color_texture) glDeleteTextures(1, &layer->color_texture);
+    if (layer->stencil_rbo) glDeleteRenderbuffers(1, &layer->stencil_rbo);
     if (layer->fbo) glDeleteFramebuffers(1, &layer->fbo);
     // Effect ping-pong buffers
     if (layer->effect_texture) glDeleteTextures(1, &layer->effect_texture);
@@ -1650,6 +1664,32 @@ static void layer_add_rectangle(Layer* layer, float x, float y, float w, float h
     cmd->params[2] = w;
     cmd->params[3] = h;
     cmd->params[4] = stroke;
+}
+
+// Record a horizontal gradient rectangle command (left color1 to right color2)
+static void layer_add_rectangle_gradient_h(Layer* layer, float x, float y, float w, float h, uint32_t color1, uint32_t color2) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_RECTANGLE_GRADIENT_H;
+    cmd->color = color1;
+    cmd->flash_color = color2;  // Store second color in flash_color (unused for gradients)
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = w;
+    cmd->params[3] = h;
+}
+
+// Record a vertical gradient rectangle command (top color1 to bottom color2)
+static void layer_add_rectangle_gradient_v(Layer* layer, float x, float y, float w, float h, uint32_t color1, uint32_t color2) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_RECTANGLE_GRADIENT_V;
+    cmd->color = color1;
+    cmd->flash_color = color2;  // Store second color in flash_color (unused for gradients)
+    cmd->params[0] = x;
+    cmd->params[1] = y;
+    cmd->params[2] = w;
+    cmd->params[3] = h;
 }
 
 // Record a circle command (stroke=0 filled, stroke>0 outline)
@@ -1795,6 +1835,27 @@ static void layer_add_spritesheet_frame(Layer* layer, GLuint texture_id, float x
     cmd->params[3] = h;
     cmd->params[4] = pack_uv_pair(u0, v0);
     cmd->params[5] = pack_uv_pair(u1, v1);
+}
+
+// Queue stencil mask command - subsequent draws write to stencil buffer only
+static void layer_stencil_mask(Layer* layer) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_STENCIL_MASK;
+}
+
+// Queue stencil test command - subsequent draws only appear where stencil is set
+static void layer_stencil_test(Layer* layer) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_STENCIL_TEST;
+}
+
+// Queue stencil off command - disable stencil, return to normal drawing
+static void layer_stencil_off(Layer* layer) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_STENCIL_OFF;
 }
 
 // Draw a single glyph with transform (for per-character effects in YueScript)
@@ -2009,6 +2070,30 @@ static void batch_add_sdf_quad(float x0, float y0, float x1, float y1,
     batch_add_vertex(x3, y3, 0.0f, 1.0f, r, g, b, a, type, shape, addR, addG, addB);
 }
 
+// Add a quad with per-corner colors (for gradient rectangles)
+// Colors: c0 = top-left, c1 = top-right, c2 = bottom-right, c3 = bottom-left
+static void batch_add_sdf_quad_gradient(float x0, float y0, float x1, float y1,
+                                        float x2, float y2, float x3, float y3,
+                                        float r0, float g0, float b0, float a0,
+                                        float r1, float g1, float b1, float a1,
+                                        float r2, float g2, float b2, float a2,
+                                        float r3, float g3, float b3, float a3,
+                                        float type, const float* shape) {
+    // Quad corners with UVs:
+    // 0(0,0)---1(1,0)
+    // |         |
+    // 3(0,1)---2(1,1)
+
+    // Triangle 1: 0, 1, 2
+    batch_add_vertex(x0, y0, 0.0f, 0.0f, r0, g0, b0, a0, type, shape, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x1, y1, 1.0f, 0.0f, r1, g1, b1, a1, type, shape, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x2, y2, 1.0f, 1.0f, r2, g2, b2, a2, type, shape, 0.0f, 0.0f, 0.0f);
+    // Triangle 2: 0, 2, 3
+    batch_add_vertex(x0, y0, 0.0f, 0.0f, r0, g0, b0, a0, type, shape, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x2, y2, 1.0f, 1.0f, r2, g2, b2, a2, type, shape, 0.0f, 0.0f, 0.0f);
+    batch_add_vertex(x3, y3, 0.0f, 1.0f, r3, g3, b3, a3, type, shape, 0.0f, 0.0f, 0.0f);
+}
+
 // Zero shape params for sprites/glyphs
 static const float zero_shape[20] = {0};
 
@@ -2060,7 +2145,7 @@ static GLuint vao = 0;
 static GLuint vbo = 0;
 
 // Layer registry
-#define MAX_LAYERS 16
+#define MAX_LAYERS 32
 static Layer* layer_registry[MAX_LAYERS];
 static char* layer_names[MAX_LAYERS];
 static int layer_count = 0;
@@ -3486,6 +3571,108 @@ static void process_rectangle(const DrawCommand* cmd) {
                        0.0f, 0.0f, 0.0f);
 }
 
+// Process a horizontal gradient rectangle (left to right)
+static void process_rectangle_gradient_h(const DrawCommand* cmd) {
+    float x = cmd->params[0];
+    float y = cmd->params[1];
+    float w = cmd->params[2];
+    float h = cmd->params[3];
+
+    // Add padding for anti-aliasing
+    float pad = 2.0f;
+
+    // Quad size in local space (including padding)
+    float quad_w = w + 2.0f * pad;
+    float quad_h = h + 2.0f * pad;
+
+    // Rectangle corners with padding (local coordinates)
+    // 0---1
+    // |   |
+    // 3---2
+    float lx0 = x - pad, ly0 = y - pad;
+    float lx1 = x + w + pad, ly1 = y - pad;
+    float lx2 = x + w + pad, ly2 = y + h + pad;
+    float lx3 = x - pad, ly3 = y + h + pad;
+
+    // Transform to world coordinates
+    float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
+    transform_point(cmd->transform, lx0, ly0, &wx0, &wy0);
+    transform_point(cmd->transform, lx1, ly1, &wx1, &wy1);
+    transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
+    transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
+
+    // Rectangle half-size in local space
+    float half_w = w * 0.5f;
+    float half_h = h * 0.5f;
+
+    // Unpack both colors
+    float r1, g1, b1, a1, r2, g2, b2, a2;
+    unpack_color(cmd->color, &r1, &g1, &b1, &a1);
+    unpack_color(cmd->flash_color, &r2, &g2, &b2, &a2);
+
+    // Shape params: [quad_w, quad_h, half_w, half_h, stroke=0, ...]
+    float shape[20] = {quad_w, quad_h, half_w, half_h, 0.0f};
+
+    // Horizontal gradient: left (0,3) = color1, right (1,2) = color2
+    batch_add_sdf_quad_gradient(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
+                                r1, g1, b1, a1,  // top-left
+                                r2, g2, b2, a2,  // top-right
+                                r2, g2, b2, a2,  // bottom-right
+                                r1, g1, b1, a1,  // bottom-left
+                                SHAPE_TYPE_RECT, shape);
+}
+
+// Process a vertical gradient rectangle (top to bottom)
+static void process_rectangle_gradient_v(const DrawCommand* cmd) {
+    float x = cmd->params[0];
+    float y = cmd->params[1];
+    float w = cmd->params[2];
+    float h = cmd->params[3];
+
+    // Add padding for anti-aliasing
+    float pad = 2.0f;
+
+    // Quad size in local space (including padding)
+    float quad_w = w + 2.0f * pad;
+    float quad_h = h + 2.0f * pad;
+
+    // Rectangle corners with padding (local coordinates)
+    // 0---1
+    // |   |
+    // 3---2
+    float lx0 = x - pad, ly0 = y - pad;
+    float lx1 = x + w + pad, ly1 = y - pad;
+    float lx2 = x + w + pad, ly2 = y + h + pad;
+    float lx3 = x - pad, ly3 = y + h + pad;
+
+    // Transform to world coordinates
+    float wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3;
+    transform_point(cmd->transform, lx0, ly0, &wx0, &wy0);
+    transform_point(cmd->transform, lx1, ly1, &wx1, &wy1);
+    transform_point(cmd->transform, lx2, ly2, &wx2, &wy2);
+    transform_point(cmd->transform, lx3, ly3, &wx3, &wy3);
+
+    // Rectangle half-size in local space
+    float half_w = w * 0.5f;
+    float half_h = h * 0.5f;
+
+    // Unpack both colors
+    float r1, g1, b1, a1, r2, g2, b2, a2;
+    unpack_color(cmd->color, &r1, &g1, &b1, &a1);
+    unpack_color(cmd->flash_color, &r2, &g2, &b2, &a2);
+
+    // Shape params: [quad_w, quad_h, half_w, half_h, stroke=0, ...]
+    float shape[20] = {quad_w, quad_h, half_w, half_h, 0.0f};
+
+    // Vertical gradient: top (0,1) = color1, bottom (2,3) = color2
+    batch_add_sdf_quad_gradient(wx0, wy0, wx1, wy1, wx2, wy2, wx3, wy3,
+                                r1, g1, b1, a1,  // top-left
+                                r1, g1, b1, a1,  // top-right
+                                r2, g2, b2, a2,  // bottom-right
+                                r2, g2, b2, a2,  // bottom-left
+                                SHAPE_TYPE_RECT, shape);
+}
+
 // Process a circle command (SDF-based, UV-space approach)
 // Same UV-space approach as rectangles for rotation support.
 static void process_circle(const DrawCommand* cmd) {
@@ -4057,6 +4244,22 @@ static void layer_render(Layer* layer) {
                 }
                 process_rounded_rectangle(cmd);
                 break;
+            case COMMAND_RECTANGLE_GRADIENT_H:
+                // SDF shapes use no texture - flush if we were drawing sprites
+                if (current_batch_texture != 0 && batch_vertex_count > 0) {
+                    batch_flush();
+                    current_batch_texture = 0;
+                }
+                process_rectangle_gradient_h(cmd);
+                break;
+            case COMMAND_RECTANGLE_GRADIENT_V:
+                // SDF shapes use no texture - flush if we were drawing sprites
+                if (current_batch_texture != 0 && batch_vertex_count > 0) {
+                    batch_flush();
+                    current_batch_texture = 0;
+                }
+                process_rectangle_gradient_v(cmd);
+                break;
             case COMMAND_SPRITE:
                 process_sprite(cmd);
                 break;
@@ -4065,6 +4268,30 @@ static void layer_render(Layer* layer) {
                 break;
             case COMMAND_SPRITESHEET_FRAME:
                 process_spritesheet_frame(cmd);
+                break;
+            case COMMAND_STENCIL_MASK:
+                // Flush pending draws before changing stencil state
+                batch_flush();
+                // Enable stencil, write 1 to stencil buffer, don't draw to color
+                glEnable(GL_STENCIL_TEST);
+                glStencilFunc(GL_ALWAYS, 1, 0xFF);
+                glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                break;
+            case COMMAND_STENCIL_TEST:
+                // Flush pending draws before changing stencil state
+                batch_flush();
+                // Only draw where stencil == 1
+                glStencilFunc(GL_EQUAL, 1, 0xFF);
+                glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                break;
+            case COMMAND_STENCIL_OFF:
+                // Flush pending draws before changing stencil state
+                batch_flush();
+                // Disable stencil, return to normal drawing
+                glDisable(GL_STENCIL_TEST);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 break;
         }
 
@@ -4154,6 +4381,32 @@ static int l_layer_rectangle_line(lua_State* L) {
     uint32_t color = (uint32_t)luaL_checkinteger(L, 6);
     float line_width = (float)luaL_optnumber(L, 7, 1.0);
     layer_add_rectangle(layer, x, y, w, h, line_width, color);
+    return 0;
+}
+
+// layer_rectangle_gradient_h(layer, x, y, w, h, color1, color2) -- horizontal gradient rectangle
+static int l_layer_rectangle_gradient_h(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    float w = (float)luaL_checknumber(L, 4);
+    float h = (float)luaL_checknumber(L, 5);
+    uint32_t color1 = (uint32_t)luaL_checkinteger(L, 6);
+    uint32_t color2 = (uint32_t)luaL_checkinteger(L, 7);
+    layer_add_rectangle_gradient_h(layer, x, y, w, h, color1, color2);
+    return 0;
+}
+
+// layer_rectangle_gradient_v(layer, x, y, w, h, color1, color2) -- vertical gradient rectangle
+static int l_layer_rectangle_gradient_v(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    float w = (float)luaL_checknumber(L, 4);
+    float h = (float)luaL_checknumber(L, 5);
+    uint32_t color1 = (uint32_t)luaL_checkinteger(L, 6);
+    uint32_t color2 = (uint32_t)luaL_checkinteger(L, 7);
+    layer_add_rectangle_gradient_v(layer, x, y, w, h, color1, color2);
     return 0;
 }
 
@@ -4694,6 +4947,25 @@ static int l_layer_set_blend_mode(lua_State* L) {
     return 0;
 }
 
+// Stencil Lua bindings
+static int l_layer_stencil_mask(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    layer_stencil_mask(layer);
+    return 0;
+}
+
+static int l_layer_stencil_test(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    layer_stencil_test(layer);
+    return 0;
+}
+
+static int l_layer_stencil_off(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    layer_stencil_off(layer);
+    return 0;
+}
+
 // Effect shader Lua bindings
 static int l_shader_load_file(lua_State* L) {
     const char* path = luaL_checkstring(L, 1);
@@ -4875,12 +5147,21 @@ static int l_layer_render(lua_State* L) {
     glBindFramebuffer(GL_FRAMEBUFFER, layer->fbo);
     glViewport(0, 0, layer->width, layer->height);
 
-    // Clear to transparent black
+    // Clear color and stencil buffers
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClearStencil(0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+    // Ensure stencil starts disabled
+    glDisable(GL_STENCIL_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     // Process all queued commands
     layer_render(layer);
+
+    // Ensure stencil is disabled after rendering (in case commands left it enabled)
+    glDisable(GL_STENCIL_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     // Clear command queue for next frame
     layer->command_count = 0;
@@ -5824,7 +6105,7 @@ static bool tags_match(int event_tag_a, int event_tag_b, int query_tag_a, int qu
            (event_tag_a == query_tag_b && event_tag_b == query_tag_a);
 }
 
-// physics_get_collision_begin(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y}
+// physics_get_collision_begin(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b, tag_a, tag_b, point_x, point_y, normal_x, normal_y}
 static int l_physics_get_collision_begin(lua_State* L) {
     const char* tag_a_name = luaL_checkstring(L, 1);
     const char* tag_b_name = luaL_checkstring(L, 2);
@@ -5862,6 +6143,14 @@ static int l_physics_get_collision_begin(lua_State* L) {
             *shape_b_ud = e->shape_b;
             lua_setfield(L, -2, "shape_b");
 
+            // tag_a (string)
+            lua_pushstring(L, physics_tags[e->tag_a].name);
+            lua_setfield(L, -2, "tag_a");
+
+            // tag_b (string)
+            lua_pushstring(L, physics_tags[e->tag_b].name);
+            lua_setfield(L, -2, "tag_b");
+
             // Contact point and normal
             lua_pushnumber(L, e->point_x);
             lua_setfield(L, -2, "point_x");
@@ -5878,7 +6167,7 @@ static int l_physics_get_collision_begin(lua_State* L) {
     return 1;
 }
 
-// physics_get_collision_end(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b}
+// physics_get_collision_end(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b, tag_a, tag_b}
 static int l_physics_get_collision_end(lua_State* L) {
     const char* tag_a_name = luaL_checkstring(L, 1);
     const char* tag_b_name = luaL_checkstring(L, 2);
@@ -5916,13 +6205,29 @@ static int l_physics_get_collision_end(lua_State* L) {
             *shape_b_ud = e->shape_b;
             lua_setfield(L, -2, "shape_b");
 
+            // tag_a (string) - valid even if shape destroyed since tag was cached
+            if (e->tag_a >= 0) {
+                lua_pushstring(L, physics_tags[e->tag_a].name);
+            } else {
+                lua_pushnil(L);
+            }
+            lua_setfield(L, -2, "tag_a");
+
+            // tag_b (string)
+            if (e->tag_b >= 0) {
+                lua_pushstring(L, physics_tags[e->tag_b].name);
+            } else {
+                lua_pushnil(L);
+            }
+            lua_setfield(L, -2, "tag_b");
+
             lua_rawseti(L, -2, result_index++);
         }
     }
     return 1;
 }
 
-// physics_get_hit(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b, point_x, point_y, normal_x, normal_y, approach_speed}
+// physics_get_hit(tag_a, tag_b) -> array of {body_a, body_b, shape_a, shape_b, tag_a, tag_b, point_x, point_y, normal_x, normal_y, approach_speed}
 static int l_physics_get_hit(lua_State* L) {
     const char* tag_a_name = luaL_checkstring(L, 1);
     const char* tag_b_name = luaL_checkstring(L, 2);
@@ -5960,6 +6265,14 @@ static int l_physics_get_hit(lua_State* L) {
             *shape_b_ud = e->shape_b;
             lua_setfield(L, -2, "shape_b");
 
+            // tag_a (string)
+            lua_pushstring(L, physics_tags[e->tag_a].name);
+            lua_setfield(L, -2, "tag_a");
+
+            // tag_b (string)
+            lua_pushstring(L, physics_tags[e->tag_b].name);
+            lua_setfield(L, -2, "tag_b");
+
             // Hit-specific fields
             lua_pushnumber(L, e->point_x);
             lua_setfield(L, -2, "point_x");
@@ -5978,7 +6291,7 @@ static int l_physics_get_hit(lua_State* L) {
     return 1;
 }
 
-// physics_get_sensor_begin(tag_a, tag_b) -> array of {sensor_body, visitor_body, sensor_shape, visitor_shape}
+// physics_get_sensor_begin(tag_a, tag_b) -> array of {sensor_body, visitor_body, sensor_shape, visitor_shape, sensor_tag, visitor_tag}
 static int l_physics_get_sensor_begin(lua_State* L) {
     const char* tag_a_name = luaL_checkstring(L, 1);
     const char* tag_b_name = luaL_checkstring(L, 2);
@@ -6016,13 +6329,21 @@ static int l_physics_get_sensor_begin(lua_State* L) {
             *visitor_shape_ud = e->visitor_shape;
             lua_setfield(L, -2, "visitor_shape");
 
+            // sensor_tag (string)
+            lua_pushstring(L, physics_tags[e->sensor_tag].name);
+            lua_setfield(L, -2, "sensor_tag");
+
+            // visitor_tag (string)
+            lua_pushstring(L, physics_tags[e->visitor_tag].name);
+            lua_setfield(L, -2, "visitor_tag");
+
             lua_rawseti(L, -2, result_index++);
         }
     }
     return 1;
 }
 
-// physics_get_sensor_end(tag_a, tag_b) -> array of {sensor_body, visitor_body, sensor_shape, visitor_shape}
+// physics_get_sensor_end(tag_a, tag_b) -> array of {sensor_body, visitor_body, sensor_shape, visitor_shape, sensor_tag, visitor_tag}
 static int l_physics_get_sensor_end(lua_State* L) {
     const char* tag_a_name = luaL_checkstring(L, 1);
     const char* tag_b_name = luaL_checkstring(L, 2);
@@ -6059,6 +6380,22 @@ static int l_physics_get_sensor_end(lua_State* L) {
             b2ShapeId* visitor_shape_ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
             *visitor_shape_ud = e->visitor_shape;
             lua_setfield(L, -2, "visitor_shape");
+
+            // sensor_tag (string) - valid even if shape destroyed since tag was cached
+            if (e->sensor_tag >= 0) {
+                lua_pushstring(L, physics_tags[e->sensor_tag].name);
+            } else {
+                lua_pushnil(L);
+            }
+            lua_setfield(L, -2, "sensor_tag");
+
+            // visitor_tag (string)
+            if (e->visitor_tag >= 0) {
+                lua_pushstring(L, physics_tags[e->visitor_tag].name);
+            } else {
+                lua_pushnil(L);
+            }
+            lua_setfield(L, -2, "visitor_tag");
 
             lua_rawseti(L, -2, result_index++);
         }
@@ -7476,6 +7813,8 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_create", l_layer_create);
     lua_register(L, "layer_rectangle", l_layer_rectangle);
     lua_register(L, "layer_rectangle_line", l_layer_rectangle_line);
+    lua_register(L, "layer_rectangle_gradient_h", l_layer_rectangle_gradient_h);
+    lua_register(L, "layer_rectangle_gradient_v", l_layer_rectangle_gradient_v);
     lua_register(L, "layer_circle", l_layer_circle);
     lua_register(L, "layer_circle_line", l_layer_circle_line);
     lua_register(L, "layer_line", l_layer_line);
@@ -7491,6 +7830,9 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_pop", l_layer_pop);
     lua_register(L, "layer_draw_texture", l_layer_draw_texture);
     lua_register(L, "layer_set_blend_mode", l_layer_set_blend_mode);
+    lua_register(L, "layer_stencil_mask", l_layer_stencil_mask);
+    lua_register(L, "layer_stencil_test", l_layer_stencil_test);
+    lua_register(L, "layer_stencil_off", l_layer_stencil_off);
     lua_register(L, "texture_load", l_texture_load);
     lua_register(L, "texture_unload", l_texture_unload);
     lua_register(L, "texture_get_width", l_texture_get_width);

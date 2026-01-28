@@ -9,6 +9,17 @@ global *
     clamp                     - Clamp value to range
     remap                     - Remap value from one range to another
     loop                      - Loop value within range (for angles)
+    sign                      - Sign of a number (-1, 0, 1)
+    length                    - Length of a 2D vector
+    angle                     - Angle from vector components
+    angle_to_point            - Angle between two points
+    distance                  - Distance between two points
+    normalize                 - Normalize a vector to unit length
+    direction                 - Unit vector from angle
+    rotate                    - Rotate a vector by angle
+    reflect                   - Reflect angle off a surface normal
+    snap                      - Snap value to nearest grid
+    limit                     - Limit vector length
 
   Easing functions:
     linear, sine_*, quad_*, cubic_*, quart_*, quint_*,
@@ -68,6 +79,24 @@ math.lerp = (t, source, destination) ->
 ]]
 math.lerp_dt = (p, t, dt, source, destination) ->
   math.lerp 1 - (1 - p)^(dt / t), source, destination
+
+--[[
+  Framerate-independent damping (decay toward zero).
+
+  Usage:
+    x = math.damping 0.9, 1, dt, x   -> after 1 second, x will be 10% of its initial value
+    x = math.damping 0.5, 0.5, dt, x -> after 0.5 seconds, x will be 50% of its initial value
+
+  Parameters:
+    p  - Percentage of value to decay (0.9 = decay 90%, leaving 10%)
+    t  - Time in seconds to reach that decay
+    dt - Delta time
+    v  - Current value
+
+  Returns: decayed value
+]]
+math.damping = (p, t, dt, v) ->
+  (v or 0) * (1 - p)^(dt / t)
 
 --[[
   Loops value t to stay within [0, length] range.
@@ -136,6 +165,40 @@ math.lerp_angle_dt = (p, t, dt, source, destination) ->
   math.lerp_angle 1 - (1 - p)^(dt / t), source, destination
 
 --[[
+  Returns the sign of a number.
+
+  Usage:
+    math.sign 5    -> 1
+    math.sign -5   -> -1
+    math.sign 0    -> 0
+
+  Parameters:
+    value - Number to get sign of
+
+  Returns: 1, -1, or 0
+]]
+math.sign = (value) ->
+  if value > 0 then 1
+  elseif value < 0 then -1
+  else 0
+
+--[[
+  Returns the length (magnitude) of a 2D vector.
+
+  Usage:
+    math.length 3, 4       -> 5
+    math.length vx, vy     -> speed
+
+  Parameters:
+    x - X component of the vector
+    y - Y component of the vector
+
+  Returns: The Euclidean length of the vector
+]]
+math.length = (x, y) ->
+  math.sqrt(x*x + y*y)
+
+--[[
   Clamps value to stay within [min, max] range.
 
   Usage:
@@ -179,6 +242,188 @@ math.clamp = (value, min, max) ->
 ]]
 math.remap = (value, old_min, old_max, new_min, new_max) ->
   ((value - old_min)/(old_max - old_min))*(new_max - new_min) + new_min
+
+--[[
+  Returns the angle of a 2D vector in radians.
+
+  Usage:
+    math.angle 1, 0        -> 0 (pointing right)
+    math.angle 0, 1        -> pi/2 (pointing down)
+    math.angle -1, 0       -> pi (pointing left)
+    math.angle vx, vy      -> direction of velocity
+
+  Parameters:
+    x - X component of the vector
+    y - Y component of the vector
+
+  Returns: angle in radians (-pi to pi)
+]]
+math.angle = (x, y) ->
+  math.atan y, x
+
+--[[
+  Returns the angle from point 1 to point 2.
+
+  Usage:
+    math.angle_to_point 0, 0, 100, 0     -> 0 (target is to the right)
+    math.angle_to_point 0, 0, 0, 100     -> pi/2 (target is below)
+    math.angle_to_point @x, @y, enemy.x, enemy.y
+
+  Parameters:
+    x1, y1 - Source point
+    x2, y2 - Target point
+
+  Returns: angle in radians from source to target
+]]
+math.angle_to_point = (x1, y1, x2, y2) ->
+  math.atan y2 - y1, x2 - x1
+
+--[[
+  Returns the distance between two points.
+
+  Usage:
+    math.distance 0, 0, 3, 4      -> 5
+    math.distance @x, @y, target.x, target.y
+
+  Parameters:
+    x1, y1 - First point
+    x2, y2 - Second point
+
+  Returns: Euclidean distance between points
+]]
+math.distance = (x1, y1, x2, y2) ->
+  dx = x2 - x1
+  dy = y2 - y1
+  math.sqrt dx*dx + dy*dy
+
+--[[
+  Normalizes a 2D vector to unit length.
+
+  Usage:
+    nx, ny = math.normalize 3, 4      -> 0.6, 0.8
+    nx, ny = math.normalize vx, vy
+
+  Parameters:
+    x - X component of the vector
+    y - Y component of the vector
+
+  Returns: x, y components of unit vector (or 0, 0 if input is zero vector)
+]]
+math.normalize = (x, y) ->
+  len = math.length x, y
+  if len > 0
+    x/len, y/len
+  else
+    0, 0
+
+--[[
+  Returns a unit vector pointing in the given direction.
+
+  Usage:
+    dx, dy = math.direction 0           -> 1, 0 (right)
+    dx, dy = math.direction math.pi/2   -> 0, 1 (down)
+    dx, dy = math.direction @angle
+
+  Parameters:
+    angle - Direction in radians
+
+  Returns: x, y components of unit vector
+]]
+math.direction = (angle) ->
+  math.cos(angle), math.sin(angle)
+
+--[[
+  Rotates a 2D vector by an angle.
+
+  Usage:
+    rx, ry = math.rotate 1, 0, math.pi/2    -> 0, 1 (rotated 90 degrees)
+    rx, ry = math.rotate vx, vy, @rotation
+
+  Parameters:
+    x     - X component of vector
+    y     - Y component of vector
+    angle - Rotation angle in radians
+
+  Returns: x, y components of rotated vector
+]]
+math.rotate = (x, y, angle) ->
+  c = math.cos angle
+  s = math.sin angle
+  x*c - y*s, x*s + y*c
+
+--[[
+  Reflects an angle off a surface normal.
+
+  Usage:
+    new_angle = math.reflect projectile.angle, normal_x, normal_y
+    new_angle = math.reflect @angle, collision.normal_x, collision.normal_y
+
+  Parameters:
+    angle    - Incoming angle in radians
+    normal_x - X component of surface normal
+    normal_y - Y component of surface normal
+
+  Returns: reflected angle in radians
+
+  Behavior:
+    - Reflects the direction as if bouncing off a surface
+    - Normal should point away from the surface
+]]
+math.reflect = (angle, normal_x, normal_y) ->
+  -- Incoming direction
+  dx = math.cos angle
+  dy = math.sin angle
+
+  -- Reflect: d' = d - 2(d·n)n
+  dot = dx*normal_x + dy*normal_y
+  rx = dx - 2*dot*normal_x
+  ry = dy - 2*dot*normal_y
+
+  math.atan ry, rx
+
+--[[
+  Snaps a value to the nearest multiple of grid.
+
+  Usage:
+    math.snap 7, 5        -> 5
+    math.snap 8, 5        -> 10
+    math.snap 0.7, 0.25   -> 0.75
+    math.snap angle, math.pi/4  -- snap to 45-degree increments
+
+  Parameters:
+    value - Value to snap
+    grid  - Grid size
+
+  Returns: nearest multiple of grid
+]]
+math.snap = (value, grid) ->
+  math.floor(value/grid + 0.5) * grid
+
+--[[
+  Limits a vector's length without changing direction.
+
+  Usage:
+    vx, vy = math.limit vx, vy, max_speed
+    vx, vy = math.limit 100, 100, 50   -> ~35.4, ~35.4
+
+  Parameters:
+    x   - X component of vector
+    y   - Y component of vector
+    max - Maximum length
+
+  Returns: x, y components of limited vector
+
+  Behavior:
+    - If vector length <= max, returns unchanged
+    - If vector length > max, scales to exactly max length
+]]
+math.limit = (x, y, max) ->
+  len = math.length x, y
+  if len > max
+    scale = max / len
+    x*scale, y*scale
+  else
+    x, y
 
 -- Linear (no easing)
 math.linear = (t) -> t

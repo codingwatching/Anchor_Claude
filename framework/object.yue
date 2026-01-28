@@ -1,0 +1,505 @@
+global *
+
+class object
+  --[[
+    Creates a new object with optional name.
+
+    Usage:
+      obj = object!           -- anonymous object
+      obj = object 'player'   -- named object
+
+    Properties initialized:
+      @name     - string or nil, used for bidirectional links
+      @parent   - reference to parent object, nil if root
+      @children - array of child objects
+      @dead     - boolean, true when killed (removed at end of frame)
+      @tags     - set of tags, used for querying with all(tag) and is()
+  ]]
+  new: (name) =>
+    @name = name
+    @parent = nil
+    @children = {}
+    @dead = false
+    @tags = {}
+
+  --[[
+    Adds a child to this object's tree.
+
+    Usage:
+      @\add child
+      @\add(object 'timer')\add(object 'collider')  -- chainable
+
+    Behavior:
+      - Appends child to @children array
+      - Sets child.parent = @
+      - If child has a name: creates @[child.name] = child (parent can access child by name)
+      - If parent has a name: creates child[@name] = @ (child can access parent by name)
+      - If a child with the same name already exists, kills the old child first (replacement)
+
+    Edge cases:
+      - Adding same child twice: child appears twice in @children, both get killed
+      - Adding child that has another parent: child ends up in two parents' arrays (avoid this)
+
+    Returns: @ (for chaining)
+  ]]
+  add: (child) =>
+    @children[] = child
+    child.parent = @
+    if child.name
+      @[child.name]\kill! if @[child.name]
+      @[child.name] = child
+    if @name
+      child[@name] = @
+    @
+
+  --[[
+    Returns all descendants of this object, optionally filtered by tag.
+
+    Usage:
+      all_objects = @\all!           -- all descendants
+      enemies = @\all 'enemy'        -- only descendants with 'enemy' tag
+
+    Behavior:
+      - Uses iterative DFS (depth-first search), left-to-right order
+      - Does NOT include self, only descendants
+      - Returns ALL descendants including dead ones (dead check is caller's responsibility)
+      - When tag provided, only returns objects where obj.tags[tag] is truthy
+
+    Returns: array of objects
+  ]]
+  all: (tag) =>
+    nodes = {}
+    stack = {}
+    for i = #@children, 1, -1
+      stack[] = @children[i]
+    while #stack > 0
+      node = table.remove stack
+      if tag
+        nodes[] = node if node.tags[tag]
+      else
+        nodes[] = node
+      for i = #node.children, 1, -1
+        stack[] = node.children[i]
+    nodes
+
+  --[[
+    Marks this object (and descendants) as dead. Actual removal happens at end of frame.
+
+    Usage:
+      @\kill!                -- kill self and all descendants
+      @\kill 'enemy'         -- kill all descendants with 'enemy' tag (and their children)
+
+    Behavior (no tag):
+      - Sets @dead = true on self
+      - Sets dead = true on ALL descendants (children never outlive parents)
+
+    Behavior (with tag):
+      - If self has the tag: calls @\kill! (kills self and all descendants)
+      - Otherwise: finds all descendants with that tag and calls kill! on each
+        (which kills them and their descendants, even if descendants don't have the tag)
+
+    Edge cases:
+      - Killing already dead object: no-op, safe to call multiple times
+      - Dead objects are removed from tree at end of frame by cleanup()
+
+    Returns: @ (for chaining)
+  ]]
+  kill: (tag) =>
+    if tag
+      if @tags[tag]
+        @\kill!
+      else
+        for obj in *@\all tag
+          obj\kill!
+    else
+      @dead = true
+      if @linked_from
+        for link in *@linked_from
+          continue if link.source.dead
+          if link.callback
+            link.callback link.source
+          else
+            link.source\kill!
+      for obj in *@\all!
+        obj.dead = true
+    @
+
+  --[[
+    Adds one or more tags to this object.
+
+    Usage:
+      @\tag 'enemy'                    -- single tag
+      @\tag 'enemy', 'flying', 'boss'  -- multiple tags
+
+    Behavior:
+      - Tags are stored as @tags[tagname] = true (set semantics)
+      - Used for querying with all(tag) and checking with is()
+
+    Returns: @ (for chaining)
+  ]]
+  tag: (...) =>
+    for t in *{...}
+      @tags[t] = true
+    @
+
+  --[[
+    Checks if object matches a name or has a tag.
+
+    Usage:
+      if @\is 'player'    -- checks name OR tag
+      if @\is 'enemy'     -- true if @name == 'enemy' OR @tags['enemy']
+
+    Returns: truthy if match, nil/false otherwise
+  ]]
+  is: (name_or_tag) =>
+    @name == name_or_tag or @tags[name_or_tag]
+
+  --[[
+    Creates a horizontal link to another object for death notification.
+
+    Usage:
+      @\link target                      -- kill self when target dies
+      @\link target, => @homing = false  -- run callback when target dies
+
+    Behavior:
+      - When target dies (kill! is called), callback runs with self as argument
+      - If no callback provided, self is killed when target dies
+      - Links are bidirectional internally: @links stores outgoing, target.linked_from stores incoming
+      - Both are cleaned up when either object is removed from tree
+
+    Returns: @ (for chaining)
+  ]]
+  link: (target, callback) =>
+    @links = {} unless @links
+    @links[] = {target: target, callback: callback}
+    target.linked_from = {} unless target.linked_from
+    target.linked_from[] = {source: @, callback: callback}
+    @
+
+  --[[
+    Assigns properties from a table to this object.
+
+    Usage:
+      @\set {x: 100, y: 200, hp: 50}
+
+    Behavior:
+      - Iterates over key-value pairs in the table
+      - Assigns each key-value pair to @
+
+    Returns: @ (for chaining)
+  ]]
+  set: (properties) =>
+    for key, value in pairs properties
+      @[key] = value
+    @
+
+  --[[
+    Runs a build function with this object as the argument.
+
+    Usage:
+      @\build =>
+        @x = 100
+        @y = 200
+        @hp = @x + @y
+
+    Behavior:
+      - Calls the function with @ as argument
+      - Useful for complex initialization that can't be done with a simple table
+
+    Returns: @ (for chaining)
+  ]]
+  build: (build_function) =>
+    build_function @
+    @
+
+  --[[
+    Adds this object to a parent (reverse of add).
+
+    Usage:
+      player\flow_to arena    -- equivalent to: arena\add player
+
+    Behavior:
+      - Calls parent\add @ internally
+      - Useful for fluent chaining when creating objects inline
+
+    Returns: @ (for chaining)
+  ]]
+  flow_to: (parent) =>
+    parent\add @
+    @
+
+  --[[
+    Adds an action to run during the early phase (before main update).
+
+    Usage:
+      @\early_action -> print 'runs every frame'           -- anonymous
+      @\early_action 'input', -> @\handle_input!           -- named
+      @\early_action -> true                               -- one-shot (returns true to remove)
+
+    Behavior:
+      - Anonymous: function stored in @early_actions array
+      - Named: function also accessible as @[name], replaces existing action with same name
+      - Actions receive (self, dt) as arguments
+      - If action returns true, it's removed at end of frame
+
+    Early phase runs before main phase, useful for input handling.
+
+    Returns: @ (for chaining)
+  ]]
+  early_action: (name_or_fn, fn) =>
+    @early_actions = {} unless @early_actions
+    @early_action_names = {} unless @early_action_names
+    if type(name_or_fn) == 'string'
+      name = name_or_fn
+      for i, n in ipairs @early_action_names
+        if n == name
+          @early_actions[i] = fn
+          @[name] = fn
+          return @
+      @early_actions[] = fn
+      @early_action_names[] = name
+      @[name] = fn
+    else
+      @early_actions[] = name_or_fn
+      @early_action_names[] = false
+    @
+
+  --[[
+    Adds an action to run during the main phase.
+
+    Usage:
+      @\action -> print 'runs every frame'                 -- anonymous
+      @\action 'move', -> @x += @speed * dt                -- named
+      @\action -> @lifetime -= dt; @lifetime <= 0          -- one-shot when lifetime expires
+
+    Behavior:
+      - Anonymous: function stored in @actions array
+      - Named: function also accessible as @[name], replaces existing action with same name
+      - Actions receive (self, dt) as arguments
+      - If action returns true, it's removed at end of frame
+
+    Main phase is the standard update phase, runs after early and before late.
+
+    Returns: @ (for chaining)
+  ]]
+  action: (name_or_fn, fn) =>
+    @actions = {} unless @actions
+    @action_names = {} unless @action_names
+    if type(name_or_fn) == 'string'
+      name = name_or_fn
+      for i, n in ipairs @action_names
+        if n == name
+          @actions[i] = fn
+          @[name] = fn
+          return @
+      @actions[] = fn
+      @action_names[] = name
+      @[name] = fn
+    else
+      @actions[] = name_or_fn
+      @action_names[] = false
+    @
+
+  --[[
+    Adds an action to run during the late phase (after main update).
+
+    Usage:
+      @\late_action -> draw_sprite @x, @y                  -- anonymous
+      @\late_action 'draw', -> @\render!                   -- named
+
+    Behavior:
+      - Anonymous: function stored in @late_actions array
+      - Named: function also accessible as @[name], replaces existing action with same name
+      - Actions receive (self, dt) as arguments
+      - If action returns true, it's removed at end of frame
+
+    Late phase runs after main phase, useful for drawing and post-update logic.
+
+    Returns: @ (for chaining)
+  ]]
+  late_action: (name_or_fn, fn) =>
+    @late_actions = {} unless @late_actions
+    @late_action_names = {} unless @late_action_names
+    if type(name_or_fn) == 'string'
+      name = name_or_fn
+      for i, n in ipairs @late_action_names
+        if n == name
+          @late_actions[i] = fn
+          @[name] = fn
+          return @
+      @late_actions[] = fn
+      @late_action_names[] = name
+      @[name] = fn
+    else
+      @late_actions[] = name_or_fn
+      @late_action_names[] = false
+    @
+
+  --[[
+    Short single-letter aliases for compact API.
+
+      T = object (global)
+      Y = set
+      U = build
+      E = early_action
+      X = action
+      L = late_action
+      A = add
+      F = flow_to
+      K = link
+
+    Usage:
+      p = T 'player'
+      p\Y {x: 100, y: 200}
+      p\U => @hp = 100
+      p\X 'move', (dt) => @x += dt
+      p\L 'draw', (dt) => draw @x, @y
+      p\A timer!
+      p\F arena
+      p\K target
+  ]]
+
+  -- Aliases
+  E: (name_or_fn, fn) => @\early_action name_or_fn, fn
+  X: (name_or_fn, fn) => @\action name_or_fn, fn
+  L: (name_or_fn, fn) => @\late_action name_or_fn, fn
+  A: (child) => @\add child
+  K: (target, callback) => @\link target, callback
+  Y: (properties) => @\set properties
+  U: (build_function) => @\build build_function
+  F: (parent) => @\flow_to parent
+
+  --[[
+    Internal: runs early phase for this object.
+    Called by init.yue's update loop, not meant to be called directly.
+
+    Behavior:
+      - Returns immediately if @dead
+      - Calls @\early_update(dt) if object has an early_update method
+      - Runs all early_actions, marking those that return true for removal
+  ]]
+  _early_update: (dt) =>
+    return if @dead
+    @\early_update dt if @early_update
+    if @early_actions
+      for i, fn in ipairs @early_actions
+        if fn(@, dt) == true
+          @early_actions_to_remove = {} unless @early_actions_to_remove
+          @early_actions_to_remove[] = i
+
+  --[[
+    Internal: runs main phase for this object.
+    Called by init.yue's update loop, not meant to be called directly.
+
+    Behavior:
+      - Returns immediately if @dead
+      - Calls @\update(dt) if object has an update method
+      - Runs all actions, marking those that return true for removal
+  ]]
+  _update: (dt) =>
+    return if @dead
+    @\update dt if @update
+    if @actions
+      for i, fn in ipairs @actions
+        if fn(@, dt) == true
+          @actions_to_remove = {} unless @actions_to_remove
+          @actions_to_remove[] = i
+
+  --[[
+    Internal: runs late phase for this object.
+    Called by init.yue's update loop, not meant to be called directly.
+
+    Behavior:
+      - Returns immediately if @dead
+      - Calls @\late_update(dt) if object has a late_update method
+      - Runs all late_actions, marking those that return true for removal
+  ]]
+  _late_update: (dt) =>
+    return if @dead
+    @\late_update dt if @late_update
+    if @late_actions
+      for i, fn in ipairs @late_actions
+        if fn(@, dt) == true
+          @late_actions_to_remove = {} unless @late_actions_to_remove
+          @late_actions_to_remove[] = i
+
+  --[[
+    End-of-frame cleanup: removes dead actions and dead objects from tree.
+    Called by init.yue at end of each frame on the root object (an).
+
+    Behavior:
+      1. Collects self + all descendants
+      2. For each object, removes actions marked for removal (from all three phases)
+         - Removes from actions array and action_names array
+         - Clears @[name] reference for named actions
+      3. Removes dead children from tree (iterates in reverse for children-first destroy order)
+         - Calls child\destroy! if child has a destroy method (for resource cleanup)
+         - Clears bidirectional named links
+         - Removes from parent.children array
+
+    Edge cases:
+      - Dead objects' descendants are also dead (kill propagates), so they get cleaned recursively
+      - Destroy is called children-first (deepest nodes first) for proper resource cleanup order
+  ]]
+  cleanup: =>
+    objects = {@}
+    objects[] = obj for obj in *@\all!
+
+    -- Remove marked actions
+    for obj in *objects
+      if obj.early_actions_to_remove
+        for i = #obj.early_actions_to_remove, 1, -1
+          idx = obj.early_actions_to_remove[i]
+          name = obj.early_action_names[idx]
+          obj[name] = nil if name
+          table.remove obj.early_actions, idx
+          table.remove obj.early_action_names, idx
+        obj.early_actions_to_remove = nil
+      if obj.actions_to_remove
+        for i = #obj.actions_to_remove, 1, -1
+          idx = obj.actions_to_remove[i]
+          name = obj.action_names[idx]
+          obj[name] = nil if name
+          table.remove obj.actions, idx
+          table.remove obj.action_names, idx
+        obj.actions_to_remove = nil
+      if obj.late_actions_to_remove
+        for i = #obj.late_actions_to_remove, 1, -1
+          idx = obj.late_actions_to_remove[i]
+          name = obj.late_action_names[idx]
+          obj[name] = nil if name
+          table.remove obj.late_actions, idx
+          table.remove obj.late_action_names, idx
+        obj.late_actions_to_remove = nil
+
+    -- Remove dead children
+    for i = #objects, 1, -1
+      parent = objects[i]
+      j = 1
+      while j <= #parent.children
+        child = parent.children[j]
+        if child.dead
+          -- Clean up child's outgoing links (remove from targets' linked_from)
+          if child.links
+            for link in *child.links
+              if link.target.linked_from
+                for k = #link.target.linked_from, 1, -1
+                  if link.target.linked_from[k].source == child
+                    table.remove link.target.linked_from, k
+          -- Clean up child's incoming links (remove from sources' links)
+          if child.linked_from
+            for entry in *child.linked_from
+              if entry.source.links
+                for k = #entry.source.links, 1, -1
+                  if entry.source.links[k].target == child
+                    table.remove entry.source.links, k
+          child\destroy! if child.destroy
+          parent[child.name] = nil if child.name
+          child[parent.name] = nil if parent.name
+          child.parent = nil
+          table.remove parent.children, j
+        else
+          j += 1
+
+-- Global alias: T = object
+T = object

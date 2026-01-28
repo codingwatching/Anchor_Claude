@@ -62,8 +62,7 @@ def main():
     parser.add_argument('--exclude', '-e', help='Session ID to exclude (current session)')
     parser.add_argument('--limit', '-n', type=int, default=5, help='Number of results to show')
     parser.add_argument('--folders', '-f', nargs='+',
-                        default=['~/.claude/projects/E--a327ex-Anchor',
-                                 '~/.claude/projects/E--a327ex-emoji-ball-battles'],
+                        default=['~/.claude/projects/E--a327ex'],
                         help='Project folders to search')
     args = parser.parse_args()
 

@@ -1,0 +1,350 @@
+global *
+
+--[[
+  Mutable color with RGB and HSL access.
+
+  Usage:
+    red = color 255, 0, 0
+    red.r = 200              -- modify in place
+    red.l = 0.8              -- set lightness, recomputes RGB
+    layer\circle x, y, r, red!  -- get packed value
+
+  Color is a standalone class (not a child object).
+  All properties (r, g, b, a, h, s, l) are readable and writable.
+  RGB and HSL stay synchronized automatically.
+
+  Properties:
+    r, g, b  - RGB components (0-255)
+    a        - alpha (0-255)
+    h        - hue (0-360)
+    s        - saturation (0-1)
+    l        - lightness (0-1)
+
+  Operators (mutate in place, return self):
+    color * number     - multiply RGB by scalar
+    color * color      - multiply RGB component-wise
+    color / number     - divide RGB by scalar
+    color + number     - add to all RGB
+    color + color      - add RGB component-wise
+    color - number     - subtract from all RGB
+    color - color      - subtract RGB component-wise
+
+  Methods:
+    clone    - create independent copy
+    invert   - flip RGB values (255 - value)
+    mix      - linear interpolation toward another color
+]]
+
+-- Internal: RGB (0-255) to HSL (h: 0-360, s: 0-1, l: 0-1)
+rgb_to_hsl = (r, g, b) ->
+  r, g, b = r / 255, g / 255, b / 255
+  max = math.max r, g, b
+  min = math.min r, g, b
+  l = (max + min) / 2
+
+  if max == min
+    return 0, 0, l  -- achromatic
+
+  d = max - min
+  s = if l > 0.5 then d / (2 - max - min) else d / (max + min)
+
+  h = if max == r
+    ((g - b) / d + (if g < b then 6 else 0)) / 6
+  elseif max == g
+    ((b - r) / d + 2) / 6
+  else
+    ((r - g) / d + 4) / 6
+
+  h * 360, s, l
+
+-- Internal: HSL to RGB (0-255)
+hsl_to_rgb = (h, s, l) ->
+  if s == 0
+    v = math.floor l * 255 + 0.5
+    return v, v, v  -- achromatic
+
+  h = h / 360
+  q = if l < 0.5 then l * (1 + s) else l + s - l * s
+  p = 2 * l - q
+
+  hue_to_rgb = (t) ->
+    t += 1 if t < 0
+    t -= 1 if t > 1
+    if t < 1/6
+      p + (q - p) * 6 * t
+    elseif t < 1/2
+      q
+    elseif t < 2/3
+      p + (q - p) * (2/3 - t) * 6
+    else
+      p
+
+  r = math.floor hue_to_rgb(h + 1/3) * 255 + 0.5
+  g = math.floor hue_to_rgb(h) * 255 + 0.5
+  b = math.floor hue_to_rgb(h - 1/3) * 255 + 0.5
+  r, g, b
+
+class color
+  --[[
+    Creates a new color.
+
+    Usage:
+      white = color!                    -- default white (255, 255, 255, 255)
+      red = color 255, 0, 0             -- opaque red
+      transparent_blue = color 0, 0, 255, 128  -- semi-transparent blue
+
+    Parameters:
+      r - red component 0-255 (default 255)
+      g - green component 0-255 (default 255)
+      b - blue component 0-255 (default 255)
+      a - alpha component 0-255 (default 255)
+
+    Returns: color instance
+  ]]
+  new: (r=255, g=255, b=255, a=255) =>
+    rawset @, 'data', {r: r, g: g, b: b, a: a, h: 0, s: 0, l: 0}
+    @\sync_hsl!
+
+  -- Internal: recompute HSL from current RGB
+  sync_hsl: =>
+    h, s, l = rgb_to_hsl @data.r, @data.g, @data.b
+    @data.h = h
+    @data.s = s
+    @data.l = l
+
+  -- Internal: recompute RGB from current HSL
+  sync_rgb: =>
+    r, g, b = hsl_to_rgb @data.h, @data.s, @data.l
+    @data.r = r
+    @data.g = g
+    @data.b = b
+
+  -- Internal: property getter for r, g, b, a, h, s, l
+  __index: (key) =>
+    switch key
+      when 'r' then @data.r
+      when 'g' then @data.g
+      when 'b' then @data.b
+      when 'a' then @data.a
+      when 'h' then @data.h
+      when 's' then @data.s
+      when 'l' then @data.l
+      else
+        rawget color.__base, key
+
+  -- Internal: property setter for r, g, b, a, h, s, l with auto-sync
+  __newindex: (key, value) =>
+    switch key
+      when 'r'
+        @data.r = value
+        @\sync_hsl!
+      when 'g'
+        @data.g = value
+        @\sync_hsl!
+      when 'b'
+        @data.b = value
+        @\sync_hsl!
+      when 'a'
+        @data.a = value
+      when 'h'
+        @data.h = value % 360
+        @\sync_rgb!
+      when 's'
+        @data.s = math.max(0, math.min(1, value))
+        @\sync_rgb!
+      when 'l'
+        @data.l = math.max(0, math.min(1, value))
+        @\sync_rgb!
+      else
+        rawset @, key, value
+
+  --[[
+    Returns packed RGBA integer for C drawing functions.
+
+    Usage:
+      layer\circle x, y, r, red!
+      layer\rectangle 0, 0, w, h, my_color!
+
+    Returns: packed RGBA integer
+  ]]
+  __call: =>
+    rgba math.floor(@data.r + 0.5), math.floor(@data.g + 0.5), math.floor(@data.b + 0.5), math.floor(@data.a + 0.5)
+
+  --[[
+    Multiply RGB by scalar or another color's RGB.
+
+    Usage:
+      red = red * 0.5           -- darken by half
+      result = color1 * color2  -- component-wise multiply
+
+    Parameters:
+      other - number (scalar) or color
+
+    Behavior:
+      - Scalar: multiplies each RGB component by the number
+      - Color: multiplies component-wise (r*r/255, g*g/255, b*b/255)
+      - Values are clamped to 0-255
+      - HSL is recomputed after modification
+      - Mutates in place
+
+    Returns: self (for chaining)
+  ]]
+  __mul: (other) =>
+    if type(other) == 'number'
+      @data.r = math.max(0, math.min(255, @data.r * other))
+      @data.g = math.max(0, math.min(255, @data.g * other))
+      @data.b = math.max(0, math.min(255, @data.b * other))
+    else
+      @data.r = math.max(0, math.min(255, @data.r * other.r / 255))
+      @data.g = math.max(0, math.min(255, @data.g * other.g / 255))
+      @data.b = math.max(0, math.min(255, @data.b * other.b / 255))
+    @\sync_hsl!
+    @
+
+  --[[
+    Divide RGB by scalar.
+
+    Usage:
+      red = red / 2  -- darken by half
+
+    Parameters:
+      other - number (scalar)
+
+    Behavior:
+      - Divides each RGB component by the number
+      - Values are clamped to 0-255
+      - HSL is recomputed after modification
+      - Mutates in place
+
+    Returns: self (for chaining)
+  ]]
+  __div: (other) =>
+    if type(other) == 'number'
+      @data.r = math.max(0, math.min(255, @data.r / other))
+      @data.g = math.max(0, math.min(255, @data.g / other))
+      @data.b = math.max(0, math.min(255, @data.b / other))
+      @\sync_hsl!
+    @
+
+  --[[
+    Add scalar or another color's RGB.
+
+    Usage:
+      red = red + 50            -- brighten all channels by 50
+      result = color1 + color2  -- component-wise add
+
+    Parameters:
+      other - number (scalar) or color
+
+    Behavior:
+      - Scalar: adds to each RGB component
+      - Color: adds component-wise (r+r, g+g, b+b)
+      - Values are clamped to 0-255
+      - HSL is recomputed after modification
+      - Mutates in place
+
+    Returns: self (for chaining)
+  ]]
+  __add: (other) =>
+    if type(other) == 'number'
+      @data.r = math.max(0, math.min(255, @data.r + other))
+      @data.g = math.max(0, math.min(255, @data.g + other))
+      @data.b = math.max(0, math.min(255, @data.b + other))
+    else
+      @data.r = math.max(0, math.min(255, @data.r + other.r))
+      @data.g = math.max(0, math.min(255, @data.g + other.g))
+      @data.b = math.max(0, math.min(255, @data.b + other.b))
+    @\sync_hsl!
+    @
+
+  --[[
+    Subtract scalar or another color's RGB.
+
+    Usage:
+      red = red - 50            -- darken all channels by 50
+      result = color1 - color2  -- component-wise subtract
+
+    Parameters:
+      other - number (scalar) or color
+
+    Behavior:
+      - Scalar: subtracts from each RGB component
+      - Color: subtracts component-wise (r-r, g-g, b-b)
+      - Values are clamped to 0-255
+      - HSL is recomputed after modification
+      - Mutates in place
+
+    Returns: self (for chaining)
+  ]]
+  __sub: (other) =>
+    if type(other) == 'number'
+      @data.r = math.max(0, math.min(255, @data.r - other))
+      @data.g = math.max(0, math.min(255, @data.g - other))
+      @data.b = math.max(0, math.min(255, @data.b - other))
+    else
+      @data.r = math.max(0, math.min(255, @data.r - other.r))
+      @data.g = math.max(0, math.min(255, @data.g - other.g))
+      @data.b = math.max(0, math.min(255, @data.b - other.b))
+    @\sync_hsl!
+    @
+
+  --[[
+    Create an independent copy of this color.
+
+    Usage:
+      copy = red\clone!
+      copy.r = 100  -- original red is unchanged
+
+    Returns: new color instance with same RGBA values
+  ]]
+  clone: =>
+    color @data.r, @data.g, @data.b, @data.a
+
+  --[[
+    Invert RGB values (255 - value).
+
+    Usage:
+      red\invert!  -- red becomes cyan
+
+    Behavior:
+      - Each RGB component becomes (255 - value)
+      - Alpha is unchanged
+      - HSL is recomputed after modification
+      - Mutates in place
+
+    Returns: self (for chaining)
+  ]]
+  invert: =>
+    @data.r = 255 - @data.r
+    @data.g = 255 - @data.g
+    @data.b = 255 - @data.b
+    @\sync_hsl!
+    @
+
+  --[[
+    Linear interpolation toward another color.
+
+    Usage:
+      red\mix blue, 0.5   -- halfway between red and blue
+      red\mix blue, 0     -- stays red
+      red\mix blue, 1     -- becomes blue
+
+    Parameters:
+      other - target color to interpolate toward
+      t     - interpolation factor 0-1 (default 0.5)
+
+    Behavior:
+      - Interpolates all four components (RGBA)
+      - t=0 means no change, t=1 means fully target color
+      - HSL is recomputed after modification
+      - Mutates in place
+
+    Returns: self (for chaining)
+  ]]
+  mix: (other, t=0.5) =>
+    @data.r = @data.r + (other.r - @data.r) * t
+    @data.g = @data.g + (other.g - @data.g) * t
+    @data.b = @data.b + (other.b - @data.b) * t
+    @data.a = @data.a + (other.a - @data.a) * t
+    @\sync_hsl!
+    @

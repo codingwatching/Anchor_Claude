@@ -50,6 +50,36 @@ class layer
     layer_rectangle @handle, x, y, w, h, color
 
   --[[
+    Queues a horizontal gradient rectangle (left to right).
+
+    Usage:
+      layer\rectangle_gradient_h 0, 0, 100, 50, rgba(255, 0, 0, 255), rgba(0, 0, 255, 255)
+
+    Parameters:
+      x, y    - top-left position
+      w, h    - width and height
+      color1  - left color (packed RGBA)
+      color2  - right color (packed RGBA)
+  ]]
+  rectangle_gradient_h: (x, y, w, h, color1, color2) =>
+    layer_rectangle_gradient_h @handle, x, y, w, h, color1, color2
+
+  --[[
+    Queues a vertical gradient rectangle (top to bottom).
+
+    Usage:
+      layer\rectangle_gradient_v 0, 0, 100, 50, rgba(255, 0, 0, 255), rgba(0, 0, 255, 255)
+
+    Parameters:
+      x, y    - top-left position
+      w, h    - width and height
+      color1  - top color (packed RGBA)
+      color2  - bottom color (packed RGBA)
+  ]]
+  rectangle_gradient_v: (x, y, w, h, color1, color2) =>
+    layer_rectangle_gradient_v @handle, x, y, w, h, color1, color2
+
+  --[[
     Queues a filled circle centered at (x, y).
 
     Usage:
@@ -241,36 +271,6 @@ class layer
   ]]
   rounded_rectangle_line: (x, y, w, h, radius, color, line_width) =>
     layer_rounded_rectangle_line @handle, x, y, w, h, radius, color, line_width or 1
-
-  --[[
-    Queues a horizontal gradient filled rectangle at (x, y).
-
-    Usage:
-      layer\rectangle_gradient_h 100, 100, 200, 50, red!, blue!
-
-    Parameters:
-      x, y    - top-left position
-      w, h    - width and height
-      color1  - left color (packed RGBA)
-      color2  - right color (packed RGBA)
-  ]]
-  rectangle_gradient_h: (x, y, w, h, color1, color2) =>
-    layer_rectangle_gradient_h @handle, x, y, w, h, color1, color2
-
-  --[[
-    Queues a vertical gradient filled rectangle at (x, y).
-
-    Usage:
-      layer\rectangle_gradient_v 100, 100, 200, 50, red!, blue!
-
-    Parameters:
-      x, y    - top-left position
-      w, h    - width and height
-      color1  - top color (packed RGBA)
-      color2  - bottom color (packed RGBA)
-  ]]
-  rectangle_gradient_v: (x, y, w, h, color1, color2) =>
-    layer_rectangle_gradient_v @handle, x, y, w, h, color1, color2
 
   --[[
     Queues an image (texture) centered at (x, y).
@@ -575,47 +575,3 @@ class layer
   ]]
   draw_from: (source, shader) =>
     layer_draw_from @handle, source.handle, shader
-
-  --[[
-    Start writing to stencil buffer (mask mode).
-
-    Usage:
-      layer\stencil_mask!
-      layer\rectangle x, y, w, h, white!   -- draws to stencil only, not visible
-      layer\stencil_test!
-      layer\image heart, 0, 0              -- only draws where stencil was set
-      layer\stencil_off!
-
-    Behavior:
-      - Subsequent draws write to stencil buffer only (not visible on screen)
-      - Use to define a mask shape, then call stencil_test! to use the mask
-  ]]
-  stencil_mask: =>
-    layer_stencil_mask @handle
-
-  --[[
-    Start testing against stencil buffer.
-
-    Usage:
-      layer\stencil_test!
-      layer\image heart, 0, 0   -- only draws where stencil is set
-
-    Behavior:
-      - Subsequent draws only appear where stencil buffer has been written
-      - Call after stencil_mask! and drawing your mask shape
-  ]]
-  stencil_test: =>
-    layer_stencil_test @handle
-
-  --[[
-    Disable stencil, return to normal drawing.
-
-    Usage:
-      layer\stencil_off!
-
-    Behavior:
-      - Disables stencil test, subsequent draws render normally
-      - Call when done with masked drawing
-  ]]
-  stencil_off: =>
-    layer_stencil_off @handle

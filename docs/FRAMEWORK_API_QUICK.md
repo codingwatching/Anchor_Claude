@@ -199,6 +199,8 @@ object\K()                  -- kill
 ### Drawing
 ```
 layer\rectangle(x, y, w, h, color)
+layer\rectangle_gradient_h(x, y, w, h, color1, color2)
+layer\rectangle_gradient_v(x, y, w, h, color1, color2)
 layer\circle(x, y, radius, color)
 layer\image(image, x, y, color?, flash?)
 layer\text(text, font_name, x, y, color)
@@ -293,6 +295,7 @@ collider\set_gravity_scale(scale)
 collider\set_fixed_rotation(fixed)
 collider\set_bullet(bullet)
 collider\get_mass() -> mass
+collider\set_center_of_mass(x, y)
 collider\get_body_type() -> string
 collider\is_awake() -> bool
 collider\set_awake(awake)
@@ -517,7 +520,23 @@ math.lerp_angle_dt(p, t, dt, source, destination) -> number
 ### Utility
 ```
 math.clamp(value, min, max) -> number
+math.remap(value, old_min, old_max, new_min, new_max) -> number
 math.loop(t, length) -> number
+math.length(x, y) -> number
+math.sign(value) -> -1 | 0 | 1
+math.snap(value, grid) -> number
+```
+
+### Vector & Angle
+```
+math.angle(x, y) -> number
+math.angle_to_point(x1, y1, x2, y2) -> number
+math.distance(x1, y1, x2, y2) -> number
+math.normalize(x, y) -> x, y
+math.direction(angle) -> x, y
+math.rotate(x, y, angle) -> x, y
+math.reflect(angle, normal_x, normal_y) -> number
+math.limit(x, y, max) -> x, y
 ```
 
 ### Easing Functions

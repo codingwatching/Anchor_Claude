@@ -1,0 +1,339 @@
+global *
+
+--[[
+  Shake child object for camera shake effects.
+
+  Usage:
+    an.camera\add shake!
+    an.camera.shake\trauma 0.5, 0.3
+
+  Shake is added as a child of camera. It implements get_transform() which
+  camera calls to collect effects from all children.
+
+  Shake types:
+    trauma - Perlin noise based, accumulates and decays
+]]
+class shake extends object
+  --[[
+    Creates a new shake container.
+
+    Usage:
+      an.camera\add shake!
+
+    Behavior:
+      - Automatically named 'shake' and accessible as parent.shake
+      - Initializes trauma system
+  ]]
+  new: =>
+    super 'shake'
+    @trauma_instances = {}
+    @trauma_amplitude = {x: 24, y: 24, rotation: 0.2, zoom: 0.2}
+    @trauma_time = 0  -- offset for Perlin noise
+
+    -- Springs for spring-based shakes
+    @\add spring!
+    @spring\add 'x', 0, 3, 0.5
+    @spring\add 'y', 0, 3, 0.5
+
+    -- Handcam (continuous subtle motion)
+    @handcam_enabled = false
+    @handcam_amplitude = {x: 5, y: 5, rotation: 0.02, zoom: 0.02}
+    @handcam_frequency = 0.5
+    @handcam_time = 0
+
+  --[[
+    Adds trauma which produces Perlin noise shake.
+
+    Usage:
+      shake\trauma 0.5, 0.3    -- amount, duration
+      shake\trauma 1, 1        -- full trauma over 1 second
+
+    Parameters:
+      amount   - trauma amount (affects intensity via amount^2)
+      duration - time in seconds for this trauma to decay to zero (default 0.5)
+
+    Behavior:
+      - Multiple trauma calls create independent instances
+      - Each instance decays at its own rate
+      - Total trauma = sum of all active instances
+      - Shake intensity = total_trauma^2 * amplitude * noise
+      - Affects all axes (x, y, rotation, zoom) based on configured amplitudes
+  ]]
+  trauma: (amount, duration=0.5) =>
+    @trauma_instances[] = {
+      value: amount
+      decay: amount / duration
+    }
+
+  --[[
+    Sets trauma amplitude parameters.
+
+    Usage:
+      shake\set_trauma_parameters {x: 20, y: 20, rotation: 0.1, zoom: 0.05}
+
+    Parameters:
+      amplitude - table with {x, y, rotation, zoom} amplitudes
+
+    Behavior:
+      - Configure once during setup
+      - Affects all subsequent trauma calls
+  ]]
+  set_trauma_parameters: (amplitude) =>
+    @trauma_amplitude.x = amplitude.x if amplitude.x
+    @trauma_amplitude.y = amplitude.y if amplitude.y
+    @trauma_amplitude.rotation = amplitude.rotation if amplitude.rotation
+    @trauma_amplitude.zoom = amplitude.zoom if amplitude.zoom
+
+  --[[
+    Adds a random shake with decay.
+
+    Usage:
+      shake\shake 10, 0.3        -- amplitude, duration
+      shake\shake 20, 0.5, 30    -- with slower jitter rate (30 changes/sec)
+
+    Parameters:
+      amplitude - maximum displacement in pixels
+      duration  - time in seconds for shake to decay to zero
+      frequency - (optional) how many times per second to pick new random offset (default 60)
+
+    Behavior:
+      - Random displacement each frame (jittery/chaotic)
+      - Amplitude decays linearly over duration
+      - Multiple calls create independent instances
+  ]]
+  shake: (amplitude, duration, frequency=60) =>
+    @shake_instances = {} unless @shake_instances
+    @shake_instances[] = {
+      :amplitude
+      :duration
+      :frequency
+      time: 0
+      current_x: 0
+      current_y: 0
+      last_change: 0
+    }
+
+  --[[
+    Applies a directional spring impulse.
+
+    Usage:
+      shake\push 0, 20                 -- rightward impulse (angle 0)
+      shake\push math.pi, 15           -- leftward impulse
+      shake\push math.pi/2, 10, 8, 0.7 -- downward with custom frequency/bounce
+
+    Parameters:
+      angle     - direction in radians (0 = right, pi/2 = down)
+      amount    - impulse strength in pixels
+      frequency - (optional) oscillation frequency (default 5)
+      bounce    - (optional) bounciness 0-1 (default 0.5)
+
+    Behavior:
+      - Applies impulse in the specified direction
+      - Spring oscillates and settles naturally
+      - Multiple calls combine additively
+  ]]
+  push: (angle, amount, frequency, bounce) =>
+    @spring\pull 'x', math.cos(angle) * amount, frequency, bounce
+    @spring\pull 'y', math.sin(angle) * amount, frequency, bounce
+
+  --[[
+    Applies a sine wave oscillation.
+
+    Usage:
+      shake\sine 0, 10, 5, 0.5        -- rightward, 10 pixels, 5 Hz, 0.5 seconds
+      shake\sine math.pi/2, 8, 3, 1   -- downward oscillation
+
+    Parameters:
+      angle     - direction in radians (0 = right, pi/2 = down)
+      amplitude - maximum displacement in pixels
+      frequency - oscillations per second
+      duration  - time until oscillation stops
+
+    Behavior:
+      - Smooth sinusoidal oscillation along direction
+      - Amplitude decays linearly over duration
+      - Multiple calls create independent instances
+  ]]
+  sine: (angle, amplitude, frequency, duration) =>
+    @sine_instances = {} unless @sine_instances
+    @sine_instances[] = {
+      :angle
+      :amplitude
+      :frequency
+      :duration
+      time: 0
+    }
+
+  --[[
+    Applies a square wave oscillation.
+
+    Usage:
+      shake\square 0, 10, 5, 0.5        -- rightward, 10 pixels, 5 Hz, 0.5 seconds
+      shake\square math.pi/2, 8, 3, 1   -- downward oscillation
+
+    Parameters:
+      angle     - direction in radians (0 = right, pi/2 = down)
+      amplitude - maximum displacement in pixels
+      frequency - oscillations per second
+      duration  - time until oscillation stops
+
+    Behavior:
+      - Sharp alternating displacement (snaps between +/- amplitude)
+      - Amplitude decays linearly over duration
+      - Multiple calls create independent instances
+  ]]
+  square: (angle, amplitude, frequency, duration) =>
+    @square_instances = {} unless @square_instances
+    @square_instances[] = {
+      :angle
+      :amplitude
+      :frequency
+      :duration
+      time: 0
+    }
+
+  --[[
+    Enables or disables handcam effect (continuous subtle motion).
+
+    Usage:
+      shake\handcam true                          -- enable with defaults
+      shake\handcam true, {x: 3, y: 3, rotation: 0.02}, 0.5  -- custom amplitude, frequency
+      shake\handcam false                         -- disable
+
+    Parameters:
+      enabled   - true to enable, false to disable
+      amplitude - (optional) table with {x, y, rotation} amplitudes
+      frequency - (optional) noise frequency multiplier (default 1, higher = faster)
+
+    Behavior:
+      - Adds subtle continuous Perlin noise motion
+      - Simulates handheld camera feel
+      - Runs constantly while enabled (doesn't decay)
+  ]]
+  handcam: (enabled, amplitude, frequency) =>
+    @handcam_enabled = enabled
+    if amplitude
+      @handcam_amplitude.x = amplitude.x if amplitude.x
+      @handcam_amplitude.y = amplitude.y if amplitude.y
+      @handcam_amplitude.rotation = amplitude.rotation if amplitude.rotation
+      @handcam_amplitude.zoom = amplitude.zoom if amplitude.zoom
+    @handcam_frequency = frequency if frequency
+
+  --[[
+    Internal: returns current transform offset for camera.
+
+    Called by camera\get_effects to collect all child effects.
+
+    Returns: {x, y, rotation, zoom} offsets
+  ]]
+  get_transform: =>
+    ox, oy, rotation, zoom = 0, 0, 0, 0
+
+    -- Handcam effect (continuous subtle motion)
+    if @handcam_enabled
+      t = @handcam_time * @handcam_frequency
+      ox += @handcam_amplitude.x * noise(t, 0)
+      oy += @handcam_amplitude.y * noise(0, t)
+      rotation += @handcam_amplitude.rotation * noise(t, t)
+      zoom += @handcam_amplitude.zoom * noise(t * 0.7, 0, t)
+
+    -- Sum all active trauma instances
+    total_trauma = 0
+    for instance in *@trauma_instances
+      total_trauma += instance.value
+
+    -- Trauma effect (Perlin noise)
+    if total_trauma > 0
+      intensity = total_trauma * total_trauma  -- quadratic falloff
+      ox += intensity * @trauma_amplitude.x * noise(@trauma_time * 10, 0)
+      oy += intensity * @trauma_amplitude.y * noise(0, @trauma_time * 10)
+      rotation += intensity * @trauma_amplitude.rotation * noise(@trauma_time * 10, @trauma_time * 10)
+      zoom += intensity * @trauma_amplitude.zoom * noise(@trauma_time * 5, 0, @trauma_time * 5)
+
+    -- Spring contribution (offset from rest position)
+    ox += @spring.x.x
+    oy += @spring.y.x
+
+    -- Shake instances contribution
+    if @shake_instances
+      for instance in *@shake_instances
+        ox += instance.current_x
+        oy += instance.current_y
+
+    -- Sine instances contribution
+    if @sine_instances
+      for instance in *@sine_instances
+        decay = 1 - (instance.time / instance.duration)
+        wave = math.sin(instance.time * instance.frequency * 2 * math.pi)
+        offset = decay * instance.amplitude * wave
+        ox += offset * math.cos(instance.angle)
+        oy += offset * math.sin(instance.angle)
+
+    -- Square instances contribution
+    if @square_instances
+      for instance in *@square_instances
+        decay = 1 - (instance.time / instance.duration)
+        wave = math.sin(instance.time * instance.frequency * 2 * math.pi) > 0 and 1 or -1
+        offset = decay * instance.amplitude * wave
+        ox += offset * math.cos(instance.angle)
+        oy += offset * math.sin(instance.angle)
+
+    {x: ox, y: oy, :rotation, :zoom}
+
+  --[[
+    Internal: updates shake effects each frame.
+
+    Called automatically during early_update phase.
+  ]]
+  early_update: (dt) =>
+    -- Update handcam time
+    if @handcam_enabled
+      @handcam_time += dt
+
+    -- Decay trauma instances independently, remove when depleted (iterate backwards)
+    for i = #@trauma_instances, 1, -1
+      instance = @trauma_instances[i]
+      instance.value -= instance.decay * dt
+      if instance.value <= 0
+        table.remove @trauma_instances, i
+
+    if #@trauma_instances > 0
+      @trauma_time += dt
+
+    -- Update shake instances
+    if @shake_instances
+      for i = #@shake_instances, 1, -1
+        instance = @shake_instances[i]
+        instance.time += dt
+
+        -- Check if it's time to pick new random values
+        change_interval = 1 / instance.frequency
+        if instance.time - instance.last_change >= change_interval
+          instance.last_change = instance.time
+          decay = 1 - (instance.time / instance.duration)
+          if decay > 0
+            instance.current_x = decay * instance.amplitude * random_float(-1, 1)
+            instance.current_y = decay * instance.amplitude * random_float(-1, 1)
+          else
+            instance.current_x = 0
+            instance.current_y = 0
+
+        -- Remove when done
+        if instance.time >= instance.duration
+          table.remove @shake_instances, i
+
+    -- Update sine instances
+    if @sine_instances
+      for i = #@sine_instances, 1, -1
+        instance = @sine_instances[i]
+        instance.time += dt
+        if instance.time >= instance.duration
+          table.remove @sine_instances, i
+
+    -- Update square instances
+    if @square_instances
+      for i = #@square_instances, 1, -1
+        instance = @square_instances[i]
+        instance.time += dt
+        if instance.time >= instance.duration
+          table.remove @square_instances, i

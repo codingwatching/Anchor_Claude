@@ -952,6 +952,27 @@ layer\circle 50, 50, 25, blue!
 
 ---
 
+#### layer\rectangle_gradient_h(x, y, w, h, color1, color2)
+
+Draws a filled rectangle with horizontal gradient (left to right).
+
+```yuescript
+layer\rectangle_gradient_h 0, 0, 100, 50, red!, blue!
+```
+
+---
+
+#### layer\rectangle_gradient_v(x, y, w, h, color1, color2)
+
+Draws a filled rectangle with vertical gradient (top to bottom).
+
+```yuescript
+-- Sky gradient: light blue at top to darker blue at bottom
+bg\rectangle_gradient_v 0, 0, gw, gh, color(135, 206, 235)!, color(25, 25, 112)!
+```
+
+---
+
 #### layer\image(image, x, y, color?, flash?)
 
 ```yuescript
@@ -1124,6 +1145,7 @@ av = @collider\get_angular_velocity!
 @collider\set_bullet true              -- continuous collision detection
 
 mass = @collider\get_mass!
+@collider\set_center_of_mass 0, 0      -- override computed center of mass (in pixels)
 type = @collider\get_body_type!        -- 'static', 'dynamic', 'kinematic'
 awake = @collider\is_awake!
 @collider\set_awake true
@@ -1649,7 +1671,13 @@ math.lerp_angle_dt 0.9, 1, dt, angle, target_angle
 
 ```yuescript
 math.clamp value, 0, 100     -- keep in range
+math.remap 10, 0, 20, 0, 1   -- 0.5 (10 is 50% of [0,20], maps to 50% of [0,1])
+math.remap speed, 0, 512, 0, 100  -- convert speed to percentage
 math.loop angle, 2 * math.pi -- wrap to range
+math.length 3, 4             -- 5 (vector magnitude: sqrt(x*x + y*y))
+math.sign -5                 -- -1 (returns -1, 0, or 1)
+math.sign 0                  -- 0
+math.sign 42                 -- 1
 ```
 
 ---

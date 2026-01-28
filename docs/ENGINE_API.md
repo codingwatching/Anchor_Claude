@@ -37,6 +37,138 @@ Draws a filled circle centered at (x, y).
 layer_circle(layer, 200, 150, 25, rgba(0, 255, 0))
 ```
 
+### layer_rectangle_line
+
+`layer_rectangle_line(layer, x, y, w, h, color, line_width?)`
+
+Draws a rectangle outline with top-left corner at (x, y). Default line width is 1.
+
+```lua
+layer_rectangle_line(layer, 100, 100, 50, 30, rgba(255, 0, 0))
+layer_rectangle_line(layer, 100, 100, 50, 30, rgba(255, 0, 0), 2)  -- 2px outline
+```
+
+### layer_circle_line
+
+`layer_circle_line(layer, x, y, radius, color, line_width?)`
+
+Draws a circle outline centered at (x, y). Default line width is 1.
+
+```lua
+layer_circle_line(layer, 200, 150, 25, rgba(0, 255, 0))
+layer_circle_line(layer, 200, 150, 25, rgba(0, 255, 0), 3)  -- 3px outline
+```
+
+### layer_rectangle_gradient_h
+
+`layer_rectangle_gradient_h(layer, x, y, w, h, color1, color2)`
+
+Draws a filled rectangle with horizontal gradient (left to right).
+
+```lua
+layer_rectangle_gradient_h(layer, 0, 0, 100, 50, rgba(255, 0, 0), rgba(0, 0, 255))  -- red to blue
+```
+
+### layer_rectangle_gradient_v
+
+`layer_rectangle_gradient_v(layer, x, y, w, h, color1, color2)`
+
+Draws a filled rectangle with vertical gradient (top to bottom).
+
+```lua
+layer_rectangle_gradient_v(layer, 0, 0, 100, 50, rgba(135, 206, 235), rgba(25, 25, 112))  -- sky blue to dark blue
+```
+
+### layer_line
+
+`layer_line(layer, x1, y1, x2, y2, width, color)`
+
+Draws a line segment with round caps (capsule shape).
+
+```lua
+layer_line(layer, 50, 50, 150, 100, 3, rgba(255, 255, 0))  -- 3px thick yellow line
+```
+
+### layer_capsule
+
+`layer_capsule(layer, x1, y1, x2, y2, radius, color)`
+
+Draws a filled capsule (line with round caps at given radius).
+
+```lua
+layer_capsule(layer, 50, 50, 150, 100, 10, rgba(255, 128, 0))
+```
+
+### layer_capsule_line
+
+`layer_capsule_line(layer, x1, y1, x2, y2, radius, color, line_width?)`
+
+Draws a capsule outline.
+
+```lua
+layer_capsule_line(layer, 50, 50, 150, 100, 10, rgba(255, 128, 0), 2)
+```
+
+### layer_triangle
+
+`layer_triangle(layer, x1, y1, x2, y2, x3, y3, color)`
+
+Draws a filled triangle.
+
+```lua
+layer_triangle(layer, 100, 50, 50, 150, 150, 150, rgba(0, 255, 255))
+```
+
+### layer_triangle_line
+
+`layer_triangle_line(layer, x1, y1, x2, y2, x3, y3, color, line_width?)`
+
+Draws a triangle outline.
+
+```lua
+layer_triangle_line(layer, 100, 50, 50, 150, 150, 150, rgba(0, 255, 255), 2)
+```
+
+### layer_polygon
+
+`layer_polygon(layer, vertices, color)`
+
+Draws a filled convex polygon. Vertices is a flat array: {x1, y1, x2, y2, ...}. Max 8 vertices.
+
+```lua
+layer_polygon(layer, {100, 50, 50, 150, 150, 150, 175, 100}, rgba(128, 0, 255))
+```
+
+### layer_polygon_line
+
+`layer_polygon_line(layer, vertices, color, line_width?)`
+
+Draws a polygon outline.
+
+```lua
+layer_polygon_line(layer, {100, 50, 50, 150, 150, 150, 175, 100}, rgba(128, 0, 255), 2)
+```
+
+### layer_rounded_rectangle
+
+`layer_rounded_rectangle(layer, x, y, w, h, radius, color)`
+
+Draws a filled rectangle with rounded corners.
+
+```lua
+layer_rounded_rectangle(layer, 100, 100, 80, 40, 8, rgba(100, 200, 100))
+```
+
+### layer_rounded_rectangle_line
+
+`layer_rounded_rectangle_line(layer, x, y, w, h, radius, color, line_width?)`
+
+Draws a rounded rectangle outline.
+
+```lua
+layer_rounded_rectangle_line(layer, 100, 100, 80, 40, 8, rgba(100, 200, 100), 2)
+```
+
 ### layer_push
 
 `layer_push(layer, x?, y?, r?, sx?, sy?)`
