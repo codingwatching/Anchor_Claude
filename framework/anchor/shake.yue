@@ -24,8 +24,8 @@ class shake extends object
       - Automatically named 'shake' and accessible as parent.shake
       - Initializes trauma system
   ]]
-  new: =>
-    super 'shake'
+  new: (name='shake') =>
+    super name
     @trauma_instances = {}
     @trauma_amplitude = {x: 24, y: 24, rotation: 0.2, zoom: 0.2}
     @trauma_time = 0  -- offset for Perlin noise

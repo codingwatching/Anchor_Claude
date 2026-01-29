@@ -744,7 +744,8 @@ self.colliders[id_a]local collider_b =
 self.colliders[id_b]if 
 collider_a and collider_b then if 
 
-collider_a.tag == tag_a then
+
+event.tag_a == tag_a and event.tag_b == tag_b then
 
 result[#result + 1] = { a = collider_a.parent, b = 
 collider_b.parent, shape_a = 
@@ -753,9 +754,9 @@ event.shape_b, point_x =
 event.point_x, point_y = 
 event.point_y, normal_x = 
 event.normal_x, normal_y = 
-event.normal_y }else
+event.normal_y }elseif 
 
-
+event.tag_a == tag_b and event.tag_b == tag_a then
 
 result[#result + 1] = { a = collider_b.parent, b = 
 collider_a.parent, shape_a = 
@@ -787,14 +788,15 @@ self.colliders[id_a]local collider_b =
 self.colliders[id_b]if 
 collider_a and collider_b then if 
 
-collider_a.tag == tag_a then
+
+event.tag_a == tag_a and event.tag_b == tag_b then
 
 result[#result + 1] = { a = collider_a.parent, b = 
 collider_b.parent, shape_a = 
 event.shape_a, shape_b = 
-event.shape_b }else
+event.shape_b }elseif 
 
-
+event.tag_a == tag_b and event.tag_b == tag_a then
 
 result[#result + 1] = { a = collider_b.parent, b = 
 collider_a.parent, shape_a = 
@@ -823,14 +825,15 @@ self.colliders[id_a]local collider_b =
 self.colliders[id_b]if 
 collider_a and collider_b then if 
 
-collider_a.tag == tag_a then
+
+event.sensor_tag == tag_a and event.visitor_tag == tag_b then
 
 result[#result + 1] = { a = collider_a.parent, b = 
 collider_b.parent, shape_a = 
 event.sensor_shape, shape_b = 
-event.visitor_shape }else
+event.visitor_shape }elseif 
 
-
+event.sensor_tag == tag_b and event.visitor_tag == tag_a then
 
 result[#result + 1] = { a = collider_b.parent, b = 
 collider_a.parent, shape_a = 
@@ -858,14 +861,15 @@ self.colliders[id_a]local collider_b =
 self.colliders[id_b]if 
 collider_a and collider_b then if 
 
-collider_a.tag == tag_a then
+
+event.sensor_tag == tag_a and event.visitor_tag == tag_b then
 
 result[#result + 1] = { a = collider_a.parent, b = 
 collider_b.parent, shape_a = 
 event.sensor_shape, shape_b = 
-event.visitor_shape }else
+event.visitor_shape }elseif 
 
-
+event.sensor_tag == tag_b and event.visitor_tag == tag_a then
 
 result[#result + 1] = { a = collider_b.parent, b = 
 collider_a.parent, shape_a = 
@@ -896,7 +900,8 @@ self.colliders[id_a]local collider_b =
 self.colliders[id_b]if 
 collider_a and collider_b then if 
 
-collider_a.tag == tag_a then
+
+event.tag_a == tag_a and event.tag_b == tag_b then
 
 result[#result + 1] = { a = collider_a.parent, b = 
 collider_b.parent, shape_a = 
@@ -906,9 +911,9 @@ event.point_x, point_y =
 event.point_y, normal_x = 
 event.normal_x, normal_y = 
 event.normal_y, approach_speed = 
-event.approach_speed }else
+event.approach_speed }elseif 
 
-
+event.tag_a == tag_b and event.tag_b == tag_a then
 
 result[#result + 1] = { a = collider_b.parent, b = 
 collider_a.parent, shape_a = 

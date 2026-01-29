@@ -111,7 +111,7 @@ class timer extends object
 
     Usage:
       @timer\during 1, (dt, progress) -> @alpha = 1 - progress
-      @timer\during 1, 'fade', ((dt, progress) -> @alpha = progress), -> @dead = true
+      @timer\during 1, 'fade', ((dt, progress) -> @alpha = progress), -> @\kill!
 
     Parameters:
       duration - total seconds to run

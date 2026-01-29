@@ -36,20 +36,21 @@
 
 
 
+rgb_to_hsl = function(r, g, b)
+r, g, b = r / 255, g / 255, b / 255;local max = 
+math.max(r, g, b)local min = 
+math.min(r, g, b)local l = (
+max + min) / 2;if 
 
+max == min then return 
+0, 0, l end;local d = 
 
+max - min
+local s;if l > 0.5 then s = d / (2 - max - min)else s = d / (max + min)end
 
-
-
-
-
-
-
-
-
-
-
-_anon_func_0 = function(b, g)if g < b then return 6 else return 0 end end;rgb_to_hsl = function(r, g, b)r, g, b = r / 255, g / 255, b / 255;local max = math.max(r, g, b)local min = math.min(r, g, b)local l = (max + min) / 2;if max == min then return 0, 0, l end;local d = max - min;local s;if l > 0.5 then s = d / (2 - max - min)else s = d / (max + min)end;local h;if max == r then h = ((g - b) / d + (_anon_func_0(b, g))) / 6 elseif 
+local h_offset;if g < b then h_offset = 6 else h_offset = 0 end
+local h;if max == r then
+h = ((g - b) / d + h_offset) / 6 elseif 
 max == g then
 h = ((b - r) / d + 2) / 6 else
 

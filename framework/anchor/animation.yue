@@ -25,7 +25,7 @@ global *
     @dead        - true when 'once' animation completes
     @direction   - play direction (1 forward, -1 reverse for bounce)
 ]]
-class animation
+class animation extends object
   --[[
     Creates a new animation.
 
@@ -37,7 +37,9 @@ class animation
 
     Callbacks receive the parent object as self when using fat arrow syntax.
   ]]
-  new: (@spritesheet, @delay=0.1, @loop_mode='loop', @actions={}) =>
+  new: (spritesheet, @delay=0.1, @loop_mode='loop', @actions={}) =>
+    super spritesheet
+    @spritesheet = an.spritesheets[spritesheet]
     @frame = 1
     @timer = 0
     @direction = 1
@@ -119,7 +121,7 @@ class animation
 
     if @loop_mode == 'once'
       if next_frame > @spritesheet.frames
-        @dead = true
+        @\kill!
         @playing = false
         @\_fire_action 0
         return

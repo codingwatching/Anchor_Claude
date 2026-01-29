@@ -95,6 +95,24 @@ math.lerp(1 - (1 - p) ^ (dt / t), source, destination)end
 
 
 
+math.damping = function(p, t, dt, v)return (
+v or 0) * (1 - p) ^ (dt / t)end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -241,7 +259,7 @@ value - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min end
 
 
 math.angle = function(x, y)return 
-math.atan2(y, x)end
+math.atan(y, x)end
 
 
 
@@ -258,7 +276,7 @@ math.atan2(y, x)end
 
 
 math.angle_to_point = function(x1, y1, x2, y2)return 
-math.atan2(y2 - y1, x2 - x1)end
+math.atan(y2 - y1, x2 - x1)end
 
 
 
@@ -361,7 +379,7 @@ dx * normal_x + dy * normal_y;local rx =
 dx - 2 * dot * normal_x;local ry = 
 dy - 2 * dot * normal_y;return 
 
-math.atan2(ry, rx)end
+math.atan(ry, rx)end
 
 
 

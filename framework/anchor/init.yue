@@ -744,7 +744,8 @@ return (config={}) ->
       collider_b = @colliders[id_b]
       if collider_a and collider_b
         -- Normalize order: a should have tag_a, b should have tag_b
-        if collider_a.tag == tag_a
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.tag_a == tag_a and event.tag_b == tag_b
           result[] = {
             a: collider_a.parent
             b: collider_b.parent
@@ -755,7 +756,7 @@ return (config={}) ->
             normal_x: event.normal_x
             normal_y: event.normal_y
           }
-        else
+        elseif event.tag_a == tag_b and event.tag_b == tag_a
           result[] = {
             a: collider_b.parent
             b: collider_a.parent
@@ -787,14 +788,15 @@ return (config={}) ->
       collider_b = @colliders[id_b]
       if collider_a and collider_b
         -- Normalize order: a should have tag_a, b should have tag_b
-        if collider_a.tag == tag_a
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.tag_a == tag_a and event.tag_b == tag_b
           result[] = {
             a: collider_a.parent
             b: collider_b.parent
             shape_a: event.shape_a
             shape_b: event.shape_b
           }
-        else
+        elseif event.tag_a == tag_b and event.tag_b == tag_a
           result[] = {
             a: collider_b.parent
             b: collider_a.parent
@@ -823,14 +825,15 @@ return (config={}) ->
       collider_b = @colliders[id_b]
       if collider_a and collider_b
         -- Normalize order: a should have tag_a, b should have tag_b
-        if collider_a.tag == tag_a
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.sensor_tag == tag_a and event.visitor_tag == tag_b
           result[] = {
             a: collider_a.parent
             b: collider_b.parent
             shape_a: event.sensor_shape
             shape_b: event.visitor_shape
           }
-        else
+        elseif event.sensor_tag == tag_b and event.visitor_tag == tag_a
           result[] = {
             a: collider_b.parent
             b: collider_a.parent
@@ -858,14 +861,15 @@ return (config={}) ->
       collider_b = @colliders[id_b]
       if collider_a and collider_b
         -- Normalize order: a should have tag_a, b should have tag_b
-        if collider_a.tag == tag_a
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.sensor_tag == tag_a and event.visitor_tag == tag_b
           result[] = {
             a: collider_a.parent
             b: collider_b.parent
             shape_a: event.sensor_shape
             shape_b: event.visitor_shape
           }
-        else
+        elseif event.sensor_tag == tag_b and event.visitor_tag == tag_a
           result[] = {
             a: collider_b.parent
             b: collider_a.parent
@@ -896,7 +900,8 @@ return (config={}) ->
       collider_b = @colliders[id_b]
       if collider_a and collider_b
         -- Normalize order: a should have tag_a, b should have tag_b
-        if collider_a.tag == tag_a
+        -- Use tag strings from engine (no userdata comparison needed)
+        if event.tag_a == tag_a and event.tag_b == tag_b
           result[] = {
             a: collider_a.parent
             b: collider_b.parent
@@ -908,7 +913,7 @@ return (config={}) ->
             normal_y: event.normal_y
             approach_speed: event.approach_speed
           }
-        else
+        elseif event.tag_a == tag_b and event.tag_b == tag_a
           result[] = {
             a: collider_b.parent
             b: collider_a.parent

@@ -48,8 +48,9 @@ rgb_to_hsl = (r, g, b) ->
   d = max - min
   s = if l > 0.5 then d / (2 - max - min) else d / (max + min)
 
+  h_offset = if g < b then 6 else 0
   h = if max == r
-    ((g - b) / d + (if g < b then 6 else 0)) / 6
+    ((g - b) / d + h_offset) / 6
   elseif max == g
     ((b - r) / d + 2) / 6
   else
