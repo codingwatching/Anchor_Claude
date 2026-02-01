@@ -226,10 +226,12 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                 quoted = '\n'.join(f"> {line}" for line in lines)
                 output += f"{quoted}\n\n"
 
-        # User message (tool results)
+        # User message (list content: tool results, images, text)
         elif msg_type == 'user' and isinstance(content, list):
             for item in content:
-                if item.get('type') == 'tool_result':
+                item_type = item.get('type')
+
+                if item_type == 'tool_result':
                     tool_id = item.get('tool_use_id')
                     result = item.get('content', '')
 
@@ -249,6 +251,23 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                         else:
                             # No result, just show command in blockquoted code block
                             output += f"> `{tool_name} {formatted_input}`\n\n"
+
+                elif item_type == 'image':
+                    # Skip base64 image data, just note that an image was pasted
+                    media_type = item.get('source', {}).get('media_type', 'image')
+                    output += f"> [Pasted {media_type}]\n\n"
+
+                elif item_type == 'text':
+                    # Text content in a list
+                    text = item.get('text', '')
+                    if text:
+                        if is_system_message(text):
+                            fence = get_fence(text)
+                            output += f"{fence}\n{text}\n{fence}\n\n"
+                        else:
+                            lines = text.split('\n')
+                            quoted = '\n'.join(f"> {line}" for line in lines)
+                            output += f"{quoted}\n\n"
 
         # Assistant message
         elif msg_type == 'assistant' and isinstance(content, list):
