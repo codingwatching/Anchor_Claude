@@ -25,6 +25,9 @@ layer_push(layer, x?, y?, r?, sx?, sy?)
 layer_pop(layer)
 layer_draw_texture(layer, texture, x, y, color?, flash?)
 layer_set_blend_mode(layer, mode)
+layer_stencil_mask(layer)
+layer_stencil_test(layer)
+layer_stencil_off(layer)
 layer_draw(layer, x?, y?)
 layer_get_texture(layer) -> texture_id
 layer_reset_effects(layer)
@@ -39,6 +42,16 @@ texture_load(path) -> texture
 texture_unload(texture)
 texture_get_width(texture) -> int
 texture_get_height(texture) -> int
+```
+
+## Spritesheet
+
+```
+spritesheet_load(path, frame_width, frame_height) -> spritesheet
+spritesheet_get_frame_width(spritesheet) -> int
+spritesheet_get_frame_height(spritesheet) -> int
+spritesheet_get_total_frames(spritesheet) -> int
+layer_draw_spritesheet_frame(layer, spritesheet, frame, x, y, color?, flash?)
 ```
 
 ## Font
@@ -162,6 +175,7 @@ physics_shape_get_density(shape) -> density
 ```
 physics_get_body_type(body) -> string
 physics_get_mass(body) -> mass
+physics_set_center_of_mass(body, x, y)
 physics_is_awake(body) -> bool
 physics_set_awake(body, awake)
 physics_debug_events()
@@ -269,6 +283,9 @@ engine_get_frame() -> int
 engine_get_step() -> int
 engine_get_time() -> number
 engine_get_dt() -> number
+engine_get_unscaled_dt() -> number
+engine_get_time_scale() -> number
+engine_set_time_scale(scale)
 engine_get_width() -> int
 engine_get_height() -> int
 engine_get_window_size() -> int, int

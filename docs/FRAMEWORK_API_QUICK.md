@@ -203,6 +203,8 @@ layer\rectangle_gradient_h(x, y, w, h, color1, color2)
 layer\rectangle_gradient_v(x, y, w, h, color1, color2)
 layer\circle(x, y, radius, color)
 layer\image(image, x, y, color?, flash?)
+layer\spritesheet(spritesheet, frame, x, y, color?, flash?)
+layer\animation(animation, x, y, color?, flash?)
 layer\text(text, font_name, x, y, color)
 ```
 
@@ -215,6 +217,9 @@ layer\pop()
 ### Blend & Effects
 ```
 layer\set_blend_mode(mode)
+layer\stencil_mask()
+layer\stencil_test()
+layer\stencil_off()
 layer\apply_shader(shader)
 layer\shader_set_float(shader, name, value)
 layer\shader_set_vec2(shader, name, x, y)
@@ -238,6 +243,46 @@ layer\get_texture() -> texture_id
 image.width -> number
 image.height -> number
 image.handle -> texture_handle
+```
+
+## Spritesheet
+
+### Registration
+```
+an\spritesheet(name, path, frame_width, frame_height)
+```
+
+### Properties
+```
+spritesheet.handle -> spritesheet_handle
+spritesheet.frame_width -> int
+spritesheet.frame_height -> int
+spritesheet.frames -> int
+```
+
+## Animation
+
+### Creation
+```
+animation(spritesheet_name, delay, loop_mode?, actions?)
+-- loop_mode: 'once', 'loop', 'bounce' (default: 'loop')
+-- actions: {[frame]: callback, [0]: on_complete}
+```
+
+### Control
+```
+animation\update(dt)
+animation\play()
+animation\stop()
+animation\reset()
+animation\set_frame(frame)
+```
+
+### Properties
+```
+animation.frame -> int
+animation.playing -> bool
+animation.dead -> bool
 ```
 
 ## Font

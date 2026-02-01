@@ -989,6 +989,41 @@ layer\image an.images.player, @x, @y, nil, white!       -- flash white
 
 ---
 
+#### layer\spritesheet(spritesheet, frame, x, y, color?, flash?)
+
+Draws a specific frame from a spritesheet.
+
+```yuescript
+layer\spritesheet an.spritesheets.hit, 1, @x, @y
+layer\spritesheet an.spritesheets.hit, 3, @x, @y, white!, red!  -- tint and flash
+```
+
+**Parameters:**
+- `spritesheet` - spritesheet object from `an.spritesheets`
+- `frame` - frame number (1-indexed)
+- `x, y` - position (center of frame)
+- `color` - optional tint color
+- `flash` - optional flash color
+
+---
+
+#### layer\animation(animation, x, y, color?, flash?)
+
+Draws an animation's current frame.
+
+```yuescript
+layer\animation @hit1, @x, @y
+layer\animation @walk, @x, @y, nil, @flashing and white!
+```
+
+**Parameters:**
+- `animation` - animation object
+- `x, y` - position (center of frame)
+- `color` - optional tint color
+- `flash` - optional flash color
+
+---
+
 #### layer\text(text, font_name, x, y, color)
 
 ```yuescript
@@ -1021,6 +1056,27 @@ layer\set_blend_mode 'alpha'       -- default
 layer\set_blend_mode 'add'         -- additive blending
 layer\set_blend_mode 'multiply'    -- multiply blending
 ```
+
+---
+
+### Stencil Masking
+
+Use stencil buffer to mask drawing to specific shapes.
+
+```yuescript
+-- Draw only inside a circular mask
+layer\stencil_mask!
+layer\circle 150, 150, 50, white!   -- define mask shape (not visible)
+layer\stencil_test!
+layer\image an.images.background, 150, 150  -- only visible inside circle
+layer\stencil_off!
+```
+
+**stencil_mask!** — Subsequent draws write to stencil only (not visible).
+
+**stencil_test!** — Subsequent draws only appear where stencil was set.
+
+**stencil_off!** — Return to normal drawing.
 
 ---
 
@@ -1062,6 +1118,88 @@ shadow\draw_from game, an.shaders.shadow
 game\draw!
 shadow\draw 4, 4    -- with offset
 ui\draw!
+```
+
+---
+
+## Spritesheet
+
+Spritesheets are textures divided into a grid of frames for animations.
+
+### Registration
+
+```yuescript
+an\spritesheet 'hit', 'assets/hit.png', 96, 48   -- name, path, frame_width, frame_height
+```
+
+Spritesheets are stored in `an.spritesheets.name`.
+
+### Properties
+
+```yuescript
+sheet = an.spritesheets.hit
+sheet.handle        -- internal spritesheet handle
+sheet.frame_width   -- width of each frame in pixels
+sheet.frame_height  -- height of each frame in pixels
+sheet.frames        -- total number of frames
+```
+
+Frames are indexed 1-based, read left-to-right, top-to-bottom.
+
+---
+
+## Animation
+
+Frame-based animations from spritesheets with configurable timing and callbacks.
+
+### Creating Animations
+
+Add an animation as a child object:
+
+```yuescript
+-- Basic: spritesheet name, delay per frame, loop mode
+@\add animation 'hit1', 0.05, 'once'
+
+-- With per-frame callbacks (frame 0 = completion)
+@\add animation 'hit1', 0.05, 'once',
+  [3]: => @\flash!        -- called on frame 3
+  [0]: => @\kill!         -- called when animation completes
+```
+
+The animation is accessible as `@hit1` (using the spritesheet name).
+
+**Loop modes:**
+- `'once'` — Plays once, then kills itself
+- `'loop'` — Repeats indefinitely (default)
+- `'bounce'` — Ping-pongs back and forth
+
+### Updating & Drawing
+
+```yuescript
+update: (dt) =>
+  @hit1\update dt
+
+  layer\push @x, @y, @rotation, @scale, @scale
+  layer\animation @hit1, 0, 0
+  layer\pop!
+```
+
+### Control Methods
+
+```yuescript
+@hit1\play!              -- resume playback
+@hit1\stop!              -- pause (keeps position)
+@hit1\reset!             -- restart from frame 1
+@hit1\set_frame 3        -- jump to specific frame
+```
+
+### Properties
+
+```yuescript
+@hit1.frame       -- current frame number (1-indexed)
+@hit1.playing     -- whether animation is playing
+@hit1.dead        -- true when 'once' animation completes
+@hit1.direction   -- play direction (1 or -1 for bounce)
 ```
 
 ---

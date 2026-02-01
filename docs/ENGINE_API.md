@@ -217,6 +217,43 @@ layer_circle(layer, x, y, 50, rgba(255, 200, 100))  -- glowing effect
 layer_set_blend_mode(layer, "alpha")
 ```
 
+### layer_stencil_mask
+
+`layer_stencil_mask(layer)`
+
+Starts writing to the stencil buffer. Subsequent draws write to stencil only (not visible on screen). Use to define a mask shape.
+
+```lua
+layer_stencil_mask(layer)
+layer_rectangle(layer, 100, 100, 50, 50, rgba(255, 255, 255))  -- draws to stencil only
+layer_stencil_test(layer)
+-- subsequent draws only appear where stencil was set
+```
+
+### layer_stencil_test
+
+`layer_stencil_test(layer)`
+
+Starts testing against the stencil buffer. Subsequent draws only appear where stencil has been written.
+
+```lua
+layer_stencil_mask(layer)
+layer_circle(layer, 150, 150, 50, rgba(255, 255, 255))  -- mask shape
+layer_stencil_test(layer)
+layer_draw_texture(layer, tex, 150, 150)  -- only visible inside circle
+layer_stencil_off(layer)
+```
+
+### layer_stencil_off
+
+`layer_stencil_off(layer)`
+
+Disables stencil, returns to normal drawing.
+
+```lua
+layer_stencil_off(layer)
+```
+
 ### layer_draw
 
 `layer_draw(layer, x?, y?)`
@@ -361,6 +398,61 @@ Returns the texture's height in pixels.
 
 ```lua
 local h = texture_get_height(tex)
+```
+
+---
+
+## Spritesheet
+
+### spritesheet_load
+
+`spritesheet_load(path, frame_width, frame_height) -> spritesheet`
+
+Loads a spritesheet texture and divides it into frames. Frames are indexed 1-based, read left-to-right, top-to-bottom.
+
+```lua
+local hit_sheet = spritesheet_load("assets/hit.png", 96, 48)
+```
+
+### spritesheet_get_frame_width
+
+`spritesheet_get_frame_width(spritesheet) -> int`
+
+Returns the width of each frame in pixels.
+
+```lua
+local fw = spritesheet_get_frame_width(sheet)
+```
+
+### spritesheet_get_frame_height
+
+`spritesheet_get_frame_height(spritesheet) -> int`
+
+Returns the height of each frame in pixels.
+
+```lua
+local fh = spritesheet_get_frame_height(sheet)
+```
+
+### spritesheet_get_total_frames
+
+`spritesheet_get_total_frames(spritesheet) -> int`
+
+Returns the total number of frames in the spritesheet.
+
+```lua
+local total = spritesheet_get_total_frames(sheet)
+```
+
+### layer_draw_spritesheet_frame
+
+`layer_draw_spritesheet_frame(layer, spritesheet, frame, x, y, color?, flash?)`
+
+Draws a specific frame from a spritesheet. Frame is 1-indexed. Color tints the frame (default white). Flash overlays a solid color.
+
+```lua
+layer_draw_spritesheet_frame(layer, hit_sheet, 1, 100, 100)  -- draw frame 1
+layer_draw_spritesheet_frame(layer, hit_sheet, 3, x, y, rgba(255, 255, 255), rgba(255, 0, 0))  -- with flash
 ```
 
 ---
@@ -1265,6 +1357,16 @@ Returns the body's total mass.
 local mass = physics_get_mass(player_body)
 ```
 
+### physics_set_center_of_mass
+
+`physics_set_center_of_mass(body, x, y)`
+
+Overrides the computed center of mass with a custom position (in pixels, relative to body position).
+
+```lua
+physics_set_center_of_mass(body, 0, 10)  -- shift center of mass down
+```
+
 ### physics_is_awake
 
 `physics_is_awake(body) -> bool`
@@ -2038,6 +2140,38 @@ Returns the fixed delta time (1/120 for 120Hz physics).
 
 ```lua
 local dt = engine_get_dt()
+```
+
+### engine_get_unscaled_dt
+
+`engine_get_unscaled_dt() -> number`
+
+Returns the unscaled delta time (ignores time scale). Use for UI or effects that shouldn't slow down.
+
+```lua
+local unscaled_dt = engine_get_unscaled_dt()
+```
+
+### engine_get_time_scale
+
+`engine_get_time_scale() -> number`
+
+Returns the current time scale multiplier. Default is 1.0.
+
+```lua
+local scale = engine_get_time_scale()
+```
+
+### engine_set_time_scale
+
+`engine_set_time_scale(scale)`
+
+Sets the time scale multiplier. Affects dt returned by engine_get_dt. Use for slow-motion or pause effects.
+
+```lua
+engine_set_time_scale(0.5)  -- half speed
+engine_set_time_scale(0)    -- pause
+engine_set_time_scale(1)    -- normal
 ```
 
 ### engine_get_width
