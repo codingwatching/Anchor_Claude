@@ -467,10 +467,9 @@ class timer extends object
     Called automatically by the object update system.
   ]]
   update: (dt) =>
-    to_remove = {}
     for index, entry in ipairs @entries
       if entry.cancelled
-        to_remove[] = index
+        entry.to_be_removed = true
         continue
       entry.time += dt
 
@@ -479,7 +478,7 @@ class timer extends object
           delay = entry.delay * (entry.multiplier or 1)
           if entry.time >= delay
             entry.callback!
-            to_remove[] = index
+            entry.to_be_removed = true
 
         when 'every'
           delay = entry.delay * (entry.multiplier or 1)
@@ -490,7 +489,7 @@ class timer extends object
               entry.count += 1
               if entry.count >= entry.times
                 entry.after! if entry.after
-                to_remove[] = index
+                entry.to_be_removed = true
 
         when 'during'
           duration = entry.duration * (entry.multiplier or 1)
@@ -498,7 +497,7 @@ class timer extends object
           entry.callback dt, progress
           if entry.time >= duration
             entry.after! if entry.after
-            to_remove[] = index
+            entry.to_be_removed = true
 
         when 'tween'
           duration = entry.duration * (entry.multiplier or 1)
@@ -508,7 +507,7 @@ class timer extends object
             entry.target[key] = math.lerp eased, entry.initial_values[key], target_value
           if entry.time >= duration
             entry.after! if entry.after
-            to_remove[] = index
+            entry.to_be_removed = true
 
         when 'watch'
           entry.previous = entry.current
@@ -519,7 +518,7 @@ class timer extends object
               entry.count += 1
               if entry.count >= entry.times
                 entry.after! if entry.after
-                to_remove[] = index
+                entry.to_be_removed = true
 
         when 'when'
           current_condition = entry.condition!
@@ -529,7 +528,7 @@ class timer extends object
               entry.count += 1
               if entry.count >= entry.times
                 entry.after! if entry.after
-                to_remove[] = index
+                entry.to_be_removed = true
           entry.last_condition = current_condition
 
         when 'cooldown'
@@ -544,7 +543,7 @@ class timer extends object
               entry.count += 1
               if entry.count >= entry.times
                 entry.after! if entry.after
-                to_remove[] = index
+                entry.to_be_removed = true
           entry.last_condition = current_condition
 
         when 'every_step'
@@ -554,7 +553,7 @@ class timer extends object
             entry.step_index += 1
             if entry.step_index > #entry.delays
               entry.after! if entry.after
-              to_remove[] = index
+              entry.to_be_removed = true
 
         when 'during_step'
           if entry.time >= entry.delays[entry.step_index]
@@ -563,7 +562,8 @@ class timer extends object
             entry.step_index += 1
             if entry.step_index > #entry.delays
               entry.after! if entry.after
-              to_remove[] = index
+              entry.to_be_removed = true
 
-    for i = #to_remove, 1, -1
-      table.remove @entries, to_remove[i]
+    for i = #@entries, 1, -1
+      if @entries[i].to_be_removed
+        table.remove @entries, i

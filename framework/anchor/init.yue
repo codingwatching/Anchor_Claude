@@ -247,7 +247,16 @@ return (config={}) ->
   ]]
   an.sound_play = (name, volume=1, pitch=1) =>
     sound_play @sounds[name], volume, pitch
-  
+
+  an.sound_play_handle = (name, volume=1, pitch=1) =>
+    sound_play_handle @sounds[name], volume, pitch
+
+  an.sound_handle_set_pitch = (handle, pitch) =>
+    sound_handle_set_pitch handle, pitch
+
+  an.sound_handle_set_volume = (handle, volume) =>
+    sound_handle_set_volume handle, volume
+
   --[[
     Sets the master volume for all sound effects.
   

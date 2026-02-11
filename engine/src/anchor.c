@@ -1199,16 +1199,34 @@ static void sound_destroy(Sound* sound) {
 
 // Sound instance pool for fire-and-forget playback
 // Cleaned up from main thread to avoid threading issues
-#define MAX_PLAYING_SOUNDS 64
+#define MAX_PLAYING_SOUNDS 512
 
 typedef struct {
     ma_sound sound;
     ma_decoder decoder;  // Decoder for memory-based sounds
     bool in_use;
+    uint32_t generation; // Incremented each allocation, for stale handle detection
+    float user_pitch;    // Per-instance pitch (before master pitch multiplier)
+    float user_volume;   // Per-instance volume (before master volume multiplier)
 } PlayingSound;
 
 static PlayingSound playing_sounds[MAX_PLAYING_SOUNDS];
 static bool playing_sounds_initialized = false;
+
+// Handle encoding: pack slot index (9 bits, 0-511) + generation (23 bits) into int
+static int sound_handle_encode(int slot, uint32_t generation) {
+    return (int)(((generation & 0x7FFFFF) << 9) | (slot & 0x1FF));
+}
+
+static bool sound_handle_decode(int handle, int* out_slot) {
+    int slot = handle & 0x1FF;
+    uint32_t expected_gen = (uint32_t)((handle >> 9) & 0x7FFFFF);
+    if (slot < 0 || slot >= MAX_PLAYING_SOUNDS) return false;
+    if (!playing_sounds[slot].in_use) return false;
+    if ((playing_sounds[slot].generation & 0x7FFFFF) != expected_gen) return false;
+    *out_slot = slot;
+    return true;
+}
 
 // Clean up finished sounds (call from main thread each frame)
 static void sound_cleanup_finished(void) {
@@ -1242,9 +1260,9 @@ static float linear_to_perceptual(float linear) {
     return linear * linear;
 }
 
-// Play a sound with volume and pitch
-static void sound_play(Sound* sound, float volume, float pitch) {
-    if (!audio_initialized || !sound) return;
+// Play a sound with volume and pitch, returns slot index or -1
+static int sound_play(Sound* sound, float volume, float pitch) {
+    if (!audio_initialized || !sound) return -1;
 
     // Find a free slot
     int slot = -1;
@@ -1268,7 +1286,7 @@ static void sound_play(Sound* sound, float volume, float pitch) {
 
     if (slot == -1) {
         fprintf(stderr, "No free sound slots available\n");
-        return;
+        return -1;
     }
 
     // Initialize decoder from memory
@@ -1276,7 +1294,7 @@ static void sound_play(Sound* sound, float volume, float pitch) {
     ma_result result = ma_decoder_init_memory(sound->data, sound->data_size, &decoder_config, &playing_sounds[slot].decoder);
     if (result != MA_SUCCESS) {
         fprintf(stderr, "Failed to decode sound: %s (error %d)\n", sound->path, result);
-        return;
+        return -1;
     }
 
     // Initialize sound from decoder
@@ -1284,8 +1302,12 @@ static void sound_play(Sound* sound, float volume, float pitch) {
     if (result != MA_SUCCESS) {
         fprintf(stderr, "Failed to play sound: %s (error %d)\n", sound->path, result);
         ma_decoder_uninit(&playing_sounds[slot].decoder);
-        return;
+        return -1;
     }
+
+    // Store user values for later modification
+    playing_sounds[slot].user_pitch = pitch;
+    playing_sounds[slot].user_volume = volume;
 
     // Apply volume: per-play volume * master volume (perceptual scaling)
     ma_sound_set_volume(&playing_sounds[slot].sound, linear_to_perceptual(volume * sound_master_volume));
@@ -1293,8 +1315,26 @@ static void sound_play(Sound* sound, float volume, float pitch) {
     // Apply pitch: per-play pitch * master pitch
     ma_sound_set_pitch(&playing_sounds[slot].sound, pitch * audio_master_pitch);
 
+    playing_sounds[slot].generation++;
     playing_sounds[slot].in_use = true;
     ma_sound_start(&playing_sounds[slot].sound);
+    return slot;
+}
+
+// Set pitch of a playing sound by handle
+static void sound_handle_set_pitch(int handle, float pitch) {
+    int slot;
+    if (!sound_handle_decode(handle, &slot)) return;
+    playing_sounds[slot].user_pitch = pitch;
+    ma_sound_set_pitch(&playing_sounds[slot].sound, pitch * audio_master_pitch);
+}
+
+// Set volume of a playing sound by handle
+static void sound_handle_set_volume(int handle, float volume) {
+    int slot;
+    if (!sound_handle_decode(handle, &slot)) return;
+    playing_sounds[slot].user_volume = volume;
+    ma_sound_set_volume(&playing_sounds[slot].sound, linear_to_perceptual(volume * sound_master_volume));
 }
 
 // Music - streaming tracks with two channels for crossfade support (supports zip archive)
@@ -1476,7 +1516,7 @@ static void audio_set_master_pitch(float pitch) {
     // Update all playing sounds
     for (int i = 0; i < MAX_PLAYING_SOUNDS; i++) {
         if (playing_sounds[i].in_use) {
-            ma_sound_set_pitch(&playing_sounds[i].sound, pitch);
+            ma_sound_set_pitch(&playing_sounds[i].sound, playing_sounds[i].user_pitch * pitch);
         }
     }
 
@@ -4851,6 +4891,33 @@ static int l_sound_play(lua_State* L) {
     return 0;
 }
 
+static int l_sound_play_handle(lua_State* L) {
+    Sound* sound = (Sound*)lua_touserdata(L, 1);
+    float volume = (float)luaL_optnumber(L, 2, 1.0);
+    float pitch = (float)luaL_optnumber(L, 3, 1.0);
+    int slot = sound_play(sound, volume, pitch);
+    if (slot == -1) {
+        lua_pushinteger(L, -1);
+    } else {
+        lua_pushinteger(L, sound_handle_encode(slot, playing_sounds[slot].generation));
+    }
+    return 1;
+}
+
+static int l_sound_handle_set_pitch(lua_State* L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    float pitch = (float)luaL_checknumber(L, 2);
+    sound_handle_set_pitch(handle, pitch);
+    return 0;
+}
+
+static int l_sound_handle_set_volume(lua_State* L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    float volume = (float)luaL_checknumber(L, 2);
+    sound_handle_set_volume(handle, volume);
+    return 0;
+}
+
 static int l_sound_set_volume(lua_State* L) {
     sound_master_volume = (float)luaL_checknumber(L, 1);
     return 0;
@@ -7855,6 +7922,9 @@ static void register_lua_bindings(lua_State* L) {
     // --- Audio ---
     lua_register(L, "sound_load", l_sound_load);
     lua_register(L, "sound_play", l_sound_play);
+    lua_register(L, "sound_play_handle", l_sound_play_handle);
+    lua_register(L, "sound_handle_set_pitch", l_sound_handle_set_pitch);
+    lua_register(L, "sound_handle_set_volume", l_sound_handle_set_volume);
     lua_register(L, "sound_set_volume", l_sound_set_volume);
     lua_register(L, "music_load", l_music_load);
     lua_register(L, "music_play", l_music_play);

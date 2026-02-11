@@ -248,6 +248,15 @@ self.sounds[name]end
 an.sound_play = function(self, name, volume, pitch)if volume == nil then volume = 1 end;if pitch == nil then pitch = 1 end;return 
 sound_play(self.sounds[name], volume, pitch)end
 
+an.sound_play_handle = function(self, name, volume, pitch)if volume == nil then volume = 1 end;if pitch == nil then pitch = 1 end;return 
+sound_play_handle(self.sounds[name], volume, pitch)end
+
+an.sound_handle_set_pitch = function(self, handle, pitch)return 
+sound_handle_set_pitch(handle, pitch)end
+
+an.sound_handle_set_volume = function(self, handle, volume)return 
+sound_handle_set_volume(handle, volume)end
+
 
 
 

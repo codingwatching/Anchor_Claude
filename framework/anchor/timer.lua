@@ -459,7 +459,7 @@ duration - entry.time elseif
 'every_step' == _exp_0 or 'during_step' == _exp_0 then return 
 entry.delays[entry.step_index] - entry.time else return 
 
-nil end end, update = function(self, dt)local to_remove = 
+nil end end, update = function(self, dt)for index, entry in 
 
 
 
@@ -467,10 +467,9 @@ nil end end, update = function(self, dt)local to_remove =
 
 
 
-{  }for index, entry in 
 ipairs(self.entries) do if 
 entry.cancelled then
-to_remove[#to_remove + 1] = index
+entry.to_be_removed = true
 goto _continue_0 end
 entry.time = entry.time + dt;local _exp_0 = 
 
@@ -479,7 +478,7 @@ entry.mode;if
 entry.delay * (entry.multiplier or 1)if 
 entry.time >= delay then
 entry.callback()
-to_remove[#to_remove + 1] = index end elseif 
+entry.to_be_removed = true end elseif 
 
 'every' == _exp_0 then local delay = 
 entry.delay * (entry.multiplier or 1)if 
@@ -490,7 +489,7 @@ entry.times then
 entry.count = entry.count + 1;if 
 entry.count >= entry.times then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end end end elseif 
+entry.to_be_removed = true end end end elseif 
 
 'during' == _exp_0 then local duration = 
 entry.duration * (entry.multiplier or 1)local progress = 
@@ -498,7 +497,7 @@ math.min(entry.time / duration, 1)
 entry.callback(dt, progress)if 
 entry.time >= duration then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end elseif 
+entry.to_be_removed = true end elseif 
 
 'tween' == _exp_0 then local duration = 
 entry.duration * (entry.multiplier or 1)local progress = 
@@ -508,7 +507,7 @@ pairs(entry.values) do
 entry.target[key] = math.lerp(eased, entry.initial_values[key], target_value)end;if 
 entry.time >= duration then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end elseif 
+entry.to_be_removed = true end elseif 
 
 'watch' == _exp_0 then
 entry.previous = entry.current
@@ -519,7 +518,7 @@ entry.times then
 entry.count = entry.count + 1;if 
 entry.count >= entry.times then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end end end elseif 
+entry.to_be_removed = true end end end elseif 
 
 'when' == _exp_0 then local current_condition = 
 entry.condition()if 
@@ -529,7 +528,7 @@ entry.times then
 entry.count = entry.count + 1;if 
 entry.count >= entry.times then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end end end
+entry.to_be_removed = true end end end
 entry.last_condition = current_condition elseif 
 
 'cooldown' == _exp_0 then local delay = 
@@ -544,7 +543,7 @@ entry.times then
 entry.count = entry.count + 1;if 
 entry.count >= entry.times then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end end end
+entry.to_be_removed = true end end end
 entry.last_condition = current_condition elseif 
 
 'every_step' == _exp_0 then if 
@@ -554,7 +553,7 @@ entry.time = entry.time - entry.delays[entry.step_index]
 entry.step_index = entry.step_index + 1;if 
 entry.step_index > #entry.delays then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end end elseif 
+entry.to_be_removed = true end end elseif 
 
 'during_step' == _exp_0 then if 
 entry.time >= entry.delays[entry.step_index] then
@@ -563,7 +562,8 @@ entry.time = entry.time - entry.delays[entry.step_index]
 entry.step_index = entry.step_index + 1;if 
 entry.step_index > #entry.delays then if 
 entry.after then entry.after()end
-to_remove[#to_remove + 1] = index end end end::_continue_0::end;for i = #
+entry.to_be_removed = true end end end::_continue_0::end;for i = #
 
-to_remove, 1, -1 do
-table.remove(self.entries, to_remove[i])end end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self)_class_0.__parent.__init(self, 'timer')self.entries = {  }self.next_id = 1 end, __base = _base_0, __name = "timer", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;timer = _class_0;return _class_0 end
+self.entries, 1, -1 do if 
+self.entries[i].to_be_removed then
+table.remove(self.entries, i)end end end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self)_class_0.__parent.__init(self, 'timer')self.entries = {  }self.next_id = 1 end, __base = _base_0, __name = "timer", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;timer = _class_0;return _class_0 end

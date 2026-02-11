@@ -240,7 +240,37 @@ layer_rounded_rectangle(self.handle, x, y, w, h, radius, color)end, rounded_rect
 
 
 
-layer_rounded_rectangle_line(self.handle, x, y, w, h, radius, color, line_width or 1)end, image = function(self, image, x, y, color, flash)return 
+layer_rounded_rectangle_line(self.handle, x, y, w, h, radius, color, line_width or 1)end, rectangle_gradient_h = function(self, x, y, w, h, color1, color2)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_rectangle_gradient_h(self.handle, x, y, w, h, color1, color2)end, rectangle_gradient_v = function(self, x, y, w, h, color1, color2)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_rectangle_gradient_v(self.handle, x, y, w, h, color1, color2)end, image = function(self, image, x, y, color, flash)return 
 
 
 
@@ -544,4 +574,48 @@ layer_render(self.handle)end, draw_from = function(self, source, shader)return
 
 
 
-layer_draw_from(self.handle, source.handle, shader)end }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, name)self.name = name;self.handle = layer_create(self.name)self.parallax_x = 1;self.parallax_y = 1;self.camera = an.camera end, __base = _base_0, __name = "layer" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;layer = _class_0;return _class_0 end
+layer_draw_from(self.handle, source.handle, shader)end, stencil_mask = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_stencil_mask(self.handle)end, stencil_test = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+
+layer_stencil_test(self.handle)end, stencil_off = function(self)return 
+
+
+
+
+
+
+
+
+
+
+
+
+layer_stencil_off(self.handle)end }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, name)self.name = name;self.handle = layer_create(self.name)self.parallax_x = 1;self.parallax_y = 1;self.camera = an.camera end, __base = _base_0, __name = "layer" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;layer = _class_0;return _class_0 end
