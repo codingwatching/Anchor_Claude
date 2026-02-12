@@ -78,7 +78,16 @@ static float initial_scale = 3.0f;
 static bool vsync_enabled = true;
 static bool start_fullscreen = false;
 static bool window_resizable = true;
+static bool headless_mode = false;  // Headless mode: no window, no rendering, max speed
 static double time_scale = 1.0;  // Time scale multiplier (0 = hitstop, 1 = normal)
+
+// CLI arguments (--key=value pairs stored for Lua access)
+#define MAX_CLI_ARGS 32
+#define MAX_CLI_KEY 64
+#define MAX_CLI_VALUE 256
+static struct { char key[MAX_CLI_KEY]; char value[MAX_CLI_VALUE]; } cli_args[MAX_CLI_ARGS];
+static int cli_arg_count = 0;
+static bool running = true;  // Main loop flag (file scope so engine_quit can access it)
 // filter_mode is defined later in the font section
 
 // Timing configuration
@@ -752,7 +761,7 @@ static Texture* texture_load(const char* path) {
         return NULL;
     }
 
-    // Decode image from memory
+    // Decode image from memory (needed for width/height even in headless)
     unsigned char* data = stbi_load_from_memory(file_data, (int)file_size, &width, &height, &channels, 4);
     free(file_data);
     if (!data) {
@@ -768,6 +777,13 @@ static Texture* texture_load(const char* path) {
 
     tex->width = width;
     tex->height = height;
+
+    if (headless_mode) {
+        // Headless: keep dimensions but skip GL texture upload
+        tex->id = 0;
+        stbi_image_free(data);
+        return tex;
+    }
 
     glGenTextures(1, &tex->id);
     glBindTexture(GL_TEXTURE_2D, tex->id);
@@ -1067,20 +1083,26 @@ static Font* font_load(const char* name, const char* path, float size) {
     FT_Done_Face(face);
     free(font_data);  // Font data no longer needed after face processing
 
-    // Create OpenGL texture from RGBA atlas
-    // Use appropriate filtering based on mode
-    GLint tex_filter = (filter_mode == FILTER_ROUGH) ? GL_NEAREST : GL_LINEAR;
-    glGenTextures(1, &font->atlas_texture);
-    glBindTexture(GL_TEXTURE_2D, font->atlas_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, FONT_ATLAS_SIZE, FONT_ATLAS_SIZE, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, rgba_bitmap);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, tex_filter);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, tex_filter);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    if (headless_mode) {
+        // Headless: glyph metrics are loaded, skip GL atlas upload
+        font->atlas_texture = 0;
+        free(rgba_bitmap);
+    } else {
+        // Create OpenGL texture from RGBA atlas
+        // Use appropriate filtering based on mode
+        GLint tex_filter = (filter_mode == FILTER_ROUGH) ? GL_NEAREST : GL_LINEAR;
+        glGenTextures(1, &font->atlas_texture);
+        glBindTexture(GL_TEXTURE_2D, font->atlas_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, FONT_ATLAS_SIZE, FONT_ATLAS_SIZE, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, rgba_bitmap);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, tex_filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, tex_filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
-    free(rgba_bitmap);
+        free(rgba_bitmap);
+    }
 
     // Register font
     font_registry[font_count++] = font;
@@ -1163,6 +1185,13 @@ static Sound* sound_load(const char* path) {
 
     strncpy(sound->path, path, MAX_SOUND_PATH - 1);
     sound->path[MAX_SOUND_PATH - 1] = '\0';
+
+    if (headless_mode) {
+        // Headless: return valid pointer but skip audio data loading
+        sound->data = NULL;
+        sound->data_size = 0;
+        return sound;
+    }
 
     // Load audio data from zip or disk
     sound->data = zip_read_file(path, &sound->data_size);
@@ -1262,7 +1291,7 @@ static float linear_to_perceptual(float linear) {
 
 // Play a sound with volume and pitch, returns slot index or -1
 static int sound_play(Sound* sound, float volume, float pitch) {
-    if (!audio_initialized || !sound) return -1;
+    if (!audio_initialized || !sound || headless_mode) return -1;
 
     // Find a free slot
     int slot = -1;
@@ -1355,6 +1384,13 @@ typedef struct {
 static MusicChannel music_channels[MUSIC_CHANNELS] = {{NULL, 1.0f}, {NULL, 1.0f}};
 
 static Music* music_load(const char* path) {
+    if (headless_mode) {
+        // Headless: return valid dummy pointer, skip audio decoding
+        Music* music = (Music*)malloc(sizeof(Music));
+        if (!music) return NULL;
+        memset(music, 0, sizeof(Music));
+        return music;
+    }
     if (!audio_initialized) return NULL;
 
     Music* music = (Music*)malloc(sizeof(Music));
@@ -1405,7 +1441,7 @@ static void music_destroy(Music* music) {
 }
 
 static void music_play(Music* music, bool loop, int channel) {
-    if (!audio_initialized || !music || !music->initialized) return;
+    if (!audio_initialized || !music || !music->initialized || headless_mode) return;
     if (channel < 0 || channel >= MUSIC_CHANNELS) channel = 0;
 
     MusicChannel* ch = &music_channels[channel];
@@ -1559,6 +1595,15 @@ static Layer* layer_create(int width, int height) {
     m[3] = 0.0f; m[4] = 1.0f; m[5] = 0.0f;  // row 1
     m[6] = 0.0f; m[7] = 0.0f; m[8] = 1.0f;  // row 2
 
+    if (headless_mode) {
+        // Headless: no command buffer, no FBO — all draw calls become no-ops
+        layer->commands = NULL;
+        layer->command_count = 0;
+        layer->command_capacity = 0;
+        layer->current_blend = BLEND_ALPHA;
+        return layer;
+    }
+
     // Initialize command queue (fixed size, never grows)
     layer->commands = (DrawCommand*)malloc(MAX_COMMAND_CAPACITY * sizeof(DrawCommand));
     if (!layer->commands) {
@@ -1672,11 +1717,13 @@ static DrawCommand* layer_add_command(Layer* layer) {
     if (layer->command_count >= layer->command_capacity) {
         // Fixed size queue - don't grow, just drop the command
         // This should never happen in normal use (16384 commands per frame is huge)
-        static bool warned = false;
-        if (!warned) {
-            fprintf(stderr, "Error: Command queue full (%d commands). Dropping draw calls.\n",
-                    layer->command_capacity);
-            warned = true;
+        if (!headless_mode) {
+            static bool warned = false;
+            if (!warned) {
+                fprintf(stderr, "Error: Command queue full (%d commands). Dropping draw calls.\n",
+                        layer->command_capacity);
+                warned = true;
+            }
         }
         return NULL;
     }
@@ -5035,6 +5082,11 @@ static int l_layer_stencil_off(lua_State* L) {
 
 // Effect shader Lua bindings
 static int l_shader_load_file(lua_State* L) {
+    if (headless_mode) {
+        // Headless: return dummy shader ID (1) so Lua code doesn't get nil
+        lua_pushinteger(L, 1);
+        return 1;
+    }
     const char* path = luaL_checkstring(L, 1);
     GLuint shader = effect_shader_load_file(path);
     if (!shader) {
@@ -5049,6 +5101,10 @@ static int l_shader_load_file(lua_State* L) {
 }
 
 static int l_shader_load_string(lua_State* L) {
+    if (headless_mode) {
+        lua_pushinteger(L, 1);
+        return 1;
+    }
     const char* source = luaL_checkstring(L, 1);
     GLuint shader = effect_shader_load_string(source);
     if (!shader) {
@@ -5163,6 +5219,7 @@ static int l_layer_shader_set_int(lua_State* L) {
 
 // Layer effect Lua bindings
 static int l_layer_apply_shader(lua_State* L) {
+    if (headless_mode) return 0;
     Layer* layer = (Layer*)lua_touserdata(L, 1);
     GLuint shader = (GLuint)luaL_checkinteger(L, 2);
     layer_apply_shader(layer, shader);
@@ -5170,6 +5227,7 @@ static int l_layer_apply_shader(lua_State* L) {
 }
 
 static int l_layer_draw(lua_State* L) {
+    if (headless_mode) return 0;
     Layer* layer = (Layer*)lua_touserdata(L, 1);
     float x = (lua_gettop(L) >= 2) ? (float)luaL_checknumber(L, 2) : 0.0f;
     float y = (lua_gettop(L) >= 3) ? (float)luaL_checknumber(L, 3) : 0.0f;
@@ -5192,6 +5250,7 @@ static int l_layer_reset_effects(lua_State* L) {
 
 // Clear a layer's FBO contents (transparent black)
 static int l_layer_clear(lua_State* L) {
+    if (headless_mode) return 0;
     Layer* layer = (Layer*)lua_touserdata(L, 1);
 
     // Bind the layer's current target FBO
@@ -5208,6 +5267,7 @@ static int l_layer_clear(lua_State* L) {
 // Render a layer's queued commands to its FBO (with clear)
 // This is called explicitly from Lua draw() instead of automatically
 static int l_layer_render(lua_State* L) {
+    if (headless_mode) return 0;
     Layer* layer = (Layer*)lua_touserdata(L, 1);
 
     // Bind layer's FBO
@@ -5239,6 +5299,7 @@ static int l_layer_render(lua_State* L) {
 // Draw source layer's texture to destination layer's FBO
 // Optional shader parameter - if 0/nil, uses passthrough
 static int l_layer_draw_from(lua_State* L) {
+    if (headless_mode) return 0;
     Layer* dst = (Layer*)lua_touserdata(L, 1);
     Layer* src = (Layer*)lua_touserdata(L, 2);
     GLuint shader = (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) ? (GLuint)luaL_checkinteger(L, 3) : 0;
@@ -7728,11 +7789,47 @@ static int l_engine_set_resizable(lua_State* L) {
     return 0;
 }
 
+static int l_engine_set_headless(lua_State* L) {
+    if (engine_initialized) {
+        return luaL_error(L, "engine_set_headless must be called before engine_init");
+    }
+    headless_mode = lua_toboolean(L, 1);
+    return 0;
+}
+
+static int l_engine_get_headless(lua_State* L) {
+    lua_pushboolean(L, headless_mode);
+    return 1;
+}
+
+static int l_engine_get_args(lua_State* L) {
+    lua_newtable(L);
+    for (int i = 0; i < cli_arg_count; i++) {
+        lua_pushstring(L, cli_args[i].value);
+        lua_setfield(L, -2, cli_args[i].key);
+    }
+    return 1;
+}
+
+static int l_engine_quit(lua_State* L) {
+    (void)L;
+    running = false;
+    return 0;
+}
+
 // engine_init: Creates window and initializes graphics
 // Must be called from Lua (via framework) after configuration is set
 static int l_engine_init(lua_State* L) {
     if (engine_initialized) {
         return luaL_error(L, "engine_init can only be called once");
+    }
+
+    if (headless_mode) {
+        // Headless: skip all graphics initialization
+        printf("Headless mode: skipping window and graphics initialization\n");
+        engine_initialized = true;
+        printf("Engine initialized (headless): %dx%d\n", game_width, game_height);
+        return 0;
     }
 
     // Build window flags
@@ -8107,11 +8204,15 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "engine_set_vsync", l_engine_set_vsync);
     lua_register(L, "engine_set_fullscreen", l_engine_set_fullscreen);
     lua_register(L, "engine_set_resizable", l_engine_set_resizable);
+    lua_register(L, "engine_set_headless", l_engine_set_headless);
+    lua_register(L, "engine_get_headless", l_engine_get_headless);
+    lua_register(L, "engine_get_args", l_engine_get_args);
+    lua_register(L, "engine_quit", l_engine_quit);
     lua_register(L, "engine_init", l_engine_init);
 }
 
 // Main loop state (needed for emscripten)
-static bool running = true;
+// Note: 'running' is declared at file scope (near headless_mode) so engine_quit() can access it
 static Uint64 perf_freq = 0;
 static Uint64 last_time = 0;
 static double physics_lag = 0.0;
@@ -9046,6 +9147,8 @@ static void main_loop_iteration(void) {
 }
 
 int main(int argc, char* argv[]) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     printf("Anchor Engine starting...\n");
 
     // Try to load embedded zip from executable (for distribution)
@@ -9054,40 +9157,72 @@ int main(int argc, char* argv[]) {
         printf("Running from packaged executable\n");
     }
 
-    // Change working directory to game folder (passed as argument, like LÖVE)
-    // When running from packaged exe, no folder argument is needed
-    if (argc > 1 && !zip_initialized) {
-        const char* game_folder = argv[1];
-        #ifdef _WIN32
-        _chdir(game_folder);
-        #else
-        chdir(game_folder);
-        #endif
-        printf("Game folder: %s\n", game_folder);
+    // Parse CLI arguments: first positional arg is game folder, --key=value are stored
+    {
+        const char* game_folder = NULL;
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--headless") == 0) {
+                headless_mode = true;
+                printf("Headless mode enabled\n");
+            } else if (strncmp(argv[i], "--", 2) == 0 && cli_arg_count < MAX_CLI_ARGS) {
+                // Parse --key=value or --key value
+                const char* arg = argv[i] + 2;  // skip "--"
+                const char* eq = strchr(arg, '=');
+                if (eq) {
+                    int key_len = (int)(eq - arg);
+                    if (key_len >= MAX_CLI_KEY) key_len = MAX_CLI_KEY - 1;
+                    strncpy(cli_args[cli_arg_count].key, arg, key_len);
+                    cli_args[cli_arg_count].key[key_len] = '\0';
+                    strncpy(cli_args[cli_arg_count].value, eq + 1, MAX_CLI_VALUE - 1);
+                    cli_args[cli_arg_count].value[MAX_CLI_VALUE - 1] = '\0';
+                } else {
+                    strncpy(cli_args[cli_arg_count].key, arg, MAX_CLI_KEY - 1);
+                    cli_args[cli_arg_count].key[MAX_CLI_KEY - 1] = '\0';
+                    // Use "true" as default value for flags without =
+                    strncpy(cli_args[cli_arg_count].value, "true", MAX_CLI_VALUE - 1);
+                }
+                cli_arg_count++;
+            } else if (!game_folder && !zip_initialized) {
+                game_folder = argv[i];
+            }
+        }
+        if (game_folder) {
+            #ifdef _WIN32
+            _chdir(game_folder);
+            #else
+            chdir(game_folder);
+            #endif
+            printf("Game folder: %s\n", game_folder);
+        }
     }
 
     printf("Loading: main.lua\n");
 
-    // Initialize SDL
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
-        fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
-        return 1;
+    // Initialize SDL (headless only needs timer, not video/audio/gamepad)
+    {
+        Uint32 sdl_flags = headless_mode ? 0 : (SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER);
+        if (SDL_Init(sdl_flags) < 0) {
+            fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+            return 1;
+        }
     }
 
-    // Set OpenGL attributes (before window creation)
-    #ifdef __EMSCRIPTEN__
-    // Request WebGL 2.0 (OpenGL ES 3.0)
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    #else
-    // Request OpenGL 3.3 Core Profile
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    #endif
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    if (!headless_mode) {
+        // Set OpenGL attributes (before window creation)
+        #ifdef __EMSCRIPTEN__
+        // Request WebGL 2.0 (OpenGL ES 3.0)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        #else
+        // Request OpenGL 3.3 Core Profile
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        #endif
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    }
 
     // Initialize Lua (before window so game can configure via engine_set_* functions)
     L = luaL_newstate();
@@ -9100,25 +9235,29 @@ int main(int argc, char* argv[]) {
     register_lua_bindings(L);
     register_zip_searcher(L);  // Enable require() from embedded zip
 
-    // Initialize gamepad (check for already-connected controllers)
-    for (int i = 0; i < SDL_NumJoysticks(); i++) {
-        if (SDL_IsGameController(i)) {
-            gamepad = SDL_GameControllerOpen(i);
-            if (gamepad) {
-                printf("Gamepad found at startup: %s\n", SDL_GameControllerName(gamepad));
-                break;  // Only use first gamepad
+    // Initialize gamepad (check for already-connected controllers) — skip in headless
+    if (!headless_mode) {
+        for (int i = 0; i < SDL_NumJoysticks(); i++) {
+            if (SDL_IsGameController(i)) {
+                gamepad = SDL_GameControllerOpen(i);
+                if (gamepad) {
+                    printf("Gamepad found at startup: %s\n", SDL_GameControllerName(gamepad));
+                    break;  // Only use first gamepad
+                }
             }
         }
     }
 
-    // Initialize audio (miniaudio)
-    ma_result result = ma_engine_init(NULL, &audio_engine);
-    if (result != MA_SUCCESS) {
-        fprintf(stderr, "Failed to initialize audio engine: %d\n", result);
-        // Continue without audio - not a fatal error
-    } else {
-        audio_initialized = true;
-        printf("Audio engine initialized\n");
+    // Initialize audio (miniaudio) — skip in headless mode
+    if (!headless_mode) {
+        ma_result result = ma_engine_init(NULL, &audio_engine);
+        if (result != MA_SUCCESS) {
+            fprintf(stderr, "Failed to initialize audio engine: %d\n", result);
+            // Continue without audio - not a fatal error
+        } else {
+            audio_initialized = true;
+            printf("Audio engine initialized\n");
+        }
     }
 
     // Load and run main.lua (this should call engine_init via framework)
@@ -9159,12 +9298,12 @@ int main(int argc, char* argv[]) {
 
     printf("Initialization complete. Press ESC to exit, F11 for fullscreen.\n");
 
-    // Initialize timing state
+    // Initialize timing state (not needed in headless but harmless)
     perf_freq = SDL_GetPerformanceFrequency();
     last_time = SDL_GetPerformanceCounter();
 
-    // Initialize vsync snap frequencies based on display refresh rate
-    {
+    if (!headless_mode) {
+        // Initialize vsync snap frequencies based on display refresh rate
         int display_hz = 60;  // Default fallback
         SDL_DisplayMode mode;
         if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.refresh_rate > 0) {
@@ -9186,9 +9325,48 @@ int main(int argc, char* argv[]) {
     // 0 = use RAF, 1 = simulate infinite loop (blocking)
     emscripten_set_main_loop(main_loop_iteration, 0, 1);
     #else
-    // Desktop: traditional blocking loop
-    while (running) {
-        main_loop_iteration();
+    if (headless_mode) {
+        // Headless: tight update loop — no timing, no rendering, max speed
+        printf("Headless loop starting...\n");
+        lua_pushcfunction(L, traceback);
+        int err_handler = lua_gettop(L);
+        while (running && !error_state) {
+            // Clear layer commands (update code may call draw functions)
+            for (int i = 0; i < layer_count; i++) {
+                if (layer_registry[i]->commands) {
+                    layer_registry[i]->command_count = 0;
+                }
+            }
+            // Step physics
+            if (physics_initialized && physics_enabled) {
+                physics_clear_events();
+                b2World_Step(physics_world, (float)(PHYSICS_RATE * time_scale), 4);
+                physics_process_events();
+            }
+            // Call Lua update(dt)
+            lua_getglobal(L, "update");
+            if (lua_isfunction(L, -1)) {
+                lua_pushnumber(L, PHYSICS_RATE);
+                if (lua_pcall(L, 1, 0, err_handler) != LUA_OK) {
+                    snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
+                    fprintf(stderr, "ERROR: %s\n", error_message);
+                    lua_pop(L, 1);
+                    error_state = true;
+                }
+            } else {
+                lua_pop(L, 1);
+            }
+            step++;
+            game_time += PHYSICS_RATE;
+            // Post-update input state (needed for edge detection even if no real input)
+            input_post_update();
+        }
+        lua_pop(L, 1);  // traceback
+    } else {
+        // Desktop: traditional blocking loop
+        while (running) {
+            main_loop_iteration();
+        }
     }
 
     printf("Shutting down...\n");
