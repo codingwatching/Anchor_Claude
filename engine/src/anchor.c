@@ -6151,6 +6151,16 @@ static int l_physics_shape_get_density(lua_State* L) {
     return 1;
 }
 
+static int l_physics_shape_destroy(lua_State* L) {
+    b2ShapeId* shape_id = (b2ShapeId*)lua_touserdata(L, 1);
+    if (!shape_id || !b2Shape_IsValid(*shape_id)) {
+        return 0;  // Already destroyed or invalid, silently succeed
+    }
+    bool update_mass = lua_isboolean(L, 2) ? lua_toboolean(L, 2) : true;
+    b2DestroyShape(*shape_id, update_mass);
+    return 0;
+}
+
 // Additional body queries
 static int l_physics_get_body_type(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
@@ -8107,6 +8117,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_shape_get_body", l_physics_shape_get_body);
     lua_register(L, "physics_shape_set_density", l_physics_shape_set_density);
     lua_register(L, "physics_shape_get_density", l_physics_shape_get_density);
+    lua_register(L, "physics_shape_destroy", l_physics_shape_destroy);
     // --- Physics: Queries ---
     lua_register(L, "physics_get_body_type", l_physics_get_body_type);
     lua_register(L, "physics_get_mass", l_physics_get_mass);

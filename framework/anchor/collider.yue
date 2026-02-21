@@ -87,6 +87,7 @@ class collider extends object
   get_restitution: (shape=@shape) => physics_shape_get_restitution shape
   set_density: (density, shape=@shape) => physics_shape_set_density shape, density
   get_density: (shape=@shape) => physics_shape_get_density shape
+  destroy_shape: (shape, update_mass=true) => physics_shape_destroy shape, update_mass
 
   --[[
     Adds an additional circle shape to this body.
