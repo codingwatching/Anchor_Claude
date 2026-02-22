@@ -48,6 +48,9 @@
 #define STB_PERLIN_IMPLEMENTATION
 #include <stb_perlin.h>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #define STB_VORBIS_HEADER_ONLY
 #include <stb_vorbis.c>
 
@@ -79,6 +82,12 @@ static bool vsync_enabled = true;
 static bool start_fullscreen = false;
 static bool window_resizable = true;
 static bool headless_mode = false;  // Headless mode: no window, no rendering, max speed
+static bool render_mode = false;    // Render mode: window + rendering, deterministic timing, frame capture
+static GLuint capture_fbo = 0;
+static GLuint capture_texture = 0;
+static unsigned char* capture_buffer = NULL;
+static int capture_frame_number = 0;
+static char capture_output_dir[512] = "";
 static double time_scale = 1.0;  // Time scale multiplier (0 = hitstop, 1 = normal)
 
 // CLI arguments (--key=value pairs stored for Lua access)
@@ -7812,6 +7821,120 @@ static int l_engine_get_headless(lua_State* L) {
     return 1;
 }
 
+static int l_engine_get_render_mode(lua_State* L) {
+    lua_pushboolean(L, render_mode);
+    return 1;
+}
+
+static int l_engine_render_setup(lua_State* L) {
+    const char* dir = luaL_checkstring(L, 1);
+    strncpy(capture_output_dir, dir, sizeof(capture_output_dir) - 1);
+    capture_output_dir[sizeof(capture_output_dir) - 1] = '\0';
+    capture_frame_number = 0;
+
+    // Create capture FBO at native game resolution
+    glGenFramebuffers(1, &capture_fbo);
+    glGenTextures(1, &capture_texture);
+
+    glBindTexture(GL_TEXTURE_2D, capture_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, game_width, game_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, capture_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, capture_texture, 0);
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return luaL_error(L, "Capture FBO incomplete: 0x%x", status);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Allocate pixel read buffer
+    capture_buffer = (unsigned char*)malloc(game_width * game_height * 4);
+    if (!capture_buffer) {
+        return luaL_error(L, "Failed to allocate capture buffer");
+    }
+
+    printf("Render capture setup: %dx%d -> %s\n", game_width, game_height, capture_output_dir);
+    return 0;
+}
+
+static int l_engine_render_save_frame(lua_State* L) {
+    if (!capture_fbo || !capture_buffer) {
+        return luaL_error(L, "Render capture not set up (call engine_render_setup first)");
+    }
+
+    // Composite layers to capture FBO at native resolution
+    glBindFramebuffer(GL_FRAMEBUFFER, capture_fbo);
+    glViewport(0, 0, game_width, game_height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(screen_shader);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    GLint offset_loc = glGetUniformLocation(screen_shader, "u_offset");
+
+    if (layer_draw_count > 0) {
+        for (int i = 0; i < layer_draw_count; i++) {
+            LayerDrawCommand* cmd = &layer_draw_queue[i];
+            Layer* layer = cmd->layer;
+
+            float ndc_x = (cmd->x / game_width) * 2.0f;
+            float ndc_y = -(cmd->y / game_height) * 2.0f;
+            glUniform2f(offset_loc, ndc_x, ndc_y);
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+
+            glBindVertexArray(screen_vao);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+        }
+    } else {
+        glUniform2f(offset_loc, 0.0f, 0.0f);
+        for (int i = 0; i < layer_count; i++) {
+            Layer* layer = layer_registry[i];
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+
+            glBindVertexArray(screen_vao);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+        }
+    }
+
+    // Restore blend mode
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Read pixels from capture FBO
+    glReadPixels(0, 0, game_width, game_height, GL_RGBA, GL_UNSIGNED_BYTE, capture_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Flip vertically (OpenGL reads bottom-up, PNG expects top-down)
+    int row_bytes = game_width * 4;
+    unsigned char* temp_row = (unsigned char*)malloc(row_bytes);
+    for (int y = 0; y < game_height / 2; y++) {
+        unsigned char* top = capture_buffer + y * row_bytes;
+        unsigned char* bot = capture_buffer + (game_height - 1 - y) * row_bytes;
+        memcpy(temp_row, top, row_bytes);
+        memcpy(top, bot, row_bytes);
+        memcpy(bot, temp_row, row_bytes);
+    }
+    free(temp_row);
+
+    // Write PNG
+    char filename[600];
+    snprintf(filename, sizeof(filename), "%s/frame_%06d.png", capture_output_dir, capture_frame_number);
+    stbi_write_png(filename, game_width, game_height, 4, capture_buffer, game_width * 4);
+
+    lua_pushinteger(L, capture_frame_number);
+    capture_frame_number++;
+    return 1;
+}
+
 static int l_engine_get_args(lua_State* L) {
     lua_newtable(L);
     for (int i = 0; i < cli_arg_count; i++) {
@@ -7866,7 +7989,7 @@ static int l_engine_init(lua_State* L) {
         return luaL_error(L, "SDL_GL_CreateContext failed: %s", SDL_GetError());
     }
 
-    SDL_GL_SetSwapInterval(vsync_enabled ? 1 : 0);
+    SDL_GL_SetSwapInterval((vsync_enabled && !render_mode) ? 1 : 0);
 
     #ifndef __EMSCRIPTEN__
     // Load OpenGL functions (desktop only - Emscripten provides them)
@@ -8217,6 +8340,9 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "engine_set_resizable", l_engine_set_resizable);
     lua_register(L, "engine_set_headless", l_engine_set_headless);
     lua_register(L, "engine_get_headless", l_engine_get_headless);
+    lua_register(L, "engine_get_render_mode", l_engine_get_render_mode);
+    lua_register(L, "engine_render_setup", l_engine_render_setup);
+    lua_register(L, "engine_render_save_frame", l_engine_render_save_frame);
     lua_register(L, "engine_get_args", l_engine_get_args);
     lua_register(L, "engine_quit", l_engine_quit);
     lua_register(L, "engine_init", l_engine_init);
@@ -9175,6 +9301,9 @@ int main(int argc, char* argv[]) {
             if (strcmp(argv[i], "--headless") == 0) {
                 headless_mode = true;
                 printf("Headless mode enabled\n");
+            } else if (strcmp(argv[i], "--render") == 0) {
+                render_mode = true;
+                printf("Render mode enabled\n");
             } else if (strncmp(argv[i], "--", 2) == 0 && cli_arg_count < MAX_CLI_ARGS) {
                 // Parse --key=value or --key value
                 const char* arg = argv[i] + 2;  // skip "--"
@@ -9373,6 +9502,222 @@ int main(int argc, char* argv[]) {
             input_post_update();
         }
         lua_pop(L, 1);  // traceback
+    } else if (render_mode) {
+        // Render mode: deterministic loop — 2 physics steps per render frame, no real-time timing
+        printf("Render loop starting...\n");
+        lua_pushcfunction(L, traceback);
+        int err_handler = lua_gettop(L);
+        while (running && !error_state) {
+            // Drain SDL events (so window stays responsive / closable)
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    running = false;
+                }
+                if (event.type == SDL_KEYDOWN && !event.key.repeat) {
+                    if (event.key.keysym.sym == SDLK_ESCAPE) {
+                        running = false;
+                    }
+                }
+            }
+
+            // 2 physics steps per render frame (120Hz physics / 60Hz render)
+            for (int p = 0; p < 2 && running && !error_state; p++) {
+                // Clear layer commands
+                for (int i = 0; i < layer_count; i++) {
+                    layer_clear_commands(layer_registry[i]);
+                }
+
+                // Step physics
+                if (physics_initialized && physics_enabled) {
+                    physics_clear_events();
+                    b2World_Step(physics_world, (float)(PHYSICS_RATE * time_scale), 4);
+                    physics_process_events();
+                }
+
+                // Call Lua update(dt)
+                lua_getglobal(L, "update");
+                if (lua_isfunction(L, -1)) {
+                    lua_pushnumber(L, PHYSICS_RATE);
+                    if (lua_pcall(L, 1, 0, err_handler) != LUA_OK) {
+                        snprintf(error_message, sizeof(error_message), "%s", lua_tostring(L, -1));
+                        fprintf(stderr, "ERROR: %s\n", error_message);
+                        lua_pop(L, 1);
+                        error_state = true;
+                    }
+                } else {
+                    lua_pop(L, 1);
+                }
+
+                step++;
+                game_time += PHYSICS_RATE;
+                input_post_update();
+            }
+
+            if (!running || error_state) break;
+
+            // Increment frame before draw so an.frame is correct
+            frame++;
+            draw_calls = 0;
+
+            // Set up orthographic projection
+            float projection[16] = {
+                2.0f / game_width, 0.0f, 0.0f, 0.0f,
+                0.0f, -2.0f / game_height, 0.0f, 0.0f,
+                0.0f, 0.0f, -1.0f, 0.0f,
+                -1.0f, 1.0f, 0.0f, 1.0f
+            };
+            glUseProgram(shader_program);
+            GLint proj_loc = glGetUniformLocation(shader_program, "projection");
+            glUniformMatrix4fv(proj_loc, 1, GL_FALSE, projection);
+
+            GLint aa_loc = glGetUniformLocation(shader_program, "u_aa_width");
+            float aa_width = (filter_mode == FILTER_SMOOTH) ? 1.0f : 0.0f;
+            glUniform1f(aa_loc, aa_width);
+
+            // Call Lua draw() — populates layer FBOs and layer_draw_queue
+            glBindTexture(GL_TEXTURE_2D, 0);
+            lua_getglobal(L, "draw");
+            if (lua_isfunction(L, -1)) {
+                if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                    const char* err = lua_tostring(L, -1);
+                    fprintf(stderr, "Lua draw() error: %s\n", err);
+                    lua_pop(L, 1);
+                    error_state = true;
+                }
+            } else {
+                lua_pop(L, 1);
+            }
+
+            if (error_state) break;
+
+            // Capture pass: composite to capture FBO at native resolution, save PNG
+            if (capture_fbo && capture_buffer) {
+                glBindFramebuffer(GL_FRAMEBUFFER, capture_fbo);
+                glViewport(0, 0, game_width, game_height);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+
+                glUseProgram(screen_shader);
+                glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+                GLint cap_offset_loc = glGetUniformLocation(screen_shader, "u_offset");
+
+                if (layer_draw_count > 0) {
+                    for (int i = 0; i < layer_draw_count; i++) {
+                        LayerDrawCommand* cmd = &layer_draw_queue[i];
+                        float ndc_x = (cmd->x / game_width) * 2.0f;
+                        float ndc_y = -(cmd->y / game_height) * 2.0f;
+                        glUniform2f(cap_offset_loc, ndc_x, ndc_y);
+
+                        glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, layer_get_texture(cmd->layer));
+                        glBindVertexArray(screen_vao);
+                        glDrawArrays(GL_TRIANGLES, 0, 6);
+                        glBindVertexArray(0);
+                    }
+                } else {
+                    glUniform2f(cap_offset_loc, 0.0f, 0.0f);
+                    for (int i = 0; i < layer_count; i++) {
+                        glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer_registry[i]));
+                        glBindVertexArray(screen_vao);
+                        glDrawArrays(GL_TRIANGLES, 0, 6);
+                        glBindVertexArray(0);
+                    }
+                }
+
+                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+                // Read pixels
+                glReadPixels(0, 0, game_width, game_height, GL_RGBA, GL_UNSIGNED_BYTE, capture_buffer);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+                // Flip vertically (OpenGL reads bottom-up, PNG expects top-down)
+                int row_bytes = game_width * 4;
+                unsigned char* temp_row = (unsigned char*)malloc(row_bytes);
+                for (int y = 0; y < game_height / 2; y++) {
+                    unsigned char* top = capture_buffer + y * row_bytes;
+                    unsigned char* bot = capture_buffer + (game_height - 1 - y) * row_bytes;
+                    memcpy(temp_row, top, row_bytes);
+                    memcpy(top, bot, row_bytes);
+                    memcpy(bot, temp_row, row_bytes);
+                }
+                free(temp_row);
+
+                // Write PNG
+                char filename[600];
+                snprintf(filename, sizeof(filename), "%s/frame_%06d.png", capture_output_dir, capture_frame_number);
+                stbi_write_png(filename, game_width, game_height, 4, capture_buffer, game_width * 4);
+                capture_frame_number++;
+            }
+
+            // Screen pass: normal compositing to window for visual feedback
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            int window_w, window_h;
+            SDL_GetWindowSize(window, &window_w, &window_h);
+
+            float scale_x = (float)window_w / game_width;
+            float scale_y = (float)window_h / game_height;
+            float scale = (scale_x < scale_y) ? scale_x : scale_y;
+            if (scale < 1.0f) scale = 1.0f;
+
+            int scaled_w = (int)(game_width * scale);
+            int scaled_h = (int)(game_height * scale);
+            int offset_x = (window_w - scaled_w) / 2;
+            int offset_y = (window_h - scaled_h) / 2;
+
+            glViewport(0, 0, window_w, window_h);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            glViewport(offset_x, offset_y, scaled_w, scaled_h);
+            glUseProgram(screen_shader);
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+            GLint offset_loc = glGetUniformLocation(screen_shader, "u_offset");
+
+            if (layer_draw_count > 0) {
+                for (int i = 0; i < layer_draw_count; i++) {
+                    LayerDrawCommand* cmd = &layer_draw_queue[i];
+                    Layer* layer = cmd->layer;
+                    float ndc_x = (cmd->x / game_width) * 2.0f;
+                    float ndc_y = -(cmd->y / game_height) * 2.0f;
+                    glUniform2f(offset_loc, ndc_x, ndc_y);
+
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+                    glBindVertexArray(screen_vao);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glBindVertexArray(0);
+                }
+
+                for (int i = 0; i < layer_count; i++) {
+                    layer_reset_effects(layer_registry[i]);
+                }
+                layer_draw_count = 0;
+            } else {
+                glUniform2f(offset_loc, 0.0f, 0.0f);
+                for (int i = 0; i < layer_count; i++) {
+                    Layer* layer = layer_registry[i];
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+                    glBindVertexArray(screen_vao);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glBindVertexArray(0);
+                    layer_reset_effects(layer);
+                }
+            }
+
+            glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+            SDL_GL_SwapWindow(window);
+        }
+        lua_pop(L, 1);  // traceback
+
+        // Clean up capture resources
+        if (capture_buffer) { free(capture_buffer); capture_buffer = NULL; }
+        if (capture_fbo) { glDeleteFramebuffers(1, &capture_fbo); capture_fbo = 0; }
+        if (capture_texture) { glDeleteTextures(1, &capture_texture); capture_texture = 0; }
     } else {
         // Desktop: traditional blocking loop
         while (running) {
