@@ -1,32 +1,35 @@
-do
+require('anchor.class')
 
+--[[
+  Image class wraps a C texture handle.
 
+  Images are GPU textures loaded from files. They're drawn via layer:image().
+  The class caches width/height so you don't need C calls to query them.
 
+  Usage:
+    an:image('player', 'assets/player.png')   -- register image
+    img = an.images.player                    -- access image
+    layer:image(img, 100, 100)                -- draw centered at (100, 100)
 
+  Properties:
+    self.handle - C texture pointer
+    self.width  - texture width in pixels
+    self.height - texture height in pixels
+]]
+image = class:extend()
 
+--[[
+  Creates an image wrapper from a C texture handle.
 
+  Usage:
+    img = image(handle)   -- typically called by an:image, not directly
 
-
-
-
-
-
-
-
-
-
-
-local _class_0;local _base_0 = {  }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, handle)
-
-
-
-
-
-
-
-
-
-
-self.handle = handle
-self.width = texture_get_width(self.handle)
-self.height = texture_get_height(self.handle)end, __base = _base_0, __name = "image" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;image = _class_0;return _class_0 end
+  Behavior:
+    - Stores the C handle
+    - Queries and caches width/height from C
+]]
+function image:new(handle)
+  self.handle = handle
+  self.width = texture_get_width(self.handle)
+  self.height = texture_get_height(self.handle)
+end

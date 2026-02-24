@@ -29,17 +29,21 @@ Code should be understandable by looking at one place. This serves:
 
 A class definition keeps everything together — properties, behaviors, and relationships are all visible in one place:
 
-```yuescript
-class player extends object
-  new: (@x, @y) =>
-    super!
-    @\tag 'player'
-    @\add collider 'player', 'dynamic', 'circle', 16
-    @\add timer!
+```lua
+player = object:extend()
 
-  update: (dt) =>
-    @x += @vx * dt
-    game\circle @x, @y, 16, white!
+function player:new(x, y)
+  object.new(self)
+  self.x, self.y = x, y
+  self:tag('player')
+  self:add(collider('player', 'dynamic', 'circle', 16))
+  self:add(timer())
+end
+
+function player:update(dt)
+  self.x = self.x + self.vx*dt
+  game:circle(self.x, self.y, 16, white())
+end
 ```
 
 Compare to systems where you define a class in one file, register components elsewhere, wire up behaviors in a third place. Same expressiveness, but the understanding is scattered.
@@ -62,11 +66,9 @@ Anchor prefers:
 
 ## Language Boundary Philosophy
 
-### Why YueScript
+### Why Lua
 
-Chosen because it "looked nice." That's the real reason. MoonScript syntax with additional features, compiles to Lua. The class system, the `@` for self, the significant whitespace, the operator overloading — it produces code that's pleasant to read and write.
-
-The `-r` compiler flag rewrites output to match source line numbers, so Lua errors point to correct YueScript lines. No source map parsing needed.
+Lua is simple, fast, and the entire C API is designed for it. The framework uses plain hand-written Lua with a lightweight class system (based on rxi/classic). No compilation step, no source maps — errors point directly to the right line.
 
 ### Why C (Not C++, Rust, etc.)
 
@@ -76,13 +78,13 @@ C++ could work but adds complexity without clear benefit for this scope. Rust wo
 
 ### The Boundary Rule
 
-Start with everything in Lua/YueScript. Only move to C when profiling shows actual bottlenecks.
+Start with everything in Lua. Only move to C when profiling shows actual bottlenecks.
 
 This avoids premature optimization. The tree structure, timers, springs, actions — all start as Lua objects. If timer updates become a bottleneck (unlikely), move the hot loop to C while keeping the Lua interface.
 
-The gameplay programmer never touches C. The engine layer (also in YueScript) wraps C calls. Raw pointers flow from C to Lua and back; Lua is responsible for calling destroy functions.
+The gameplay programmer never touches C. The framework layer (also in Lua) wraps C calls. Raw pointers flow from C to Lua and back; Lua is responsible for calling destroy functions.
 
-**When evaluating features:** Should this be C (performance-critical, low-level) or YueScript (game logic, flexible)?
+**When evaluating features:** Should this be C (performance-critical, low-level) or Lua (game logic, flexible)?
 
 ---
 
@@ -96,7 +98,7 @@ When reviewing other engines/frameworks, ask:
 
 3. **What's the bureaucracy cost?** (Setup, configuration, boilerplate)
 
-4. **Is this C-level or YueScript-level?** (Performance-critical vs. game logic)
+4. **Is this C-level or Lua-level?** (Performance-critical vs. game logic)
 
 5. **Does the developer need this?** (Solo indie action games, not AAA engines)
 

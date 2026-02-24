@@ -1,34 +1,37 @@
-do
+require('anchor.class')
 
+--[[
+  Spritesheet class wraps a C spritesheet handle.
 
+  Spritesheets are textures divided into a grid of frames for animations.
+  Frames are indexed 1-based (Lua convention) and read left-to-right, top-to-bottom.
 
+  Usage:
+    an:spritesheet('hit', 'assets/hit1.png', 96, 48)   -- register spritesheet
+    sheet = an.spritesheets.hit                         -- access spritesheet
+    layer:spritesheet(sheet, 1, 100, 100)               -- draw frame 1 at (100, 100)
 
+  Properties:
+    self.handle       - C spritesheet pointer
+    self.frame_width  - width of each frame in pixels
+    self.frame_height - height of each frame in pixels
+    self.frames       - total number of frames
+]]
+spritesheet = class:extend()
 
+--[[
+  Creates a spritesheet wrapper from a C spritesheet handle.
 
+  Usage:
+    sheet = spritesheet(handle)   -- typically called by an:spritesheet, not directly
 
-
-
-
-
-
-
-
-
-
-
-
-local _class_0;local _base_0 = {  }if _base_0.__index == nil then _base_0.__index = _base_0 end;_class_0 = setmetatable({ __init = function(self, handle)
-
-
-
-
-
-
-
-
-
-
-self.handle = handle
-self.frame_width = spritesheet_get_frame_width(self.handle)
-self.frame_height = spritesheet_get_frame_height(self.handle)
-self.frames = spritesheet_get_total_frames(self.handle)end, __base = _base_0, __name = "spritesheet" }, { __index = _base_0, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;spritesheet = _class_0;return _class_0 end
+  Behavior:
+    - Stores the C handle
+    - Queries and caches frame dimensions and count from C
+]]
+function spritesheet:new(handle)
+  self.handle = handle
+  self.frame_width = spritesheet_get_frame_width(self.handle)
+  self.frame_height = spritesheet_get_frame_height(self.handle)
+  self.frames = spritesheet_get_total_frames(self.handle)
+end

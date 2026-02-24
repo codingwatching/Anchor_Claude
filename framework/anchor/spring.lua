@@ -1,150 +1,166 @@
-do
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local _class_0;local _parent_0 = object;local _base_0 = { add = function(self, name, x, frequency, bounce)if 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-x == nil then x = 0 end;if frequency == nil then frequency = 5 end;if bounce == nil then bounce = 0.5 end;if not 
-self[name] then local _obj_0 = self.spring_names;_obj_0[#_obj_0 + 1] = name end;local k = (
-2 * math.pi * frequency) ^ 2;local d = 
-4 * math.pi * (1 - bounce) * frequency
-
-self[name] = { x = x, target_x = 
-x, v = 
-0, k = 
-k, d = 
-d }end, pull = function(self, name, force, frequency, bounce)local spring = 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-self[name]if not 
-spring then return end;if 
-frequency then
-spring.k = (2 * math.pi * frequency) ^ 2
-spring.d = 4 * math.pi * (1 - (bounce or 0.5)) * frequency end
-spring.x = spring.x + force end, set_target = function(self, name, value)local spring = 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-self[name]if 
-spring then spring.target_x = value end end, at_rest = function(self, name, threshold)if 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-threshold == nil then threshold = 0.01 end;local spring = 
-self[name]if not 
-spring then return true end;return 
-math.abs(spring.x - spring.target_x) < threshold and math.abs(spring.v) < threshold end, early_update = function(self, dt)local _list_0 = 
-
-
-
-
-
-
-
-
-self.spring_names;for _index_0 = 1, #_list_0 do local spring_name = _list_0[_index_0]local spring = 
-self[spring_name]local a = -
-spring.k * (spring.x - spring.target_x) - spring.d * spring.v
-spring.v = spring.v + (a * dt)
-spring.x = spring.x + (spring.v * dt)end end }for _key_0, _val_0 in pairs(_parent_0.__base) do if _base_0[_key_0] == nil and _key_0:match("^__") and not (_key_0 == "__index" and _val_0 == _parent_0.__base) then _base_0[_key_0] = _val_0 end end;if _base_0.__index == nil then _base_0.__index = _base_0 end;setmetatable(_base_0, _parent_0.__base)_class_0 = setmetatable({ __init = function(self)_class_0.__parent.__init(self, 'spring')self.spring_names = {  }return self:add('main', 1)end, __base = _base_0, __name = "spring", __parent = _parent_0 }, { __index = function(cls, name)local val = rawget(_base_0, name)if val == nil then local parent = rawget(cls, "__parent")if parent then return parent[name]end else return val end end, __call = function(cls, ...)local _self_0 = setmetatable({  }, _base_0)cls.__init(_self_0, ...)return _self_0 end })_base_0.__class = _class_0;if _parent_0.__inherited then _parent_0.__inherited(_parent_0, _class_0)end;spring = _class_0;return _class_0 end
+require('anchor.class')
+
+--[[
+  Spring child object for damped spring animations.
+
+  Usage:
+    self:add(spring())
+    self.spring:add('scale', 1, 5, 0.5)      -- 5 Hz, moderate bounce
+    self.spring:pull('scale', 0.5)
+
+  Spring is added as a child object. When the parent dies, the spring dies automatically.
+  A default 'main' spring at value 1 is created on construction.
+
+  Springs are accessed directly: self.spring.main.x, self.spring.scale.x
+
+  Spring methods:
+    add          - Add a named spring with frequency/bounce
+    pull         - Apply impulse to a spring
+    set_target   - Change resting point
+    at_rest      - Check if spring has settled
+]]
+spring = object:extend()
+
+--[[
+  Creates a new spring container with default 'main' spring.
+
+  Usage:
+    self:add(spring())
+
+  The spring is automatically named 'spring' and accessible as self.spring on the parent.
+  A 'main' spring at value 1 is created by default (0.3s duration, 0.5 bounce).
+]]
+function spring:new()
+  object.new(self, 'spring')
+  self.spring_names = {}
+  self:add('main', 1)
+end
+
+--[[
+  Adds a new named spring.
+
+  Usage:
+    self.spring:add('scale', 1)                 -- default: 5 Hz, 0.5 bounce
+    self.spring:add('rotation', 0, 3, 0.3)      -- 3 oscillations/sec, low bounce
+    self.spring:add('position', 100, 10, 0.8)   -- 10 oscillations/sec, high bounce
+
+  Parameters:
+    name      - string identifier for the spring
+    x         - initial value (default 0)
+    frequency - oscillations per second (default 5)
+    bounce    - bounciness 0-1 (default 0.5, where 0=no overshoot, 1=infinite oscillation)
+
+  Behavior:
+    - Spring is accessible as self.spring.name.x
+    - Higher frequency = faster oscillation
+    - Higher bounce = more overshoot and oscillation
+    - bounce=0 is critically damped (smooth, no overshoot)
+    - bounce=0.5 has moderate overshoot
+    - bounce approaching 1 oscillates forever
+
+  Returns: nothing
+]]
+function spring:add(name, x, frequency, bounce)
+  x = x or 0
+  frequency = frequency or 5
+  bounce = bounce or 0.5
+  if not self[name] then
+    table.insert(self.spring_names, name)
+  end
+  local k = (2*math.pi*frequency)^2
+  local d = 4*math.pi*(1 - bounce)*frequency
+  self[name] = {
+    x = x,
+    target_x = x,
+    v = 0,
+    k = k,
+    d = d,
+  }
+end
+
+--[[
+  Applies an impulse to a named spring.
+
+  Usage:
+    self.spring:pull('main', 0.5)              -- add 0.5 to current value
+    self.spring:pull('scale', 0.3, 10, 0.7)    -- pull with 10 Hz, high bounce
+
+  Parameters:
+    name      - spring identifier
+    force     - amount to add to current value
+    frequency - (optional) new oscillations per second
+    bounce    - (optional) new bounciness 0-1
+
+  Behavior:
+    - Adds force directly to spring's current x value
+    - Spring will oscillate around target_x and settle back
+    - Optionally updates frequency/bounce for this spring permanently
+
+  Returns: nothing
+]]
+function spring:pull(name, force, frequency, bounce)
+  local s = self[name]
+  if not s then return end
+  if frequency then
+    s.k = (2*math.pi*frequency)^2
+    s.d = 4*math.pi*(1 - (bounce or 0.5))*frequency
+  end
+  s.x = s.x + force
+end
+
+--[[
+  Changes the resting point of a named spring.
+
+  Usage:
+    self.spring:set_target('scale', 2)  -- spring will animate toward 2
+
+  Parameters:
+    name  - spring identifier
+    value - new target value
+
+  Behavior:
+    - Spring will smoothly animate toward the new target
+    - Unlike pull, this changes where the spring settles
+
+  Returns: nothing
+]]
+function spring:set_target(name, value)
+  local s = self[name]
+  if s then s.target_x = value end
+end
+
+--[[
+  Checks if a spring has settled (stopped moving).
+
+  Usage:
+    if self.spring:at_rest('scale') then
+      print('animation complete')
+    end
+
+  Parameters:
+    name      - spring identifier
+    threshold - (optional) how close to target counts as "at rest" (default 0.01)
+
+  Returns: true if spring value and velocity are both near zero/target
+]]
+function spring:at_rest(name, threshold)
+  threshold = threshold or 0.01
+  local s = self[name]
+  if not s then return true end
+  return math.abs(s.x - s.target_x) < threshold and math.abs(s.v) < threshold
+end
+
+--[[
+  Internal: updates all springs each frame.
+
+  Called automatically during early_update phase.
+  Uses standard damped spring equation: a = -k*(x - target) - d*v
+]]
+function spring:early_update(dt)
+  for _, spring_name in ipairs(self.spring_names) do
+    local s = self[spring_name]
+    local a = -s.k*(s.x - s.target_x) - s.d*s.v
+    s.v = s.v + a*dt
+    s.x = s.x + s.v*dt
+  end
+end

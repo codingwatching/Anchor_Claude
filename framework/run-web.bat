@@ -1,11 +1,7 @@
 @echo off
-REM Web build and run - compiles YueScript, rebuilds with Emscripten, launches browser
+REM Web build and run - rebuilds with Emscripten, launches browser
 
 cd /d "%~dp0"
-
-REM Compile YueScript files
-.\yue.exe -r main.yue
-.\yue.exe -r anchor/
 
 REM Build with Emscripten and run
 cd ..\engine

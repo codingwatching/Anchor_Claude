@@ -11,13 +11,11 @@
 #
 # This creates:
 #   E:/a327ex/my-awesome-game/
-#   ├── tools/
-#   │   ├── anchor.exe    (copied from Anchor/engine/build/)
-#   │   └── yue.exe       (copied from previous game or downloaded)
 #   ├── anchor/           (framework: copied from Anchor/framework/anchor/ or previous game)
-#   │   ├── init.yue
-#   │   └── object.yue
-#   ├── main.yue          (game entry point template)
+#   │   ├── init.lua
+#   │   ├── object.lua
+#   │   └── ...
+#   ├── main.lua          (game entry point template)
 #   └── assets/           (empty assets folder)
 #
 # And a private GitHub repo at: github.com/a327ex/my-awesome-game
@@ -38,10 +36,9 @@ set -e  # Exit on any error
 # ----------------------------------------------------------------------------
 
 GAMES_ROOT="E:/a327ex"
-ANCHOR_ROOT="E:/a327ex/Anchor"
+ANCHOR_ROOT="E:/a327ex/Anchor-lua"
 GITHUB_USER="a327ex"
 GH_CMD="/c/Program Files/GitHub CLI/gh.exe"
-YUE_URL="https://github.com/IppClub/YueScript/releases/download/v0.30.4/yue-windows-x64.7z"
 
 # ----------------------------------------------------------------------------
 # Parse arguments
@@ -89,7 +86,7 @@ if [ -n "$FROM_GAME" ]; then
     fi
     echo "Creating new game: $GAME_NAME (copying framework from $FROM_GAME)"
 else
-    echo "Creating new game: $GAME_NAME (using master framework from Anchor/framework/anchor/)"
+    echo "Creating new game: $GAME_NAME (using master framework from Anchor-lua/framework/anchor/)"
 fi
 echo "Location: $GAME_PATH"
 echo ""
@@ -98,65 +95,43 @@ echo ""
 # Step 1: Create game folder structure
 # ----------------------------------------------------------------------------
 
-echo "[1/5] Creating game folder..."
-mkdir -p "$GAME_PATH/tools"
+echo "[1/4] Creating game folder..."
 mkdir -p "$GAME_PATH/anchor"
 mkdir -p "$GAME_PATH/assets"
 cd "$GAME_PATH"
 
 # ----------------------------------------------------------------------------
-# Step 2: Copy tools (anchor.exe, yue.exe)
+# Step 2: Copy framework (anchor/*.lua)
 # ----------------------------------------------------------------------------
 
-echo "[2/5] Copying tools..."
-
-# Copy anchor.exe from Anchor build
-if [ -f "$ANCHOR_ROOT/engine/build/anchor.exe" ]; then
-    cp "$ANCHOR_ROOT/engine/build/anchor.exe" tools/
-else
-    echo "Warning: anchor.exe not found at $ANCHOR_ROOT/engine/build/"
-    echo "Run build.bat in Anchor/engine/ first."
-fi
-
-# Copy yue.exe from previous game, Anchor/framework/, or download
-if [ -n "$FROM_GAME" ] && [ -f "$FROM_PATH/tools/yue.exe" ]; then
-    cp "$FROM_PATH/tools/yue.exe" tools/
-elif [ -f "$ANCHOR_ROOT/framework/yue.exe" ]; then
-    # Use Anchor's yue.exe
-    cp "$ANCHOR_ROOT/framework/yue.exe" tools/
-elif [ -f "$GAMES_ROOT/emoji-ball-battles/tools/yue.exe" ]; then
-    # Fallback: try emoji-ball-battles
-    cp "$GAMES_ROOT/emoji-ball-battles/tools/yue.exe" tools/
-else
-    echo "Downloading yue.exe..."
-    curl -L -o tools/yue-windows-x64.7z "$YUE_URL"
-    "/c/Program Files/7-Zip/7z.exe" x tools/yue-windows-x64.7z -otools -y
-    rm tools/yue-windows-x64.7z
-fi
-
-# ----------------------------------------------------------------------------
-# Step 3: Copy framework (anchor/*.yue)
-# ----------------------------------------------------------------------------
-
-echo "[3/5] Copying framework..."
+echo "[2/4] Copying framework..."
 
 if [ -n "$FROM_GAME" ]; then
     # Copy from previous game
-    cp "$FROM_PATH/anchor/"*.yue anchor/
+    cp "$FROM_PATH/anchor/"*.lua anchor/
 else
-    # Copy from Anchor/framework/anchor/ (master copy)
-    cp "$ANCHOR_ROOT/framework/anchor/"*.yue anchor/
+    # Copy from Anchor-lua/framework/anchor/ (master copy)
+    cp "$ANCHOR_ROOT/framework/anchor/"*.lua anchor/
+fi
+
+# Also copy anchor.exe from engine build
+if [ -f "$ANCHOR_ROOT/engine/build/anchor.exe" ]; then
+    cp "$ANCHOR_ROOT/engine/build/anchor.exe" .
+else
+    echo "Warning: anchor.exe not found at $ANCHOR_ROOT/engine/build/"
+    echo "Run build.bat in Anchor-lua/engine/ first."
 fi
 
 # ----------------------------------------------------------------------------
-# Step 4: Create template files
+# Step 3: Create template files
 # ----------------------------------------------------------------------------
 
-echo "[4/5] Creating template files..."
+echo "[3/4] Creating template files..."
 
-# main.yue - Game entry point template
-cat > main.yue << 'MAIN_EOF'
-require 'anchor'
+# main.lua - Game entry point template
+cat > main.lua << 'MAIN_EOF'
+require('anchor') {
+}
 
 -- Game initialization here
 
@@ -167,9 +142,6 @@ touch assets/.gitkeep
 
 # .gitignore
 cat > .gitignore << 'GITIGNORE_EOF'
-# Compiled Lua (generated from .yue)
-*.lua
-
 # Build artifacts
 *.obj
 *.o
@@ -190,10 +162,10 @@ tmpclaude-*
 GITIGNORE_EOF
 
 # ----------------------------------------------------------------------------
-# Step 5: Initialize git and create GitHub repo
+# Step 4: Initialize git and create GitHub repo
 # ----------------------------------------------------------------------------
 
-echo "[5/5] Creating git repo..."
+echo "[4/4] Creating git repo..."
 
 git init
 git branch -M main
@@ -205,7 +177,7 @@ if [ -f "$GH_CMD" ]; then
     git add -A
     git commit -m "Initial commit: Anchor game scaffold
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
     git push -u origin main
 
@@ -229,8 +201,6 @@ echo "Location: $GAME_PATH"
 echo ""
 echo "Next steps:"
 echo "  cd $GAME_PATH"
-echo "  # Edit main.yue"
-echo "  tools/yue.exe -r anchor        # Compile framework"
-echo "  tools/yue.exe -r main.yue      # Compile game"
-echo "  tools/anchor.exe .             # Run game"
+echo "  # Edit main.lua"
+echo "  anchor.exe .                   # Run game"
 echo ""
