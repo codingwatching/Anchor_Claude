@@ -99,6 +99,7 @@ function collider:destroy_shape(shape, update_mass)
   if update_mass == nil then update_mass = true end
   physics_shape_destroy(shape, update_mass)
 end
+function collider:set_filter_group(group, shape) physics_shape_set_filter_group(shape or self.shape, group) end
 
 --[[
   Adds an additional circle shape to this body.

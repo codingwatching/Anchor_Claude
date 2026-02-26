@@ -184,16 +184,28 @@ end
   Usage:
     self:link(target)                                    -- kill self when target dies
     self:link(target, function(s) s.homing = false end)  -- run callback when target dies
+    self:link('follow', target)                          -- self.follow = target, auto-clears on death
 
   Behavior:
     - When target dies (kill() is called), callback runs with self as argument
     - If no callback provided, self is killed when target dies
+    - Named form: self:link(name, target) sets self[name] = target, clears to nil on death
     - Links are bidirectional internally: self.links stores outgoing, target.linked_from stores incoming
     - Both are cleaned up when either object is removed from tree
 
   Returns: self (for chaining)
 ]]
-function object:link(target, callback)
+function object:link(name_or_target, target_or_callback)
+  local name, target, callback
+  if type(name_or_target) == 'string' then
+    name = name_or_target
+    target = target_or_callback
+    self[name] = target
+    callback = function(s) s[name] = nil end
+  else
+    target = name_or_target
+    callback = target_or_callback
+  end
   if not self.links then self.links = {} end
   table.insert(self.links, {target = target, callback = callback})
   if not target.linked_from then target.linked_from = {} end

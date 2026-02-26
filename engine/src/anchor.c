@@ -470,6 +470,16 @@ typedef struct {
 static PhysicsTag physics_tags[MAX_PHYSICS_TAGS];
 static int physics_tag_count = 0;
 
+// Per-shape user data (stored in Box2D shape user data pointer)
+typedef struct {
+    int tag_index;
+    int filter_group;  // Non-zero: shapes with same group skip collision
+} ShapeUserData;
+
+#define MAX_SHAPE_USER_DATA 4096
+static ShapeUserData shape_user_data_pool[MAX_SHAPE_USER_DATA];
+static int shape_user_data_count = 0;
+
 // Find tag index by name, returns -1 if not found
 static int physics_tag_find(const char* name) {
     for (int i = 0; i < physics_tag_count; i++) {
@@ -616,12 +626,21 @@ static void physics_clear_events(void) {
     sensor_end_count = 0;
 }
 
-// Get tag index from shape's custom data (stored during shape creation)
+// Get tag index from shape's user data (stored during shape creation)
 static int physics_get_shape_tag(b2ShapeId shape_id) {
     if (!b2Shape_IsValid(shape_id)) return -1;
-    // We store tag index in shape's user data
-    uintptr_t tag_data = (uintptr_t)b2Shape_GetUserData(shape_id);
-    return (int)tag_data;
+    ShapeUserData* ud = (ShapeUserData*)b2Shape_GetUserData(shape_id);
+    if (!ud) return -1;
+    return ud->tag_index;
+}
+
+// Custom filter callback: reject collisions between shapes with same non-zero filter group
+static bool physics_custom_filter(b2ShapeId shapeIdA, b2ShapeId shapeIdB, void* context) {
+    ShapeUserData* ud_a = (ShapeUserData*)b2Shape_GetUserData(shapeIdA);
+    ShapeUserData* ud_b = (ShapeUserData*)b2Shape_GetUserData(shapeIdB);
+    if (!ud_a || !ud_b) return true;
+    if (ud_a->filter_group != 0 && ud_a->filter_group == ud_b->filter_group) return false;
+    return true;
 }
 
 // Process physics events after b2World_Step
@@ -5366,7 +5385,9 @@ static int l_physics_init(lua_State* L) {
     world_def.restitutionThreshold = 0.0f;  // Allow full restitution at any speed
 
     physics_world = b2CreateWorld(&world_def);
+    b2World_SetCustomFilterCallback(physics_world, physics_custom_filter, NULL);
     physics_initialized = true;
+    shape_user_data_count = 0;
     printf("Physics initialized (Box2D)\n");
     return 0;
 }
@@ -5610,6 +5631,7 @@ static void setup_shape_def_from_tag(b2ShapeDef* def, PhysicsTag* tag, bool is_s
     def->enableSensorEvents = (tag->sensor_mask != 0);
     def->enableContactEvents = (tag->collision_mask != 0);
     def->enableHitEvents = (tag->hit_mask != 0);
+    def->enableCustomFiltering = true;
 }
 
 // physics_add_circle(body, tag, radius, [opts])
@@ -5658,8 +5680,10 @@ static int l_physics_add_circle(lua_State* L) {
     b2ShapeId shape_id = b2CreateCircleShape(*body_id, &shape_def, &circle);
 
     // Store tag index in shape's user data for event lookup
-    int tag_index = (int)(tag - physics_tags);
-    b2Shape_SetUserData(shape_id, (void*)(uintptr_t)tag_index);
+    ShapeUserData* sud = &shape_user_data_pool[shape_user_data_count++];
+    sud->tag_index = (int)(tag - physics_tags);
+    sud->filter_group = 0;
+    b2Shape_SetUserData(shape_id, sud);
 
     // Return shape ID as userdata
     b2ShapeId* ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
@@ -5720,8 +5744,10 @@ static int l_physics_add_box(lua_State* L) {
     b2ShapeId shape_id = b2CreatePolygonShape(*body_id, &shape_def, &box);
 
     // Store tag index in shape's user data for event lookup
-    int tag_index = (int)(tag - physics_tags);
-    b2Shape_SetUserData(shape_id, (void*)(uintptr_t)tag_index);
+    ShapeUserData* sud = &shape_user_data_pool[shape_user_data_count++];
+    sud->tag_index = (int)(tag - physics_tags);
+    sud->filter_group = 0;
+    b2Shape_SetUserData(shape_id, sud);
 
     // Return shape ID as userdata
     b2ShapeId* ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
@@ -5782,8 +5808,10 @@ static int l_physics_add_capsule(lua_State* L) {
     b2ShapeId shape_id = b2CreateCapsuleShape(*body_id, &shape_def, &capsule);
 
     // Store tag index in shape's user data for event lookup
-    int tag_index = (int)(tag - physics_tags);
-    b2Shape_SetUserData(shape_id, (void*)(uintptr_t)tag_index);
+    ShapeUserData* sud = &shape_user_data_pool[shape_user_data_count++];
+    sud->tag_index = (int)(tag - physics_tags);
+    sud->filter_group = 0;
+    b2Shape_SetUserData(shape_id, sud);
 
     // Return shape ID as userdata
     b2ShapeId* ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
@@ -5851,8 +5879,10 @@ static int l_physics_add_polygon(lua_State* L) {
     b2ShapeId shape_id = b2CreatePolygonShape(*body_id, &shape_def, &polygon);
 
     // Store tag index in shape's user data for event lookup
-    int tag_index = (int)(tag - physics_tags);
-    b2Shape_SetUserData(shape_id, (void*)(uintptr_t)tag_index);
+    ShapeUserData* sud = &shape_user_data_pool[shape_user_data_count++];
+    sud->tag_index = (int)(tag - physics_tags);
+    sud->filter_group = 0;
+    b2Shape_SetUserData(shape_id, sud);
 
     // Return shape ID as userdata
     b2ShapeId* ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
@@ -6170,6 +6200,16 @@ static int l_physics_shape_destroy(lua_State* L) {
     return 0;
 }
 
+static int l_physics_shape_set_filter_group(lua_State* L) {
+    b2ShapeId* shape_id = (b2ShapeId*)lua_touserdata(L, 1);
+    if (!shape_id || !b2Shape_IsValid(*shape_id))
+        return luaL_error(L, "Invalid shape");
+    int group = (int)luaL_checkinteger(L, 2);
+    ShapeUserData* ud = (ShapeUserData*)b2Shape_GetUserData(*shape_id);
+    if (ud) ud->filter_group = group;
+    return 0;
+}
+
 // Additional body queries
 static int l_physics_get_body_type(lua_State* L) {
     b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
@@ -6236,6 +6276,135 @@ static int l_physics_set_awake(lua_State* L) {
     bool awake = lua_toboolean(L, 2);
     b2Body_SetAwake(*body_id, awake);
     return 0;
+}
+
+// physics_get_shapes_geometry(body) -> table of shapes with world-space geometry
+// Returns: {{type="circle", x=..., y=..., radius=...}, {type="polygon", vertices={x1,y1,x2,y2,...}}, ...}
+static int l_physics_get_shapes_geometry(lua_State* L) {
+    b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
+    if (!body_id || !b2Body_IsValid(*body_id)) {
+        return luaL_error(L, "Invalid body");
+    }
+
+    int shape_count = b2Body_GetShapeCount(*body_id);
+    if (shape_count <= 0) {
+        lua_newtable(L);
+        return 1;
+    }
+
+    b2ShapeId shapes[32];  // max 32 shapes per body
+    if (shape_count > 32) shape_count = 32;
+    int actual_count = b2Body_GetShapes(*body_id, shapes, shape_count);
+
+    b2Transform xf = b2Body_GetTransform(*body_id);
+
+    lua_newtable(L);  // result table
+
+    for (int i = 0; i < actual_count; i++) {
+        if (!b2Shape_IsValid(shapes[i])) continue;
+
+        lua_newtable(L);  // shape entry
+
+        b2ShapeType type = b2Shape_GetType(shapes[i]);
+
+        // Add sensor flag
+        bool is_sensor = b2Shape_IsSensor(shapes[i]);
+        lua_pushboolean(L, is_sensor);
+        lua_setfield(L, -2, "sensor");
+
+        // Add tag name
+        ShapeUserData* sud = (ShapeUserData*)b2Shape_GetUserData(shapes[i]);
+        if (sud && sud->tag_index >= 0 && sud->tag_index < physics_tag_count) {
+            lua_pushstring(L, physics_tags[sud->tag_index].name);
+        } else {
+            lua_pushstring(L, "unknown");
+        }
+        lua_setfield(L, -2, "tag");
+
+        switch (type) {
+            case b2_circleShape: {
+                b2Circle circle = b2Shape_GetCircle(shapes[i]);
+                b2Vec2 world_center = b2TransformPoint(xf, circle.center);
+
+                lua_pushstring(L, "circle");
+                lua_setfield(L, -2, "type");
+                lua_pushnumber(L, world_center.x * pixels_per_meter);
+                lua_setfield(L, -2, "x");
+                lua_pushnumber(L, world_center.y * pixels_per_meter);
+                lua_setfield(L, -2, "y");
+                lua_pushnumber(L, circle.radius * pixels_per_meter);
+                lua_setfield(L, -2, "radius");
+                break;
+            }
+            case b2_polygonShape: {
+                b2Polygon poly = b2Shape_GetPolygon(shapes[i]);
+
+                lua_pushstring(L, "polygon");
+                lua_setfield(L, -2, "type");
+
+                // Vertices as flat array {x1, y1, x2, y2, ...}
+                lua_newtable(L);
+                for (int j = 0; j < poly.count; j++) {
+                    b2Vec2 world_v = b2TransformPoint(xf, poly.vertices[j]);
+                    lua_pushnumber(L, world_v.x * pixels_per_meter);
+                    lua_rawseti(L, -2, j * 2 + 1);
+                    lua_pushnumber(L, world_v.y * pixels_per_meter);
+                    lua_rawseti(L, -2, j * 2 + 2);
+                }
+                lua_setfield(L, -2, "vertices");
+
+                lua_pushinteger(L, poly.count);
+                lua_setfield(L, -2, "count");
+                lua_pushnumber(L, poly.radius * pixels_per_meter);
+                lua_setfield(L, -2, "radius");
+                break;
+            }
+            case b2_capsuleShape: {
+                b2Capsule capsule = b2Shape_GetCapsule(shapes[i]);
+                b2Vec2 world_c1 = b2TransformPoint(xf, capsule.center1);
+                b2Vec2 world_c2 = b2TransformPoint(xf, capsule.center2);
+
+                lua_pushstring(L, "capsule");
+                lua_setfield(L, -2, "type");
+                lua_pushnumber(L, world_c1.x * pixels_per_meter);
+                lua_setfield(L, -2, "x1");
+                lua_pushnumber(L, world_c1.y * pixels_per_meter);
+                lua_setfield(L, -2, "y1");
+                lua_pushnumber(L, world_c2.x * pixels_per_meter);
+                lua_setfield(L, -2, "x2");
+                lua_pushnumber(L, world_c2.y * pixels_per_meter);
+                lua_setfield(L, -2, "y2");
+                lua_pushnumber(L, capsule.radius * pixels_per_meter);
+                lua_setfield(L, -2, "radius");
+                break;
+            }
+            case b2_segmentShape: {
+                b2Segment seg = b2Shape_GetSegment(shapes[i]);
+                b2Vec2 world_p1 = b2TransformPoint(xf, seg.point1);
+                b2Vec2 world_p2 = b2TransformPoint(xf, seg.point2);
+
+                lua_pushstring(L, "segment");
+                lua_setfield(L, -2, "type");
+                lua_pushnumber(L, world_p1.x * pixels_per_meter);
+                lua_setfield(L, -2, "x1");
+                lua_pushnumber(L, world_p1.y * pixels_per_meter);
+                lua_setfield(L, -2, "y1");
+                lua_pushnumber(L, world_p2.x * pixels_per_meter);
+                lua_setfield(L, -2, "x2");
+                lua_pushnumber(L, world_p2.y * pixels_per_meter);
+                lua_setfield(L, -2, "y2");
+                break;
+            }
+            default:
+                lua_pushstring(L, "unknown");
+                lua_setfield(L, -2, "type");
+                break;
+        }
+
+        lua_rawseti(L, -2, i + 1);  // result[i+1] = shape_entry
+    }
+
+    return 1;
 }
 
 static int l_physics_debug_events(lua_State* L) {
@@ -6563,8 +6732,8 @@ static bool query_overlap_callback(b2ShapeId shape_id, void* context) {
     if (ctx->count >= MAX_QUERY_RESULTS) return false;  // Stop query
 
     // Check if this shape's tag matches our query
-    int tag_index = (int)(uintptr_t)b2Shape_GetUserData(shape_id);
-    PhysicsTag* tag = physics_tag_get(tag_index);
+    ShapeUserData* sud = (ShapeUserData*)b2Shape_GetUserData(shape_id);
+    PhysicsTag* tag = sud ? physics_tag_get(sud->tag_index) : NULL;
     if (!tag) return true;  // Continue but skip invalid
 
     // Only include if shape's category matches our query mask
@@ -6855,8 +7024,8 @@ static float raycast_closest_callback(b2ShapeId shape_id, b2Vec2 point, b2Vec2 n
     RaycastClosestContext* ctx = (RaycastClosestContext*)context;
 
     // Check if this shape's tag matches our query
-    int tag_index = (int)(uintptr_t)b2Shape_GetUserData(shape_id);
-    PhysicsTag* tag = physics_tag_get(tag_index);
+    ShapeUserData* sud = (ShapeUserData*)b2Shape_GetUserData(shape_id);
+    PhysicsTag* tag = sud ? physics_tag_get(sud->tag_index) : NULL;
     if (!tag) return 1.0f;  // Continue
 
     if ((tag->category_bit & ctx->tag_mask) == 0) return 1.0f;  // Skip, continue
@@ -6886,8 +7055,8 @@ static float raycast_all_callback(b2ShapeId shape_id, b2Vec2 point, b2Vec2 norma
     if (ctx->count >= MAX_QUERY_RESULTS) return 0.0f;  // Stop
 
     // Check if this shape's tag matches our query
-    int tag_index = (int)(uintptr_t)b2Shape_GetUserData(shape_id);
-    PhysicsTag* tag = physics_tag_get(tag_index);
+    ShapeUserData* sud = (ShapeUserData*)b2Shape_GetUserData(shape_id);
+    PhysicsTag* tag = sud ? physics_tag_get(sud->tag_index) : NULL;
     if (!tag) return 1.0f;  // Continue
 
     if ((tag->category_bit & ctx->tag_mask) == 0) return 1.0f;  // Skip, continue
@@ -8241,12 +8410,14 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_shape_set_density", l_physics_shape_set_density);
     lua_register(L, "physics_shape_get_density", l_physics_shape_get_density);
     lua_register(L, "physics_shape_destroy", l_physics_shape_destroy);
+    lua_register(L, "physics_shape_set_filter_group", l_physics_shape_set_filter_group);
     // --- Physics: Queries ---
     lua_register(L, "physics_get_body_type", l_physics_get_body_type);
     lua_register(L, "physics_get_mass", l_physics_get_mass);
     lua_register(L, "physics_set_center_of_mass", l_physics_set_center_of_mass);
     lua_register(L, "physics_is_awake", l_physics_is_awake);
     lua_register(L, "physics_set_awake", l_physics_set_awake);
+    lua_register(L, "physics_get_shapes_geometry", l_physics_get_shapes_geometry);
     lua_register(L, "physics_debug_events", l_physics_debug_events);
     // --- Physics: Events ---
     lua_register(L, "physics_get_collision_begin", l_physics_get_collision_begin);
@@ -8890,6 +9061,7 @@ static void engine_shutdown(void) {
     if (physics_initialized) {
         b2DestroyWorld(physics_world);
         physics_initialized = false;
+        shape_user_data_count = 0;
     }
     // Other resources
     if (L) { lua_close(L); L = NULL; }
