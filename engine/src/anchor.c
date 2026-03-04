@@ -88,6 +88,7 @@ static GLuint capture_texture = 0;
 static unsigned char* capture_buffer = NULL;
 static int capture_frame_number = 0;
 static char capture_output_dir[512] = "";
+static FILE* record_pipe = NULL;  // Live recording: ffmpeg pipe for raw frame data
 static double time_scale = 1.0;  // Time scale multiplier (0 = hitstop, 1 = normal)
 
 // CLI arguments (--key=value pairs stored for Lua access)
@@ -7921,6 +7922,11 @@ static int l_engine_get_draw_calls(lua_State* L) {
     return 1;
 }
 
+static int l_perf_time(lua_State* L) {
+    lua_pushnumber(L, (double)SDL_GetPerformanceCounter() / (double)SDL_GetPerformanceFrequency());
+    return 1;
+}
+
 // ============================================================================
 // ENGINE CONFIGURATION (called before engine_init)
 // ============================================================================
@@ -8102,6 +8108,105 @@ static int l_engine_render_save_frame(lua_State* L) {
     lua_pushinteger(L, capture_frame_number);
     capture_frame_number++;
     return 1;
+}
+
+// Live recording: pipe raw frames to ffmpeg for real-time encoding
+static int l_engine_record_start(lua_State* L) {
+    const char* output_path = luaL_checkstring(L, 1);
+
+    // Set up capture FBO if not already done
+    if (!capture_fbo) {
+        glGenFramebuffers(1, &capture_fbo);
+        glGenTextures(1, &capture_texture);
+        glBindTexture(GL_TEXTURE_2D, capture_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, game_width, game_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, capture_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, capture_texture, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    if (!capture_buffer) {
+        capture_buffer = (unsigned char*)malloc(game_width * game_height * 4);
+    }
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+        "ffmpeg -y -f rawvideo -pixel_format rgba -video_size %dx%d -framerate 60 "
+        "-i - -vf \"vflip,scale=1920:1080:flags=neighbor\" "
+        "-c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \"%s\" 2>nul",
+        game_width, game_height, output_path);
+
+    record_pipe = _popen(cmd, "wb");
+    if (!record_pipe) {
+        return luaL_error(L, "Failed to open ffmpeg pipe for recording");
+    }
+
+    printf("Live recording started: %dx%d -> %s\n", game_width, game_height, output_path);
+    return 0;
+}
+
+static int l_engine_record_frame(lua_State* L) {
+    if (!record_pipe || !capture_fbo || !capture_buffer) {
+        return luaL_error(L, "Recording not started (call engine_record_start first)");
+    }
+
+    // Composite layers to capture FBO at native resolution
+    glBindFramebuffer(GL_FRAMEBUFFER, capture_fbo);
+    glViewport(0, 0, game_width, game_height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(screen_shader);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    GLint offset_loc = glGetUniformLocation(screen_shader, "u_offset");
+
+    if (layer_draw_count > 0) {
+        for (int i = 0; i < layer_draw_count; i++) {
+            LayerDrawCommand* cmd = &layer_draw_queue[i];
+            Layer* layer = cmd->layer;
+            float ndc_x = (cmd->x / game_width) * 2.0f;
+            float ndc_y = -(cmd->y / game_height) * 2.0f;
+            glUniform2f(offset_loc, ndc_x, ndc_y);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+            glBindVertexArray(screen_vao);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+        }
+    } else {
+        glUniform2f(offset_loc, 0.0f, 0.0f);
+        for (int i = 0; i < layer_count; i++) {
+            Layer* layer = layer_registry[i];
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, layer_get_texture(layer));
+            glBindVertexArray(screen_vao);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindVertexArray(0);
+        }
+    }
+
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Read pixels (no vertical flip needed — ffmpeg vflip handles it)
+    glReadPixels(0, 0, game_width, game_height, GL_RGBA, GL_UNSIGNED_BYTE, capture_buffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Write raw pixels to pipe
+    fwrite(capture_buffer, 1, game_width * game_height * 4, record_pipe);
+
+    return 0;
+}
+
+static int l_engine_record_stop(lua_State* L) {
+    (void)L;
+    if (record_pipe) {
+        _pclose(record_pipe);
+        record_pipe = NULL;
+        printf("Live recording stopped\n");
+    }
+    return 0;
 }
 
 static int l_engine_get_args(lua_State* L) {
@@ -8502,6 +8607,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "engine_get_platform", l_engine_get_platform);
     lua_register(L, "engine_get_fps", l_engine_get_fps);
     lua_register(L, "engine_get_draw_calls", l_engine_get_draw_calls);
+    lua_register(L, "perf_time", l_perf_time);
     // --- Engine Configuration ---
     lua_register(L, "engine_set_game_size", l_engine_set_game_size);
     lua_register(L, "engine_set_title", l_engine_set_title);
@@ -8514,6 +8620,9 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "engine_get_render_mode", l_engine_get_render_mode);
     lua_register(L, "engine_render_setup", l_engine_render_setup);
     lua_register(L, "engine_render_save_frame", l_engine_render_save_frame);
+    lua_register(L, "engine_record_start", l_engine_record_start);
+    lua_register(L, "engine_record_frame", l_engine_record_frame);
+    lua_register(L, "engine_record_stop", l_engine_record_stop);
     lua_register(L, "engine_get_args", l_engine_get_args);
     lua_register(L, "engine_quit", l_engine_quit);
     lua_register(L, "engine_init", l_engine_init);
