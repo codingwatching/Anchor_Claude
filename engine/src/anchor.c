@@ -1395,6 +1395,23 @@ static void sound_handle_set_volume(int handle, float volume) {
     ma_sound_set_volume(&playing_sounds[slot].sound, linear_to_perceptual(volume * sound_master_volume));
 }
 
+// Stop a playing sound by handle
+static void sound_handle_stop(int handle) {
+    int slot;
+    if (!sound_handle_decode(handle, &slot)) return;
+    ma_sound_stop(&playing_sounds[slot].sound);
+    ma_sound_uninit(&playing_sounds[slot].sound);
+    ma_decoder_uninit(&playing_sounds[slot].decoder);
+    playing_sounds[slot].in_use = false;
+}
+
+// Set looping on a playing sound by handle
+static void sound_handle_set_looping(int handle, bool looping) {
+    int slot;
+    if (!sound_handle_decode(handle, &slot)) return;
+    ma_sound_set_looping(&playing_sounds[slot].sound, looping);
+}
+
 // Music - streaming tracks with two channels for crossfade support (supports zip archive)
 typedef struct {
     ma_sound sound;
@@ -4994,6 +5011,19 @@ static int l_sound_handle_set_volume(lua_State* L) {
     return 0;
 }
 
+static int l_sound_handle_stop(lua_State* L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    sound_handle_stop(handle);
+    return 0;
+}
+
+static int l_sound_handle_set_looping(lua_State* L) {
+    int handle = (int)luaL_checkinteger(L, 1);
+    bool looping = lua_toboolean(L, 2);
+    sound_handle_set_looping(handle, looping);
+    return 0;
+}
+
 static int l_sound_set_volume(lua_State* L) {
     sound_master_volume = (float)luaL_checknumber(L, 1);
     return 0;
@@ -8429,6 +8459,8 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "sound_play_handle", l_sound_play_handle);
     lua_register(L, "sound_handle_set_pitch", l_sound_handle_set_pitch);
     lua_register(L, "sound_handle_set_volume", l_sound_handle_set_volume);
+    lua_register(L, "sound_handle_stop", l_sound_handle_stop);
+    lua_register(L, "sound_handle_set_looping", l_sound_handle_set_looping);
     lua_register(L, "sound_set_volume", l_sound_set_volume);
     lua_register(L, "music_load", l_music_load);
     lua_register(L, "music_play", l_music_play);
