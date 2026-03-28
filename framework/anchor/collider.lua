@@ -30,18 +30,23 @@ function collider:new(tag, body_type, shape_type, ...)
   -- Add initial shape based on shape_type
   -- Last arg can be opts table (e.g. {sensor = true})
   local shape_args = {...}
-  local opts = {}
-  if type(shape_args[#shape_args]) == 'table' then
-    opts = table.remove(shape_args)
-  end
-  if self.shape_type == 'circle' then
-    self.shape = physics_add_circle(self.body, self.tag, shape_args[1], opts)
-  elseif self.shape_type == 'box' then
-    self.shape = physics_add_box(self.body, self.tag, shape_args[1], shape_args[2], opts)
-  elseif self.shape_type == 'capsule' then
-    self.shape = physics_add_capsule(self.body, self.tag, shape_args[1], shape_args[2], opts)
-  elseif self.shape_type == 'polygon' then
-    self.shape = physics_add_polygon(self.body, self.tag, shape_args[1], opts)
+  if self.shape_type == 'chain' then
+    -- Chain: args are (vertices, is_loop) — no opts table
+    self.chain = physics_add_chain(self.body, self.tag, shape_args[1], shape_args[2] or true)
+  else
+    local opts = {}
+    if type(shape_args[#shape_args]) == 'table' then
+      opts = table.remove(shape_args)
+    end
+    if self.shape_type == 'circle' then
+      self.shape = physics_add_circle(self.body, self.tag, shape_args[1], opts)
+    elseif self.shape_type == 'box' then
+      self.shape = physics_add_box(self.body, self.tag, shape_args[1], shape_args[2], opts)
+    elseif self.shape_type == 'capsule' then
+      self.shape = physics_add_capsule(self.body, self.tag, shape_args[1], shape_args[2], opts)
+    elseif self.shape_type == 'polygon' then
+      self.shape = physics_add_polygon(self.body, self.tag, shape_args[1], opts)
+    end
   end
 
   -- Register with unique ID (userdata can't be compared directly)
@@ -149,6 +154,21 @@ end
 ]]
 function collider:add_polygon(tag, vertices, opts)
   return physics_add_polygon(self.body, tag, vertices, opts or {})
+end
+
+--[[
+  Adds a chain shape to this body (for terrain/wall boundaries).
+
+  Usage:
+    verts = {x1, y1, x2, y2, ...}  -- at least 4 points
+    chain = self.collider:add_chain('wall', verts, true)  -- closed loop
+
+  Vertices are a flat array: {x1, y1, x2, y2, ...}
+  is_loop: true for closed loop, false for open chain
+  Returns: chain ID handle
+]]
+function collider:add_chain(tag, vertices, is_loop)
+  return physics_add_chain(self.body, tag, vertices, is_loop)
 end
 
 --[[

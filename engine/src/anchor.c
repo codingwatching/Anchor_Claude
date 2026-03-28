@@ -347,8 +347,10 @@ enum {
     COMMAND_SET_UNIFORM_VEC2,   // Set vec2 uniform on shader
     COMMAND_SET_UNIFORM_VEC4,   // Set vec4 uniform on shader
     COMMAND_SET_UNIFORM_INT,    // Set int uniform on shader
+    COMMAND_SET_UNIFORM_TEXTURE, // Bind a texture to a sampler uniform
     COMMAND_STENCIL_MASK,       // Start writing to stencil buffer (don't draw to color)
     COMMAND_STENCIL_TEST,       // Start testing against stencil (only draw where stencil is set)
+    COMMAND_STENCIL_TEST_INVERSE, // Start testing against stencil (only draw where stencil is NOT set)
     COMMAND_STENCIL_OFF,        // Disable stencil, return to normal drawing
 };
 
@@ -418,6 +420,11 @@ typedef struct {
     GLuint effect_fbo;
     GLuint effect_texture;
     bool textures_swapped;  // Which buffer is current result
+
+    // Extra texture bindings for shaders (bound right before apply_shader draws)
+    GLuint extra_texture;     // texture to bind to unit 1
+    GLint extra_texture_loc;  // uniform location for the sampler
+    bool has_extra_texture;
 
     // Transform stack (mat3 stored as 9 floats: row-major)
     // Each mat3: [m00 m01 m02 m10 m11 m12 m20 m21 m22]
@@ -825,6 +832,31 @@ static Texture* texture_load(const char* path) {
 
     stbi_image_free(data);
     printf("Loaded texture: %s (%dx%d)\n", path, width, height);
+    return tex;
+}
+
+// Create a texture from raw RGBA pixel data (4 bytes per pixel)
+static Texture* texture_create_from_rgba(int width, int height, const unsigned char* data) {
+    Texture* tex = (Texture*)malloc(sizeof(Texture));
+    if (!tex) return NULL;
+
+    tex->width = width;
+    tex->height = height;
+
+    if (headless_mode) {
+        tex->id = 0;
+        return tex;
+    }
+
+    glGenTextures(1, &tex->id);
+    glBindTexture(GL_TEXTURE_2D, tex->id);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
     return tex;
 }
 
@@ -1982,6 +2014,13 @@ static void layer_stencil_test(Layer* layer) {
     DrawCommand* cmd = layer_add_command(layer);
     if (!cmd) return;
     cmd->type = COMMAND_STENCIL_TEST;
+}
+
+// Queue stencil test inverse command - subsequent draws only appear where stencil is NOT set
+static void layer_stencil_test_inverse(Layer* layer) {
+    DrawCommand* cmd = layer_add_command(layer);
+    if (!cmd) return;
+    cmd->type = COMMAND_STENCIL_TEST_INVERSE;
 }
 
 // Queue stencil off command - disable stencil, return to normal drawing
@@ -3578,6 +3617,23 @@ static void layer_shader_set_int(Layer* layer, GLuint shader, const char* name, 
     cmd->params[0] = (float)value;  // Store as float, cast back when processing
 }
 
+// Set a texture uniform on a shader (binds to texture unit 1+)
+// params[0] = texture unit index (1, 2, etc — 0 is reserved for the layer's own texture)
+// texture_id = the GL texture handle
+static void layer_shader_set_texture(Layer* layer, GLuint shader, const char* name, GLuint tex_id, int unit) {
+    if (layer->command_count >= MAX_COMMAND_CAPACITY) return;
+    GLint loc = glGetUniformLocation(shader, name);
+    if (loc < 0) return;
+
+    DrawCommand* cmd = &layer->commands[layer->command_count++];
+    memset(cmd, 0, sizeof(DrawCommand));
+    cmd->type = COMMAND_SET_UNIFORM_TEXTURE;
+    cmd->shader_id = shader;
+    cmd->uniform_location = (uint32_t)loc;
+    cmd->texture_id = tex_id;
+    cmd->params[0] = (float)unit;
+}
+
 // Execute shader application (ping-pong): read from current buffer, apply shader, write to alternate
 // Called during command processing when COMMAND_APPLY_SHADER is encountered
 static void execute_apply_shader(Layer* layer, GLuint shader) {
@@ -3616,10 +3672,26 @@ static void execute_apply_shader(Layer* layer, GLuint shader) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, src_tex);
 
+    // Bind extra texture (e.g. distance field) to unit 1
+    if (layer->has_extra_texture) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, layer->extra_texture);
+        glUniform1i(layer->extra_texture_loc, 1);
+        glActiveTexture(GL_TEXTURE0);
+    }
+
     // Draw fullscreen quad
     glBindVertexArray(screen_vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
+
+    // Clear extra texture state
+    if (layer->has_extra_texture) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+        layer->has_extra_texture = false;
+    }
 
     // Re-enable blending
     glEnable(GL_BLEND);
@@ -4269,7 +4341,8 @@ static void layer_render(Layer* layer) {
         if (cmd->type == COMMAND_SET_UNIFORM_FLOAT ||
             cmd->type == COMMAND_SET_UNIFORM_VEC2 ||
             cmd->type == COMMAND_SET_UNIFORM_VEC4 ||
-            cmd->type == COMMAND_SET_UNIFORM_INT) {
+            cmd->type == COMMAND_SET_UNIFORM_INT ||
+            cmd->type == COMMAND_SET_UNIFORM_TEXTURE) {
             // Flush any pending draws before switching programs
             batch_flush();
             current_batch_texture = 0;
@@ -4288,6 +4361,13 @@ static void layer_render(Layer* layer) {
                 case COMMAND_SET_UNIFORM_INT:
                     glUniform1i((GLint)cmd->uniform_location, (int)cmd->params[0]);
                     break;
+                case COMMAND_SET_UNIFORM_TEXTURE: {
+                    // Store for binding during execute_apply_shader
+                    layer->extra_texture = cmd->texture_id;
+                    layer->extra_texture_loc = (GLint)cmd->uniform_location;
+                    layer->has_extra_texture = true;
+                    break;
+                }
             }
 
             // Restore drawing shader for subsequent draw commands
@@ -4416,6 +4496,14 @@ static void layer_render(Layer* layer) {
                 batch_flush();
                 // Only draw where stencil == 1
                 glStencilFunc(GL_EQUAL, 1, 0xFF);
+                glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                break;
+            case COMMAND_STENCIL_TEST_INVERSE:
+                // Flush pending draws before changing stencil state
+                batch_flush();
+                // Only draw where stencil != 1 (inverse of stencil_test)
+                glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
                 glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
                 glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
                 break;
@@ -4781,6 +4869,29 @@ static int l_texture_load(lua_State* L) {
     return 1;
 }
 
+// texture_create(width, height, pixel_data_string) -> texture userdata
+// pixel_data_string is a binary string of width*height*4 bytes (RGBA)
+static int l_texture_create(lua_State* L) {
+    int width = (int)luaL_checkinteger(L, 1);
+    int height = (int)luaL_checkinteger(L, 2);
+    size_t data_len;
+    const char* data = luaL_checklstring(L, 3, &data_len);
+
+    if ((int)data_len < width * height * 4) {
+        return luaL_error(L, "Pixel data too short: expected %d bytes, got %d", width * height * 4, (int)data_len);
+    }
+
+    Texture* tex = texture_create_from_rgba(width, height, (const unsigned char*)data);
+    if (!tex) {
+        return luaL_error(L, "Failed to create texture");
+    }
+
+    Texture* ud = (Texture*)lua_newuserdata(L, sizeof(Texture));
+    *ud = *tex;
+    free(tex);
+    return 1;
+}
+
 static int l_texture_unload(lua_State* L) {
     Texture* tex = (Texture*)lua_touserdata(L, 1);
     if (!tex) return 0;
@@ -5133,6 +5244,12 @@ static int l_layer_stencil_test(lua_State* L) {
     return 0;
 }
 
+static int l_layer_stencil_test_inverse(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    layer_stencil_test_inverse(layer);
+    return 0;
+}
+
 static int l_layer_stencil_off(lua_State* L) {
     Layer* layer = (Layer*)lua_touserdata(L, 1);
     layer_stencil_off(layer);
@@ -5273,6 +5390,19 @@ static int l_layer_shader_set_int(lua_State* L) {
     const char* name = luaL_checkstring(L, 3);
     int value = (int)luaL_checkinteger(L, 4);
     layer_shader_set_int(layer, shader, name, value);
+    return 0;
+}
+
+// layer_shader_set_texture(layer, shader, name, texture_userdata, unit)
+static int l_layer_shader_set_texture(lua_State* L) {
+    Layer* layer = (Layer*)lua_touserdata(L, 1);
+    GLuint shader = (GLuint)luaL_checkinteger(L, 2);
+    const char* name = luaL_checkstring(L, 3);
+    Texture* tex = (Texture*)lua_touserdata(L, 4);
+    int unit = (int)luaL_optinteger(L, 5, 1);
+    if (tex) {
+        layer_shader_set_texture(layer, shader, name, tex->id, unit);
+    }
     return 0;
 }
 
@@ -5918,6 +6048,83 @@ static int l_physics_add_polygon(lua_State* L) {
     // Return shape ID as userdata
     b2ShapeId* ud = (b2ShapeId*)lua_newuserdata(L, sizeof(b2ShapeId));
     *ud = shape_id;
+    return 1;
+}
+
+// physics_add_chain(body, tag, vertices, is_loop)
+// vertices is a flat array: {x1, y1, x2, y2, ...} (at least 4 points)
+// is_loop: true for closed loop, false for open chain
+// Returns chain ID as userdata
+static int l_physics_add_chain(lua_State* L) {
+    if (!physics_initialized) {
+        return luaL_error(L, "Physics not initialized");
+    }
+
+    b2BodyId* body_id = (b2BodyId*)lua_touserdata(L, 1);
+    if (!body_id) return luaL_error(L, "Invalid body");
+
+    const char* tag_name = luaL_checkstring(L, 2);
+    PhysicsTag* tag = physics_tag_get_by_name(tag_name);
+    if (!tag) return luaL_error(L, "Unknown physics tag: %s", tag_name);
+
+    // Read vertices from table
+    luaL_checktype(L, 3, LUA_TTABLE);
+    int len = (int)lua_rawlen(L, 3);
+    if (len < 8 || len % 2 != 0) {
+        return luaL_error(L, "Chain needs at least 4 points (8 numbers)");
+    }
+
+    int point_count = len / 2;
+    b2Vec2* points = (b2Vec2*)malloc(point_count * sizeof(b2Vec2));
+    if (!points) return luaL_error(L, "Out of memory");
+
+    for (int i = 0; i < point_count; i++) {
+        lua_rawgeti(L, 3, i * 2 + 1);
+        lua_rawgeti(L, 3, i * 2 + 2);
+        points[i].x = (float)lua_tonumber(L, -2) / pixels_per_meter;
+        points[i].y = (float)lua_tonumber(L, -1) / pixels_per_meter;
+        lua_pop(L, 2);
+    }
+
+    bool is_loop = lua_toboolean(L, 4);
+
+    // Create chain def
+    b2ChainDef chain_def = b2DefaultChainDef();
+    chain_def.points = points;
+    chain_def.count = point_count;
+    chain_def.isLoop = is_loop;
+    chain_def.filter.categoryBits = tag->category_bit;
+    chain_def.filter.maskBits = tag->collision_mask | tag->sensor_mask;
+    chain_def.enableSensorEvents = (tag->sensor_mask != 0);
+
+    // Default material
+    b2SurfaceMaterial material = b2DefaultSurfaceMaterial();
+    chain_def.materials = &material;
+    chain_def.materialCount = 1;
+
+    // Create chain
+    b2ChainId chain_id = b2CreateChain(*body_id, &chain_def);
+    free(points);
+
+    // Set user data on all chain segments for event processing
+    int seg_count = b2Chain_GetSegmentCount(chain_id);
+    b2ShapeId* segments = (b2ShapeId*)malloc(seg_count * sizeof(b2ShapeId));
+    if (segments) {
+        b2Chain_GetSegments(chain_id, segments, seg_count);
+        for (int i = 0; i < seg_count; i++) {
+            if (shape_user_data_count < MAX_SHAPE_USER_DATA) {
+                ShapeUserData* sud = &shape_user_data_pool[shape_user_data_count++];
+                sud->tag_index = (int)(tag - physics_tags);
+                sud->filter_group = 0;
+                b2Shape_SetUserData(segments[i], sud);
+            }
+        }
+        free(segments);
+    }
+
+    // Return chain ID as userdata
+    b2ChainId* ud = (b2ChainId*)lua_newuserdata(L, sizeof(b2ChainId));
+    *ud = chain_id;
     return 1;
 }
 
@@ -8433,8 +8640,10 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_set_blend_mode", l_layer_set_blend_mode);
     lua_register(L, "layer_stencil_mask", l_layer_stencil_mask);
     lua_register(L, "layer_stencil_test", l_layer_stencil_test);
+    lua_register(L, "layer_stencil_test_inverse", l_layer_stencil_test_inverse);
     lua_register(L, "layer_stencil_off", l_layer_stencil_off);
     lua_register(L, "texture_load", l_texture_load);
+    lua_register(L, "texture_create", l_texture_create);
     lua_register(L, "texture_unload", l_texture_unload);
     lua_register(L, "texture_get_width", l_texture_get_width);
     lua_register(L, "texture_get_height", l_texture_get_height);
@@ -8488,6 +8697,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "layer_shader_set_vec2", l_layer_shader_set_vec2);
     lua_register(L, "layer_shader_set_vec4", l_layer_shader_set_vec4);
     lua_register(L, "layer_shader_set_int", l_layer_shader_set_int);
+    lua_register(L, "layer_shader_set_texture", l_layer_shader_set_texture);
     lua_register(L, "layer_apply_shader", l_layer_apply_shader);
     lua_register(L, "layer_draw", l_layer_draw);
     lua_register(L, "layer_get_texture", l_layer_get_texture);
@@ -8516,6 +8726,7 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "physics_add_box", l_physics_add_box);
     lua_register(L, "physics_add_capsule", l_physics_add_capsule);
     lua_register(L, "physics_add_polygon", l_physics_add_polygon);
+    lua_register(L, "physics_add_chain", l_physics_add_chain);
     // --- Physics: Body Properties ---
     lua_register(L, "physics_set_position", l_physics_set_position);
     lua_register(L, "physics_set_angle", l_physics_set_angle);

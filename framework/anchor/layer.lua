@@ -651,6 +651,21 @@ function layer:stencil_test()
 end
 
 --[[
+  Start testing against stencil buffer (inverse).
+
+  Usage:
+    layer:stencil_test_inverse()
+    layer:image(heart, 0, 0)   -- only draws where stencil is NOT set
+
+  Behavior:
+    - Subsequent draws only appear where stencil buffer has NOT been written
+    - Call after stencil_mask() and drawing your mask shape
+]]
+function layer:stencil_test_inverse()
+  layer_stencil_test_inverse(self.handle)
+end
+
+--[[
   Disable stencil, return to normal drawing.
 
   Usage:
