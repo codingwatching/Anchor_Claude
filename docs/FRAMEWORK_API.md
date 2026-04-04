@@ -1112,6 +1112,8 @@ layer:stencil_off()
 
 **stencil_test()** — Subsequent draws only appear where stencil was set.
 
+**stencil_test_inverse()** — Subsequent draws only appear where stencil was NOT set.
+
 **stencil_off()** — Return to normal drawing.
 
 ---
@@ -1129,6 +1131,11 @@ layer:apply_shader(an.shaders.blur)
 -- Apply another shader
 layer:shader_set_vec4(an.shaders.color_shift, 'u_color', 1, 0.5, 0, 1)
 layer:apply_shader(an.shaders.color_shift)
+
+-- Bind a texture from another layer as a shader uniform
+local wall_tex = wall_layer:get_texture()
+layer:shader_set_texture(an.shaders.composite, 'u_wall_tex', wall_tex, 1)
+layer:apply_shader(an.shaders.composite)
 
 -- Reset all effects
 layer:reset_effects()
@@ -1335,6 +1342,7 @@ self.collider:set_awake(true)
 self.collider:set_friction(0.5)
 self.collider:set_restitution(0.8)    -- bounciness
 self.collider:set_density(1.0)        -- affects mass
+self.collider:set_filter_group(1)     -- shapes with same non-zero group don't collide
 ```
 
 ---

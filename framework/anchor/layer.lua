@@ -531,6 +531,22 @@ function layer:shader_set_int(shader, name, value)
 end
 
 --[[
+  Sets a texture uniform on a shader for this layer (deferred).
+
+  Usage:
+    layer:shader_set_texture(shader, 'u_extra_tex', texture_id, 1)
+
+  Parameters:
+    shader     - shader handle
+    name       - uniform name in shader
+    texture_id - GL texture handle (from layer:get_texture() or texture_load)
+    unit       - texture unit (1+ ; unit 0 is reserved for the layer's own texture)
+]]
+function layer:shader_set_texture(shader, name, texture_id, unit)
+  layer_shader_set_texture(self.handle, shader, name, texture_id, unit)
+end
+
+--[[
   Gets the layer's current texture handle.
 
   Usage:

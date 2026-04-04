@@ -207,12 +207,14 @@ layer:pop()
 layer:set_blend_mode(mode)
 layer:stencil_mask()
 layer:stencil_test()
+layer:stencil_test_inverse()
 layer:stencil_off()
 layer:apply_shader(shader)
 layer:shader_set_float(shader, name, value)
 layer:shader_set_vec2(shader, name, x, y)
 layer:shader_set_vec4(shader, name, x, y, z, w)
 layer:shader_set_int(shader, name, value)
+layer:shader_set_texture(shader, name, texture_id, unit)
 layer:reset_effects()
 ```
 
@@ -342,6 +344,7 @@ collider:set_restitution(restitution)
 collider:get_restitution() -> restitution
 collider:set_density(density)
 collider:get_density() -> density
+collider:set_filter_group(group)   -- shapes with same non-zero group don't collide
 ```
 
 ### Adding Shapes

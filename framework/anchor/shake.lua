@@ -61,11 +61,12 @@ end
     - Shake intensity = total_trauma^2 * amplitude * noise
     - Affects all axes (x, y, rotation, zoom) based on configured amplitudes
 ]]
-function shake:trauma(amount, duration)
+function shake:trauma(amount, duration, amplitude)
   duration = duration or 0.5
   table.insert(self.trauma_instances, {
     value = amount,
     decay = amount/duration,
+    amplitude = amplitude,
   })
 end
 
@@ -250,19 +251,14 @@ function shake:get_transform()
     z = z + self.handcam_amplitude.zoom*noise(t*0.7, 0, t)
   end
 
-  -- Sum all active trauma instances
-  local total_trauma = 0
+  -- Trauma effect (Perlin noise, per-instance amplitude or global)
   for _, instance in ipairs(self.trauma_instances) do
-    total_trauma = total_trauma + instance.value
-  end
-
-  -- Trauma effect (Perlin noise)
-  if total_trauma > 0 then
-    local intensity = total_trauma*total_trauma  -- quadratic falloff
-    ox = ox + intensity*self.trauma_amplitude.x*noise(self.trauma_time*10, 0)
-    oy = oy + intensity*self.trauma_amplitude.y*noise(0, self.trauma_time*10)
-    r = r + intensity*self.trauma_amplitude.rotation*noise(self.trauma_time*10, self.trauma_time*10)
-    z = z + intensity*self.trauma_amplitude.zoom*noise(self.trauma_time*5, 0, self.trauma_time*5)
+    local amp = instance.amplitude or self.trauma_amplitude
+    local intensity = instance.value*instance.value
+    ox = ox + intensity*amp.x*noise(self.trauma_time*10, 0)
+    oy = oy + intensity*amp.y*noise(0, self.trauma_time*10)
+    r = r + intensity*amp.rotation*noise(self.trauma_time*10, self.trauma_time*10)
+    z = z + intensity*amp.zoom*noise(self.trauma_time*5, 0, self.trauma_time*5)
   end
 
   -- Spring contribution (offset from rest position)
