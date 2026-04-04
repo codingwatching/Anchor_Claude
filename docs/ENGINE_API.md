@@ -2342,3 +2342,305 @@ engine_init()
 ```
 
 **Note:** When using the Anchor framework, `engine_init()` is called automatically by `require('anchor')`. You don't need to call it directly.
+
+---
+
+## System: Clipboard
+
+Cross-platform clipboard access via SDL2. Works on all platforms.
+
+### clipboard_get
+
+`clipboard_get() -> string | nil`
+
+Returns the current clipboard text, or nil if the clipboard is empty or doesn't contain text.
+
+```lua
+local text = clipboard_get()
+if text then
+    print("Clipboard: " .. text)
+end
+```
+
+### clipboard_set
+
+`clipboard_set(text) -> bool`
+
+Sets the clipboard text. Returns true on success.
+
+```lua
+clipboard_set("Hello, clipboard!")
+```
+
+### clipboard_has_text
+
+`clipboard_has_text() -> bool`
+
+Returns true if the clipboard contains text.
+
+```lua
+if clipboard_has_text() then
+    local text = clipboard_get()
+end
+```
+
+---
+
+## System: Global Hotkeys (Windows only)
+
+Registers system-wide hotkeys that fire even when the application window is unfocused. Uses Win32 `RegisterHotKey` under the hood. Only available on Windows (`#ifdef _WIN32`).
+
+Hotkey press events follow the same single-frame semantics as `key_is_pressed` — they are true for exactly one physics tick, then reset.
+
+**Implementation detail:** Hotkey messages are polled via `PeekMessage` BEFORE `SDL_PollEvent` each frame. This is necessary because SDL's internal message pump would otherwise consume the `WM_HOTKEY` thread messages before we can read them.
+
+### hotkey_register
+
+`hotkey_register(id, modifiers, vk_code) -> bool`
+
+Registers a global hotkey. Returns true if registration succeeded (false usually means another app already registered that combo). Up to 16 global hotkeys can be registered.
+
+**Parameters:**
+- `id` — integer identifier (you choose, used to check/unregister later)
+- `modifiers` — bitmask of Win32 modifier keys: `1` = MOD_ALT, `2` = MOD_CONTROL, `4` = MOD_SHIFT, `8` = MOD_WIN
+- `vk_code` — Win32 virtual key code (e.g. `0xBA` for semicolon/VK_OEM_1)
+
+```lua
+-- Register Ctrl+; as hotkey #1
+local MOD_CONTROL = 2
+local VK_OEM_1 = 0xBA  -- semicolon key
+local ok = hotkey_register(1, MOD_CONTROL, VK_OEM_1)
+if not ok then
+    print("Hotkey registration failed (already in use?)")
+end
+```
+
+Common virtual key codes:
+- Letters: `0x41`–`0x5A` (A–Z)
+- Numbers: `0x30`–`0x39` (0–9)
+- F-keys: `0x70`–`0x87` (F1–F24)
+- `0xBA` = semicolon (VK_OEM_1)
+- `0xBF` = forward slash (VK_OEM_2)
+- `0xC0` = backtick (VK_OEM_3)
+
+### hotkey_unregister
+
+`hotkey_unregister(id)`
+
+Unregisters a previously registered global hotkey.
+
+```lua
+hotkey_unregister(1)
+```
+
+### hotkey_is_pressed
+
+`hotkey_is_pressed(id) -> bool`
+
+Returns true if the hotkey was triggered this frame (single-frame pulse, like `key_is_pressed`).
+
+```lua
+if hotkey_is_pressed(1) then
+    -- Ctrl+; was pressed, even if our window isn't focused
+    local text = clipboard_get()
+    -- do something with text
+end
+```
+
+---
+
+## System: Process Execution (Desktop only)
+
+Executes shell commands and captures their output. Not available on Emscripten (web builds).
+
+### os_popen
+
+`os_popen(command) -> output_string, exit_status`
+
+Runs a shell command and returns its stdout as a string, plus the exit status. This is **synchronous** — the engine blocks until the command completes. Use for quick commands (curl, file operations). Avoid for long-running processes.
+
+```lua
+-- Simple command
+local output, status = os_popen("echo hello")
+print(output)   -- "hello\n"
+print(status)   -- 0
+
+-- HTTP request via curl
+local response, status = os_popen('curl -s http://example.com/api/data')
+
+-- POST with JSON body from a file
+local response, status = os_popen('curl -s -X POST -H "Content-Type: application/json" -d @body.json http://localhost:8080/api/endpoint')
+```
+
+**Tip:** For sending data with special characters, write it to a temp file first and use curl's `@file` syntax to avoid shell escaping issues:
+
+```lua
+local f = io.open("_tmp.json", "w")
+f:write('{"text":"Quote with \\"quotes\\" inside"}')
+f:close()
+local response, status = os_popen('curl -s -X POST -d @_tmp.json http://...')
+os.remove("_tmp.json")
+```
+
+---
+
+## Custom Draw Shader
+
+The engine's default draw shader handles SDF rendering of all shapes (rectangles, circles, lines, triangles, polygons). You can replace the fragment shader with a custom one that adds game-specific logic while keeping the same vertex shader and SDF pipeline.
+
+### set_draw_shader
+
+`set_draw_shader(path)`
+
+Loads a custom fragment shader from file and replaces the engine's default draw shader. The shader is compiled with the engine's vertex shader (which provides vPos, vUV, vColor, vType, vShape0-4, vAddColor).
+
+```lua
+set_draw_shader('assets/draw_shader.frag')
+```
+
+The projection matrix and AA width are set automatically each frame.
+
+### get_draw_shader
+
+`get_draw_shader() -> shader_id`
+
+Returns the GL program ID of the current draw shader. Use this with `layer_shader_set_float` etc. to set uniforms on the draw shader per-object:
+
+```lua
+local ds = get_draw_shader()
+layer_shader_set_float(layer, ds, 'u_edition', 7)
+-- draw commands here use u_edition = 7
+layer_shader_set_float(layer, ds, 'u_edition', 0)  -- reset
+```
+
+Uniform commands are inserted into the layer's command queue and processed during `render()`, so different objects drawn on the same layer can have different uniform values.
+
+---
+
+## Performance Timing
+
+### perf_time
+
+`perf_time() -> number`
+
+Returns a high-resolution time in seconds from SDL_GetPerformanceCounter. Use for profiling:
+
+```lua
+local start = perf_time()
+expensive_function()
+local elapsed = perf_time() - start
+print(string.format("%.3f ms", elapsed * 1000))
+```
+
+---
+
+## Headless & Render Mode
+
+### engine_set_headless
+
+`engine_set_headless(enabled)`
+
+Enables headless mode: no window, no rendering, no audio, runs at maximum speed. Useful for automated testing, balance simulations, CI. Also available as `--headless` CLI flag.
+
+```lua
+engine_set_headless(true)
+```
+
+### engine_get_headless
+
+`engine_get_headless() -> bool`
+
+Returns whether headless mode is active.
+
+### engine_get_render_mode
+
+`engine_get_render_mode() -> bool`
+
+Returns whether render mode is active (deterministic timing, vsync disabled). Set via `--render-mode` CLI flag.
+
+---
+
+## Recording & Frame Capture
+
+### engine_record_start
+
+`engine_record_start(path)`
+
+Starts live video recording by piping raw frames to ffmpeg. Creates an ffmpeg process that encodes RGBA frames to H.264.
+
+```lua
+engine_record_start('output.mp4')
+```
+
+### engine_record_frame
+
+`engine_record_frame()`
+
+Composites all rendered layers and sends the current frame to the ffmpeg pipe. Call once per rendered frame.
+
+### engine_record_stop
+
+`engine_record_stop()`
+
+Closes the ffmpeg pipe and finalizes the recording.
+
+### engine_render_setup
+
+`engine_render_setup(directory, width, height)`
+
+Sets up a directory for saving individual frames as PNG files.
+
+### engine_render_save_frame
+
+`engine_render_save_frame()`
+
+Composites all rendered layers and saves the current frame as a PNG file in the capture directory.
+
+---
+
+## Shader Texture Binding
+
+### layer_shader_set_texture
+
+`layer_shader_set_texture(layer, shader, name, texture_id, unit)`
+
+Binds a texture to a sampler uniform for use in a post-process shader. Unit 0 is reserved for the layer's own texture; use unit 1+ for additional textures.
+
+```lua
+local wall_tex = layer_get_texture(wall_layer)
+layer_shader_set_texture(game, an.shaders.composite, 'u_wall_texture', wall_tex, 1)
+layer_apply_shader(game, an.shaders.composite)
+```
+
+---
+
+## Stencil: Inverse Test
+
+### layer_stencil_test_inverse
+
+`layer_stencil_test_inverse(layer)`
+
+Starts inverse stencil testing — subsequent draws only appear where the stencil was NOT written. Complement of `layer_stencil_test`.
+
+```lua
+layer_stencil_mask(layer)
+layer_circle(layer, 100, 100, 50, rgba(255, 255, 255))  -- mask shape
+layer_stencil_test_inverse(layer)
+layer_rectangle(layer, 0, 0, 200, 200, rgba(255, 0, 0))  -- only draws OUTSIDE the circle
+layer_stencil_off(layer)
+```
+
+---
+
+## Physics: Collision Filter Groups
+
+### physics_shape_set_filter_group
+
+`physics_shape_set_filter_group(shape, group)`
+
+Sets a collision filter group for a shape. Shapes with the same non-zero group value will NOT collide with each other, even if their tags have collision enabled. Group 0 means no filtering (default).
+
+```lua
+-- Projectiles from the same source don't collide with each other
+physics_shape_set_filter_group(shape, player_id)
+```

@@ -27,6 +27,7 @@ layer_draw_texture(layer, texture, x, y, color?, flash?)
 layer_set_blend_mode(layer, mode)
 layer_stencil_mask(layer)
 layer_stencil_test(layer)
+layer_stencil_test_inverse(layer)
 layer_stencil_off(layer)
 layer_draw(layer, x?, y?)
 layer_get_texture(layer) -> texture_id
@@ -104,7 +105,10 @@ layer_shader_set_float(layer, shader, name, value)
 layer_shader_set_vec2(layer, shader, name, x, y)
 layer_shader_set_vec4(layer, shader, name, x, y, z, w)
 layer_shader_set_int(layer, shader, name, value)
+layer_shader_set_texture(layer, shader, name, texture_id, unit)
 layer_apply_shader(layer, shader)
+set_draw_shader(path)                 -- replace default draw shader with custom fragment
+get_draw_shader() -> shader_id        -- get current draw shader ID (for setting uniforms)
 ```
 
 ## Physics: World & Bodies
@@ -168,6 +172,7 @@ physics_shape_is_valid(shape) -> bool
 physics_shape_get_body(shape) -> body
 physics_shape_set_density(shape, density)
 physics_shape_get_density(shape) -> density
+physics_shape_set_filter_group(shape, group) -- shapes with same non-zero group don't collide
 ```
 
 ## Physics: Queries
@@ -294,6 +299,20 @@ engine_is_fullscreen() -> bool
 engine_get_platform() -> string
 engine_get_fps() -> number
 engine_get_draw_calls() -> int
+engine_set_headless(enabled)
+engine_get_headless() -> bool
+engine_get_render_mode() -> bool
+perf_time() -> number                 -- high-resolution timer in seconds
+```
+
+## Recording & Frame Capture
+
+```
+engine_record_start(path)             -- start live recording (pipes to ffmpeg)
+engine_record_frame()                 -- capture current frame
+engine_record_stop()                  -- stop recording
+engine_render_setup(dir, width, height) -- set up PNG frame capture directory
+engine_render_save_frame()            -- save current frame as PNG
 ```
 
 ## Engine Configuration
@@ -306,4 +325,26 @@ engine_set_vsync(enabled)
 engine_set_fullscreen(enabled)
 engine_set_resizable(enabled)
 engine_init()
+```
+
+## System: Clipboard
+
+```
+clipboard_get() -> string | nil
+clipboard_set(text) -> bool
+clipboard_has_text() -> bool
+```
+
+## System: Global Hotkeys (Windows only)
+
+```
+hotkey_register(id, modifiers, vk_code) -> bool
+hotkey_unregister(id)
+hotkey_is_pressed(id) -> bool
+```
+
+## System: Process Execution (Desktop only)
+
+```
+os_popen(command) -> output_string, exit_status
 ```
