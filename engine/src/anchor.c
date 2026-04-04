@@ -24,6 +24,7 @@
 
 #ifdef _WIN32
 #include <direct.h>  // _chdir
+#include <windows.h>  // RegisterHotKey, PeekMessage for global hotkeys
 #else
 #include <unistd.h>  // chdir
 #endif
@@ -2364,6 +2365,17 @@ static int mouse_x = 0, mouse_y = 0;           // Window coordinates
 static int mouse_dx = 0, mouse_dy = 0;         // Delta this frame
 static int mouse_wheel_x = 0, mouse_wheel_y = 0; // Wheel delta this frame
 
+// Input state - Global Hotkeys (Windows only)
+#ifdef _WIN32
+#define MAX_GLOBAL_HOTKEYS 16
+static struct {
+    int id;
+    bool fired;       // Set when WM_HOTKEY received, cleared in input_post_update
+    bool registered;
+} global_hotkeys[MAX_GLOBAL_HOTKEYS];
+static int global_hotkey_count = 0;
+#endif
+
 // Input state - Gamepad
 static SDL_GameController* gamepad = NULL;
 static bool gamepad_buttons_current[SDL_CONTROLLER_BUTTON_MAX] = {0};
@@ -2664,6 +2676,12 @@ static void input_post_update(void) {
     mouse_dy = 0;
     mouse_wheel_x = 0;
     mouse_wheel_y = 0;
+    // Reset global hotkey fired flags
+    #ifdef _WIN32
+    for (int i = 0; i < global_hotkey_count; i++) {
+        global_hotkeys[i].fired = false;
+    }
+    #endif
 }
 
 // Update gamepad state (call once per frame before input processing)
@@ -4563,6 +4581,9 @@ static Layer* layer_get_or_create(const char* name) {
 static GLuint effect_shader_load_file(const char* path);
 static GLuint effect_shader_load_string(const char* frag_source);
 static void effect_shader_destroy(GLuint shader);
+// Forward declarations for custom draw shader
+static int l_set_draw_shader(lua_State* L);
+static int l_get_draw_shader(lua_State* L);
 
 // ============================================================================
 // LUA BINDINGS: RENDERING
@@ -8608,6 +8629,156 @@ static int l_engine_init(lua_State* L) {
 }
 
 // ============================================================================
+// SYSTEM: Clipboard, Global Hotkeys, Process Execution
+// Platform-specific system utilities exposed to Lua
+// ============================================================================
+
+// --- Clipboard (cross-platform via SDL) ---
+
+static int l_clipboard_get(lua_State* L) {
+    if (SDL_HasClipboardText()) {
+        char* text = SDL_GetClipboardText();
+        if (text && text[0] != '\0') {
+            lua_pushstring(L, text);
+            SDL_free(text);
+            return 1;
+        }
+        if (text) SDL_free(text);
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
+static int l_clipboard_set(lua_State* L) {
+    const char* text = luaL_checkstring(L, 1);
+    int result = SDL_SetClipboardText(text);
+    lua_pushboolean(L, result == 0);
+    return 1;
+}
+
+static int l_clipboard_has_text(lua_State* L) {
+    lua_pushboolean(L, SDL_HasClipboardText());
+    return 1;
+}
+
+// --- Global Hotkeys (Windows only) ---
+// Uses Win32 RegisterHotKey for system-wide hotkeys that work even when unfocused.
+// Must poll BEFORE SDL_PollEvent to grab WM_HOTKEY thread messages first.
+
+#ifdef _WIN32
+static void hotkey_poll_events(void) {
+    MSG msg;
+    while (PeekMessage(&msg, (HWND)-1, WM_HOTKEY, WM_HOTKEY, PM_REMOVE)) {
+        for (int i = 0; i < global_hotkey_count; i++) {
+            if (global_hotkeys[i].id == (int)msg.wParam) {
+                global_hotkeys[i].fired = true;
+            }
+        }
+    }
+}
+
+static void hotkey_cleanup(void) {
+    for (int i = 0; i < global_hotkey_count; i++) {
+        if (global_hotkeys[i].registered) {
+            UnregisterHotKey(NULL, global_hotkeys[i].id);
+        }
+    }
+    global_hotkey_count = 0;
+}
+
+// hotkey_register(id, modifiers, vk_code) -> bool
+// modifiers: 1=MOD_ALT, 2=MOD_CONTROL, 4=MOD_SHIFT, 8=MOD_WIN
+static int l_hotkey_register(lua_State* L) {
+    int id = (int)luaL_checkinteger(L, 1);
+    int modifiers = (int)luaL_checkinteger(L, 2);
+    int vk = (int)luaL_checkinteger(L, 3);
+
+    if (global_hotkey_count >= MAX_GLOBAL_HOTKEYS) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    BOOL result = RegisterHotKey(NULL, id, modifiers | MOD_NOREPEAT, vk);
+    lua_pushboolean(L, result);
+
+    if (result) {
+        global_hotkeys[global_hotkey_count].id = id;
+        global_hotkeys[global_hotkey_count].fired = false;
+        global_hotkeys[global_hotkey_count].registered = true;
+        global_hotkey_count++;
+    }
+
+    return 1;
+}
+
+static int l_hotkey_unregister(lua_State* L) {
+    int id = (int)luaL_checkinteger(L, 1);
+    UnregisterHotKey(NULL, id);
+    for (int i = 0; i < global_hotkey_count; i++) {
+        if (global_hotkeys[i].id == id) {
+            global_hotkeys[i].registered = false;
+            for (int j = i; j < global_hotkey_count - 1; j++) {
+                global_hotkeys[j] = global_hotkeys[j + 1];
+            }
+            global_hotkey_count--;
+            break;
+        }
+    }
+    return 0;
+}
+
+static int l_hotkey_is_pressed(lua_State* L) {
+    int id = (int)luaL_checkinteger(L, 1);
+    for (int i = 0; i < global_hotkey_count; i++) {
+        if (global_hotkeys[i].id == id) {
+            lua_pushboolean(L, global_hotkeys[i].fired);
+            return 1;
+        }
+    }
+    lua_pushboolean(L, 0);
+    return 1;
+}
+#endif // _WIN32
+
+// --- Process Execution (desktop only) ---
+
+#ifndef __EMSCRIPTEN__
+// os_popen(command) -> output_string, exit_status
+static int l_os_popen(lua_State* L) {
+    const char* command = luaL_checkstring(L, 1);
+
+    #ifdef _WIN32
+    FILE* pipe = _popen(command, "r");
+    #else
+    FILE* pipe = popen(command, "r");
+    #endif
+
+    if (!pipe) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Failed to execute command");
+        return 2;
+    }
+
+    luaL_Buffer b;
+    luaL_buffinit(L, &b);
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe)) {
+        luaL_addstring(&b, buffer);
+    }
+
+    #ifdef _WIN32
+    int status = _pclose(pipe);
+    #else
+    int status = pclose(pipe);
+    #endif
+
+    luaL_pushresult(&b);
+    lua_pushinteger(L, status);
+    return 2;
+}
+#endif // !__EMSCRIPTEN__
+
+// ============================================================================
 // LUA REGISTRATION
 // Binds all C functions to Lua global namespace
 // ============================================================================
@@ -8686,6 +8857,8 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "get_filter_mode", l_get_filter_mode);
     lua_register(L, "timing_resync", l_timing_resync);
     // --- Effect Shaders ---
+    lua_register(L, "set_draw_shader", l_set_draw_shader);
+    lua_register(L, "get_draw_shader", l_get_draw_shader);
     lua_register(L, "shader_load_file", l_shader_load_file);
     lua_register(L, "shader_load_string", l_shader_load_string);
     lua_register(L, "shader_destroy", l_shader_destroy);
@@ -8869,6 +9042,20 @@ static void register_lua_bindings(lua_State* L) {
     lua_register(L, "engine_get_args", l_engine_get_args);
     lua_register(L, "engine_quit", l_engine_quit);
     lua_register(L, "engine_init", l_engine_init);
+    // --- System: Clipboard ---
+    lua_register(L, "clipboard_get", l_clipboard_get);
+    lua_register(L, "clipboard_set", l_clipboard_set);
+    lua_register(L, "clipboard_has_text", l_clipboard_has_text);
+    // --- System: Global Hotkeys (Windows only) ---
+    #ifdef _WIN32
+    lua_register(L, "hotkey_register", l_hotkey_register);
+    lua_register(L, "hotkey_unregister", l_hotkey_unregister);
+    lua_register(L, "hotkey_is_pressed", l_hotkey_is_pressed);
+    #endif
+    // --- System: Process Execution ---
+    #ifndef __EMSCRIPTEN__
+    lua_register(L, "os_popen", l_os_popen);
+    #endif
 }
 
 // Main loop state (needed for emscripten)
@@ -9246,6 +9433,31 @@ static GLuint effect_shader_load_string(const char* frag_source) {
     return create_shader_program(screen_vertex_source, frag_source);
 }
 
+// Replace the default draw shader with a custom fragment shader (uses the same vertex shader).
+// The projection matrix and AA width are set every frame in the render loop, so they'll
+// automatically apply to the new shader.
+static GLuint custom_draw_shader = 0;
+static int l_set_draw_shader(lua_State* L) {
+    if (headless_mode) return 0;
+    const char* path = luaL_checkstring(L, 1);
+    char* source = read_file_to_string(path);
+    if (!source) return luaL_error(L, "Failed to read draw shader: %s", path);
+    GLuint shader = create_shader_program(vertex_shader_source, source);
+    free(source);
+    if (!shader) return luaL_error(L, "Failed to compile draw shader: %s", path);
+    if (custom_draw_shader) glDeleteProgram(custom_draw_shader);
+    custom_draw_shader = shader;
+    shader_program = shader;
+    printf("Custom draw shader loaded: %s\n", path);
+    return 0;
+}
+
+// Get the current draw shader ID (so Lua can set uniforms on it via layer_shader_set_*)
+static int l_get_draw_shader(lua_State* L) {
+    lua_pushinteger(L, (lua_Integer)shader_program);
+    return 1;
+}
+
 // Create an effect shader program from a fragment shader file
 static GLuint effect_shader_load_file(const char* path) {
     char* source = read_file_to_string(path);
@@ -9415,6 +9627,10 @@ static void engine_shutdown(void) {
         physics_initialized = false;
         shape_user_data_count = 0;
     }
+    // Global hotkeys
+    #ifdef _WIN32
+    hotkey_cleanup();
+    #endif
     // Other resources
     if (L) { lua_close(L); L = NULL; }
     if (gl_context) { SDL_GL_DeleteContext(gl_context); gl_context = NULL; }
@@ -9487,6 +9703,11 @@ static void main_loop_iteration(void) {
     if (render_lag > RENDER_RATE * 2) {
         render_lag = RENDER_RATE * 2;
     }
+
+    // Poll global hotkeys BEFORE SDL events (grab WM_HOTKEY thread messages first)
+    #ifdef _WIN32
+    hotkey_poll_events();
+    #endif
 
     // Process events every frame (not tied to fixed timestep)
     SDL_Event event;
