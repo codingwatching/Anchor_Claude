@@ -310,6 +310,10 @@ function layer:image(img, x, y, color, flash)
   layer_draw_texture(self.handle, img.handle, x, y, color or 0xFFFFFFFF, flash or 0)
 end
 
+function layer:texture(tex, x, y, color)
+  layer_draw_texture(self.handle, tex, x, y, color or 0xFFFFFFFF, 0)
+end
+
 --[[
   Queues a spritesheet frame centered at (x, y).
 
@@ -540,10 +544,10 @@ end
     shader     - shader handle
     name       - uniform name in shader
     texture_id - GL texture handle (from layer:get_texture() or texture_load)
-    unit       - texture unit (1+ ; unit 0 is reserved for the layer's own texture)
+    unit       - texture unit (1+ ; unit 0 is reserved for the layer's own texture, default 1)
 ]]
 function layer:shader_set_texture(shader, name, texture_id, unit)
-  layer_shader_set_texture(self.handle, shader, name, texture_id, unit)
+  layer_shader_set_texture(self.handle, shader, name, texture_id, unit or 1)
 end
 
 --[[

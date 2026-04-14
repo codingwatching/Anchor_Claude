@@ -35,6 +35,8 @@ function shake:new(name)
   self:add(spring())
   self.spring:add('x', 0, 3, 0.5)
   self.spring:add('y', 0, 3, 0.5)
+  self.push_cap = nil
+  self.push_used = 0
 
   -- Handcam (continuous subtle motion)
   self.handcam_enabled = false
@@ -141,6 +143,12 @@ end
     - Multiple calls combine additively
 ]]
 function shake:push(angle, amount, frequency, bounce)
+  if self.push_cap then
+    local remaining = self.push_cap - self.push_used
+    if remaining <= 0 then return end
+    amount = math.min(amount, remaining)
+    self.push_used = self.push_used + amount
+  end
   self.spring:pull('x', math.cos(angle)*amount, frequency, bounce)
   self.spring:pull('y', math.sin(angle)*amount, frequency, bounce)
 end
@@ -304,6 +312,8 @@ end
   Called automatically during early_update phase.
 ]]
 function shake:early_update(dt)
+  self.push_used = 0
+
   -- Update handcam time
   if self.handcam_enabled then
     self.handcam_time = self.handcam_time + dt

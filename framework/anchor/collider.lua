@@ -213,3 +213,178 @@ function collider:set_awake(awake) physics_set_awake(self.body, awake) end
   Segment: x1, y1, x2, y2
 ]]
 function collider:get_shapes_geometry() return physics_get_shapes_geometry(self.body) end
+
+-- Steering behaviors
+-- Each returns (fx, fy) force vectors that can be combined and applied.
+-- Usage:
+--   local sx, sy = self.collider:steering_seek(target_x, target_y, max_speed, max_force)
+--   local wx, wy = self.collider:steering_wander(50, 50, 20, dt, max_speed, max_force)
+--   local rx, ry = self.collider:steering_separate(16, enemies, max_speed, max_force)
+--   self.collider:apply_force(math.limit(sx + wx + rx, sy + wy + ry, max_force))
+
+-- Seek: steer toward target at max_speed
+function collider:steering_seek(x, y, max_speed, max_force)
+  local dx, dy = x - self.parent.x, y - self.parent.y
+  dx, dy = math.normalize(dx, dy)
+  dx, dy = dx*max_speed, dy*max_speed
+  local vx, vy = self:get_velocity()
+  dx, dy = dx - vx, dy - vy
+  dx, dy = math.limit(dx, dy, max_force or 1000)
+  return dx, dy
+end
+
+-- Flee: steer away from target at max_speed
+function collider:steering_flee(x, y, max_speed, max_force)
+  local dx, dy = self.parent.x - x, self.parent.y - y
+  dx, dy = math.normalize(dx, dy)
+  dx, dy = dx*max_speed, dy*max_speed
+  local vx, vy = self:get_velocity()
+  dx, dy = dx - vx, dy - vy
+  dx, dy = math.limit(dx, dy, max_force or 1000)
+  return dx, dy
+end
+
+-- Arrive: steer toward target, decelerate within radius rs
+function collider:steering_arrive(x, y, rs, max_speed, max_force)
+  local dx, dy = x - self.parent.x, y - self.parent.y
+  local d = math.length(dx, dy)
+  dx, dy = math.normalize(dx, dy)
+  if d < rs then
+    dx, dy = dx*math.remap(d, 0, rs, 0, max_speed), dy*math.remap(d, 0, rs, 0, max_speed)
+  else
+    dx, dy = dx*max_speed, dy*max_speed
+  end
+  local vx, vy = self:get_velocity()
+  dx, dy = dx - vx, dy - vy
+  dx, dy = math.limit(dx, dy, max_force or 1000)
+  return dx, dy
+end
+
+-- Pursuit: seek predicted future position of a moving target
+-- target must have .x, .y and .collider with :get_velocity()
+function collider:steering_pursuit(target, max_speed, max_force)
+  local tx, ty = target.x - self.parent.x, target.y - self.parent.y
+  local d = math.length(tx, ty)
+  local tvx, tvy = target.collider:get_velocity()
+  local target_speed = math.length(tvx, tvy)
+  local look_ahead = d/(max_speed + target_speed + 0.001)
+  return self:steering_seek(target.x + tvx*look_ahead, target.y + tvy*look_ahead, max_speed, max_force)
+end
+
+-- Evade: flee predicted future position of a pursuer
+-- pursuer must have .x, .y and .collider with :get_velocity()
+function collider:steering_evade(pursuer, max_speed, max_force)
+  local tx, ty = pursuer.x - self.parent.x, pursuer.y - self.parent.y
+  local d = math.length(tx, ty)
+  local pvx, pvy = pursuer.collider:get_velocity()
+  local pursuer_speed = math.length(pvx, pvy)
+  local look_ahead = d/(max_speed + pursuer_speed + 0.001)
+  return self:steering_flee(pursuer.x + pvx*look_ahead, pursuer.y + pvy*look_ahead, max_speed, max_force)
+end
+
+-- Wander: random jittery movement (jitter is in radians/second, scaled by dt)
+-- wander_r is relative to heading so the target stays roughly in front
+function collider:steering_wander(d, rs, jitter, dt, max_speed, max_force)
+  local vx, vy = self:get_velocity()
+  local nx, ny = math.normalize(vx, vy)
+  local cx, cy = self.parent.x + nx*d, self.parent.y + ny*d
+  if not self.wander_r then self.wander_r = 0 end
+  self.wander_r = self.wander_r + an.random:float(-jitter*dt, jitter*dt)
+  local heading_r = math.atan(ny, nx)
+  local tx, ty = cx + rs*math.cos(heading_r + self.wander_r), cy + rs*math.sin(heading_r + self.wander_r)
+  return self:steering_seek(tx, ty, max_speed, max_force)
+end
+
+-- Separate: push away from nearby others
+function collider:steering_separate(rs, others, max_speed, max_force, spatial_hash)
+  local dx, dy, n = 0, 0, 0
+  local px, py = self.parent.x, self.parent.y
+  local pid = self.parent.id
+  if spatial_hash then
+    local cell_size = spatial_hash.cell_size
+    local cells = spatial_hash.cells
+    local cx0 = math.floor((px - rs)/cell_size)
+    local cy0 = math.floor((py - rs)/cell_size)
+    local cx1 = math.floor((px + rs)/cell_size)
+    local cy1 = math.floor((py + rs)/cell_size)
+    for cx = cx0, cx1 do
+      for cy = cy0, cy1 do
+        local key = cx*73856093 + cy*19349663
+        local cell = cells[key]
+        if cell then
+          for i = 1, #cell do
+            local object = cell[i]
+            if object.id ~= pid and math.distance(object.x, object.y, px, py) < rs then
+              local tx, ty = px - object.x, py - object.y
+              local nx, ny = math.normalize(tx, ty)
+              local l = math.length(nx, ny)
+              dx = dx + rs*(nx/l)
+              dy = dy + rs*(ny/l)
+              n = n + 1
+            end
+          end
+        end
+      end
+    end
+  else
+    for _, object in ipairs(others) do
+      if object.id ~= pid and math.distance(object.x, object.y, px, py) < rs then
+        local tx, ty = px - object.x, py - object.y
+        local nx, ny = math.normalize(tx, ty)
+        local l = math.length(nx, ny)
+        dx = dx + rs*(nx/l)
+        dy = dy + rs*(ny/l)
+        n = n + 1
+      end
+    end
+  end
+  if n > 0 then dx, dy = dx/n, dy/n end
+  if math.length(dx, dy) > 0 then
+    dx, dy = math.normalize(dx, dy)
+    dx, dy = dx*max_speed, dy*max_speed
+    local vx, vy = self:get_velocity()
+    dx, dy = dx - vx, dy - vy
+    dx, dy = math.limit(dx, dy, max_force or 1000)
+  end
+  return dx, dy
+end
+
+-- Align: match velocity direction with nearby others
+function collider:steering_align(rs, others, max_speed, max_force)
+  local dx, dy, n = 0, 0, 0
+  for _, object in ipairs(others) do
+    if object.id ~= self.parent.id and math.distance(object.x, object.y, self.parent.x, self.parent.y) < rs then
+      local vx, vy = object.collider:get_velocity()
+      dx, dy = dx + vx, dy + vy
+      n = n + 1
+    end
+  end
+  if n > 0 then dx, dy = dx/n, dy/n end
+  if math.length(dx, dy) > 0 then
+    dx, dy = math.normalize(dx, dy)
+    dx, dy = dx*max_speed, dy*max_speed
+    local vx, vy = self:get_velocity()
+    dx, dy = dx - vx, dy - vy
+    dx, dy = math.limit(dx, dy, max_force or 1000)
+    return dx, dy
+  else
+    return 0, 0
+  end
+end
+
+-- Cohesion: steer toward center of nearby others
+function collider:steering_cohesion(rs, others, max_speed, max_force)
+  local dx, dy, n = 0, 0, 0
+  for _, object in ipairs(others) do
+    if object.id ~= self.parent.id and math.distance(object.x, object.y, self.parent.x, self.parent.y) < rs then
+      dx, dy = dx + object.x, dy + object.y
+      n = n + 1
+    end
+  end
+  if n > 0 then
+    dx, dy = dx/n, dy/n
+    return self:steering_seek(dx, dy, max_speed, max_force)
+  else
+    return 0, 0
+  end
+end

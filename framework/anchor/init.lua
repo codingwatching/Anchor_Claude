@@ -88,6 +88,7 @@ return function(config)
   an.fonts = {}
   an.shaders = {}
   an.sounds = {}
+  an.sound_paths = {}
   an.tracks = {}
   an.spritesheets = {}
   an:add(random())
@@ -98,6 +99,9 @@ return function(config)
   an.height = engine_get_height()
   an.unscaled_dt = engine_get_unscaled_dt()
   an.platform = engine_get_platform()
+  an.headless = engine_get_headless()
+  an.render_mode = engine_get_render_mode()
+  an.args = engine_get_args()
 
   -- Time scale state
   an.time_scale = 1.0         -- Current time scale multiplier
@@ -243,6 +247,7 @@ return function(config)
   ]]
   function an:sound(name, path)
     self.sounds[name] = sound_load(path)
+    self.sound_paths[name] = path
     return self.sounds[name]
   end
 
@@ -302,6 +307,26 @@ return function(config)
   ]]
   function an:sound_handle_set_volume(handle, volume)
     sound_handle_set_volume(handle, volume)
+  end
+
+  --[[
+    Stops a playing sound by handle.
+
+    Usage:
+      an:sound_handle_stop(handle)
+  ]]
+  function an:sound_handle_stop(handle)
+    sound_handle_stop(handle)
+  end
+
+  --[[
+    Sets the looping state of a playing sound by handle.
+
+    Usage:
+      an:sound_handle_set_looping(handle, true)
+  ]]
+  function an:sound_handle_set_looping(handle, looping)
+    sound_handle_set_looping(handle, looping)
   end
 
   --[[
