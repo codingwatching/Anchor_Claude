@@ -1,10 +1,89 @@
 #!/usr/bin/env python3
-"""Convert Claude Code JSONL transcript to readable Markdown."""
+"""Convert JSONL transcripts to readable Markdown.
+
+Supports:
+  - **Claude Code** — messages use ``type`` / ``uuid`` / ``parentUuid`` (see below).
+  - **Cursor (Composer) agent** — messages use ``role`` (``user`` / ``assistant``) and
+    ``message.content`` parts (``text``, ``tool_use``). Tool results are often not
+    embedded in exports; tool calls are listed for context.
+"""
 
 import json
+import os
 import sys
 import re
 from datetime import datetime
+
+def is_cursor_transcript(jsonl_path):
+    """True if file is Cursor agent JSONL (``role``-based lines)."""
+    try:
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                return 'role' in msg and 'type' not in msg
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return False
+
+
+def extract_user_query_text(text):
+    """Strip ``<user_query>`` wrapper used in Cursor exports."""
+    if not text or not isinstance(text, str):
+        return text
+    m = re.search(r'<user_query>\s*(.*?)\s*</user_query>', text, re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return text
+
+
+def strip_redacted_placeholders(text):
+    """Remove lines that are only ``[REDACTED]`` (Cursor omits content but leaves this marker)."""
+    if not text or not isinstance(text, str):
+        return text
+    lines = text.split('\n')
+    filtered = [ln for ln in lines if ln.strip() != '[REDACTED]']
+    out = '\n'.join(filtered)
+    out = re.sub(r'\n{3,}', '\n\n', out)
+    return out.strip()
+
+
+def format_cursor_tool_input(tool_name, tool_input):
+    """Format Cursor / Composer tool_use for display (uses ``path`` not ``file_path``)."""
+    if not isinstance(tool_input, dict):
+        return str(tool_input)[:120]
+    if tool_name in ('Read', 'ReadLints', 'Delete'):
+        return f"({tool_input.get('path', tool_input.get('file_path', ''))})"
+    if tool_name == 'Write':
+        return f"({tool_input.get('path', '')})"
+    if tool_name == 'StrReplace':
+        return f"({tool_input.get('path', '')})"
+    if tool_name == 'Shell':
+        cmd = tool_input.get('command', '')
+        if len(cmd) > 80:
+            cmd = cmd[:80] + '...'
+        return f"({cmd})"
+    if tool_name == 'Grep':
+        return f"({tool_input.get('pattern', '')})"
+    if tool_name == 'Glob':
+        return f"({tool_input.get('glob_pattern', tool_input.get('pattern', ''))})"
+    if tool_name == 'SemanticSearch':
+        return f"({tool_input.get('query', '')})"
+    if tool_name == 'WebFetch':
+        return f"({tool_input.get('url', '')})"
+    if tool_name == 'WebSearch':
+        return f"({tool_input.get('search_term', tool_input.get('query', ''))})"
+    if tool_name == 'Task':
+        return f"({tool_input.get('description', '')})"
+    if tool_name == 'GenerateImage':
+        return f"({tool_input.get('description', '')[:60]}...)"
+    raw = json.dumps(tool_input, ensure_ascii=False)
+    if len(raw) > 120:
+        raw = raw[:117] + '...'
+    return f"({raw})"
+
 
 def format_tool_input(tool_name, tool_input):
     """Format tool input for display."""
@@ -46,6 +125,24 @@ def get_fence(content):
 def html_escape(text):
     """Escape HTML special characters."""
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+def strip_session_previews(text):
+    """Strip first-message preview lines from find-recent-session output.
+
+    The output format is groups of:
+      TIMESTAMP SESSION_ID [<-- MOST RECENT]
+         preview text...
+         /path/to/file.jsonl
+
+    Remove the preview lines (indented lines that don't contain .jsonl paths).
+    """
+    lines = text.split('\n')
+    filtered = []
+    for line in lines:
+        if line.startswith('   ') and '.jsonl' not in line:
+            continue
+        filtered.append(line)
+    return '\n'.join(filtered)
 
 def format_tool_result(result, max_lines=30):
     """Format tool result, truncating if needed."""
@@ -165,8 +262,86 @@ def filter_rewound_messages(messages):
 
     return filtered
 
-def convert_jsonl_to_markdown(jsonl_path, output_path=None):
-    """Convert JSONL transcript to Markdown."""
+def convert_cursor_jsonl_to_markdown(jsonl_path, output_path=None):
+    """Convert Cursor / Composer agent JSONL to Markdown."""
+    messages = []
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    try:
+        mtime = os.path.getmtime(jsonl_path)
+        dt = datetime.fromtimestamp(mtime)
+        header = f"# Session {dt.strftime('%Y-%m-%d %H:%M')} (file mtime)\n\n---\n\n"
+    except OSError:
+        header = "# Session\n\n---\n\n"
+
+    output = header
+
+    for msg in messages:
+        role = msg.get('role')
+        content = msg.get('message', {}).get('content')
+
+        if role == 'user':
+            if isinstance(content, list):
+                for item in content:
+                    if item.get('type') != 'text':
+                        continue
+                    text = item.get('text', '')
+                    text = extract_user_query_text(text)
+                    if not text:
+                        continue
+                    if is_system_message(text):
+                        fence = get_fence(text)
+                        output += f"{fence}\n{text}\n{fence}\n\n"
+                    else:
+                        lines = text.split('\n')
+                        quoted = '\n'.join(f"> {line}" for line in lines)
+                        output += f"{quoted}\n\n"
+            elif isinstance(content, str):
+                text = extract_user_query_text(content)
+                lines = text.split('\n')
+                quoted = '\n'.join(f"> {line}" for line in lines)
+                output += f"{quoted}\n\n"
+
+        elif role == 'assistant':
+            if not isinstance(content, list):
+                continue
+            for item in content:
+                itype = item.get('type')
+                if itype == 'text':
+                    text = item.get('text', '')
+                    text = strip_redacted_placeholders(text)
+                    if text:
+                        output += f"{text}\n\n"
+                elif itype == 'tool_use':
+                    tool_name = item.get('name', 'Unknown')
+                    tool_input = item.get('input', {})
+                    fmt = format_cursor_tool_input(tool_name, tool_input)
+                    output += f"<details>\n<summary><code>{tool_name} {html_escape(fmt)}</code></summary>\n\n"
+                    output += f"<pre><code>{html_escape(json.dumps(tool_input, indent=2, ensure_ascii=False)[:8000])}"
+                    if len(json.dumps(tool_input)) > 8000:
+                        output += "\n... [truncated]"
+                    output += "</code></pre>\n\n</details>\n\n"
+
+    if output_path:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(output)
+        print(f"Written to {output_path}")
+    else:
+        print(output)
+
+    return output
+
+
+def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
+    """Convert Claude Code JSONL transcript to Markdown."""
 
     messages = []
     with open(jsonl_path, 'r', encoding='utf-8') as f:
@@ -239,8 +414,12 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
                     tool_info = pending_tools.pop(tool_id, None)
 
                     if tool_info:
-                        tool_name, formatted_input = tool_info
+                        tool_name, formatted_input, tool_input_data = tool_info
                         result_text = format_tool_result(result)
+
+                        # Strip message previews from find-recent-session output
+                        if tool_name == 'Bash' and 'find-recent-session' in tool_input_data.get('command', ''):
+                            result_text = strip_session_previews(result_text)
 
                         if result_text:
                             # Use HTML pre/code since markdown isn't processed inside HTML blocks
@@ -288,7 +467,7 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
 
                     # Store for matching with result
                     if tool_id:
-                        pending_tools[tool_id] = (tool_name, formatted_input)
+                        pending_tools[tool_id] = (tool_name, formatted_input, tool_input)
 
     if output_path:
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -298,6 +477,14 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None):
         print(output)
 
     return output
+
+
+def convert_jsonl_to_markdown(jsonl_path, output_path=None):
+    """Auto-detect Claude Code vs Cursor / Composer and convert to Markdown."""
+    if is_cursor_transcript(jsonl_path):
+        return convert_cursor_jsonl_to_markdown(jsonl_path, output_path)
+    return convert_claude_jsonl_to_markdown(jsonl_path, output_path)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
