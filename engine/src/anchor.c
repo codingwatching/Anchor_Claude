@@ -4907,9 +4907,13 @@ static int l_texture_create(lua_State* L) {
         return luaL_error(L, "Failed to create texture");
     }
 
-    Texture* ud = (Texture*)lua_newuserdata(L, sizeof(Texture));
-    *ud = *tex;
-    free(tex);
+    // Register for cleanup on shutdown (matches l_texture_load behavior).
+    // Returning lightuserdata pointing to the malloc'd Texture makes the
+    // result safe to pass to texture_unload, which calls free() on it.
+    if (texture_count < MAX_TEXTURES) {
+        texture_registry[texture_count++] = tex;
+    }
+    lua_pushlightuserdata(L, tex);
     return 1;
 }
 
