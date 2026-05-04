@@ -178,11 +178,21 @@ def is_system_message(content):
 def filter_rewound_messages(messages):
     """Filter out rewound messages by resolving branch points.
 
-    When a user rewinds, multiple messages can share the same parentUuid.
-    At each such branch point, we keep only the branch containing the
-    last message in file order (the "winning" branch). This handles:
-    - Rewinds within a chain (orphaned branches get filtered)
-    - Continuations (disconnected chains from --continue are preserved)
+    A genuine rewind looks like: user sends message A, assistant responds,
+    user presses Esc and resends an edited A' with the same parentUuid as
+    A. Both children of the shared parent are user messages. We keep the
+    branch whose chain reaches the latest line in the file.
+
+    Mixed-type branch points (e.g. one user child + one system child whose
+    parent re-anchors a system-reminder onto a previous user message, or
+    one assistant child + one user child at file start) are NOT rewinds —
+    they're harness side-effects where one branch is the conversation
+    continuing normally and the other is metadata reattached to an
+    earlier message. We must NOT orphan them; doing so silently drops
+    large stretches of real conversation.
+
+    Heuristic: only treat a parent as a branch point if it has *multiple
+    user-typed children*. Other multi-child parents are kept whole.
     """
     if not messages:
         return messages
@@ -196,17 +206,19 @@ def filter_rewound_messages(messages):
             uuid_map[uuid] = msg
             uuid_to_index[uuid] = i
 
-    # Find branch points: parents with multiple children
+    # children_of: all children (used for descendant traversal).
+    # user_children_of: only user-typed children (used for rewind detection).
     from collections import defaultdict
     children_of = defaultdict(list)
+    user_children_of = defaultdict(list)
     for msg in messages:
         parent_uuid = msg.get('parentUuid')
         uuid = msg.get('uuid')
         if parent_uuid and uuid:
             children_of[parent_uuid].append(uuid)
+            if msg.get('type') == 'user':
+                user_children_of[parent_uuid].append(uuid)
 
-    # For each branch point, find which child leads to the latest message
-    # Build set of "losing" branches (to be filtered out)
     orphaned = set()
 
     def get_latest_descendant_index(uuid):
@@ -222,7 +234,6 @@ def filter_rewound_messages(messages):
             idx = uuid_to_index.get(current, -1)
             if idx > max_index:
                 max_index = idx
-            # Add all children
             for child in children_of.get(current, []):
                 stack.append(child)
         return max_index
@@ -238,22 +249,20 @@ def filter_rewound_messages(messages):
             for child in children_of.get(current, []):
                 stack.append(child)
 
-    for parent_uuid, children in children_of.items():
-        if len(children) > 1:
-            # Branch point - find which child leads to the latest message
+    # Only fire orphaning logic at *user-vs-user* branch points (genuine rewinds).
+    for parent_uuid, user_children in user_children_of.items():
+        if len(user_children) > 1:
             best_child = None
             best_index = -1
-            for child in children:
+            for child in user_children:
                 latest = get_latest_descendant_index(child)
                 if latest > best_index:
                     best_index = latest
                     best_child = child
-            # Mark all other children as orphaned
-            for child in children:
+            for child in user_children:
                 if child != best_child:
                     mark_orphaned(child)
 
-    # Filter messages: keep those not orphaned OR without uuid (system messages)
     filtered = []
     for msg in messages:
         uuid = msg.get('uuid')
