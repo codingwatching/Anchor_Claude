@@ -144,12 +144,32 @@ def strip_session_previews(text):
         filtered.append(line)
     return '\n'.join(filtered)
 
+# Embedded binary payloads (screenshots and other media inside MCP tool results,
+# or base64 passed through tool inputs) must NEVER reach a published log — a
+# reader can rebuild the images, and screenshots can capture authenticated UIs.
+# Two layers: format_tool_result replaces image items before serialization, and
+# every converter passes its final output through this scrubber as a belt.
+IMAGE_PAYLOAD_RE = re.compile(r'[A-Za-z0-9+/=]{500,}')
+
+def strip_binary_payloads(text):
+    return IMAGE_PAYLOAD_RE.sub('[binary payload omitted]', text)
+
 def format_tool_result(result, max_lines=30):
     """Format tool result, truncating if needed."""
     if isinstance(result, list):
-        result = json.dumps(result, indent=2)
+        # MCP results are lists of typed items; image items carry base64
+        # screenshot data on a single line, which line-based truncation never
+        # catches - replace them with a marker BEFORE serialization
+        cleaned = []
+        for it in result:
+            if isinstance(it, dict) and it.get('type') == 'image':
+                cleaned.append({'type': 'image', 'note': '[screenshot omitted]'})
+            else:
+                cleaned.append(it)
+        result = json.dumps(cleaned, indent=2)
     elif not isinstance(result, str):
         result = str(result)
+    result = strip_binary_payloads(result)
 
     # Clean up system reminders
     if '<system-reminder>' in result:
@@ -341,10 +361,11 @@ def convert_cursor_jsonl_to_markdown(jsonl_path, output_path=None):
 
     if output_path:
         with open(output_path, 'w', encoding='utf-8') as f:
+            output = strip_binary_payloads(output)
             f.write(output)
         print(f"Written to {output_path}")
     else:
-        print(output)
+        print(strip_binary_payloads(output))
 
     return output
 
@@ -480,10 +501,11 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
 
     if output_path:
         with open(output_path, 'w', encoding='utf-8') as f:
+            output = strip_binary_payloads(output)
             f.write(output)
         print(f"Written to {output_path}")
     else:
-        print(output)
+        print(strip_binary_payloads(output))
 
     return output
 
