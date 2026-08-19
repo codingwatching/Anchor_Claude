@@ -151,8 +151,45 @@ def strip_session_previews(text):
 # every converter passes its final output through this scrubber as a belt.
 IMAGE_PAYLOAD_RE = re.compile(r'[A-Za-z0-9+/=]{500,}')
 
+# When MEDIA_DIR is set, embedded images are DECODED and saved there (ordinal
+# filenames), and the log text carries a private-path marker instead of the
+# payload — the vault/media/ scheme: files live on the server in an unserved
+# directory, the public log references them, and a rebuild is a mechanical
+# marker->file substitution. Without MEDIA_DIR, payloads are simply stripped.
+MEDIA_DIR = None
+MEDIA_REF = 'media'
+MEDIA_COUNT = 0
+
+def save_media_payload(b64, media_type=None):
+    global MEDIA_COUNT
+    import base64, os
+    try:
+        raw = base64.b64decode(b64, validate=False)
+    except Exception:
+        return None
+    ext = 'bin'
+    if raw[:3] == b'\xff\xd8\xff': ext = 'jpg'
+    elif raw[:8] == b'\x89PNG\r\n\x1a\n': ext = 'png'
+    elif raw[:6] in (b'GIF87a', b'GIF89a'): ext = 'gif'
+    elif raw[:4] == b'RIFF' and raw[8:12] == b'WEBP': ext = 'webp'
+    elif media_type and '/' in str(media_type): ext = str(media_type).split('/')[-1]
+    if ext == 'bin' and len(raw) < 2048:
+        return None   # not an image and tiny: likely not worth a file
+    MEDIA_COUNT += 1
+    name = '%03d.%s' % (MEDIA_COUNT, ext)
+    os.makedirs(MEDIA_DIR, exist_ok=True)
+    with open(os.path.join(MEDIA_DIR, name), 'wb') as f:
+        f.write(raw)
+    return MEDIA_REF + '/' + name
+
 def strip_binary_payloads(text):
-    return IMAGE_PAYLOAD_RE.sub('[binary payload omitted]', text)
+    def _repl(m):
+        if MEDIA_DIR:
+            ref = save_media_payload(m.group(0))
+            if ref:
+                return '[image stored privately: ' + ref + ']'
+        return '[binary payload omitted]'
+    return IMAGE_PAYLOAD_RE.sub(_repl, text)
 
 def format_tool_result(result, max_lines=30):
     """Format tool result, truncating if needed."""
@@ -163,7 +200,13 @@ def format_tool_result(result, max_lines=30):
         cleaned = []
         for it in result:
             if isinstance(it, dict) and it.get('type') == 'image':
-                cleaned.append({'type': 'image', 'note': '[screenshot omitted]'})
+                note = '[screenshot omitted]'
+                src = it.get('source', {}) if isinstance(it.get('source'), dict) else {}
+                if MEDIA_DIR and src.get('data'):
+                    ref = save_media_payload(src.get('data'), src.get('media_type'))
+                    if ref:
+                        note = '[image stored privately: ' + ref + ']'
+                cleaned.append({'type': 'image', 'note': note})
             else:
                 cleaned.append(it)
         result = json.dumps(cleaned, indent=2)
@@ -523,6 +566,18 @@ if __name__ == "__main__":
         sys.exit(1)
 
     input_path = sys.argv[1]
-    output_path = sys.argv[2] if len(sys.argv) > 2 else None
+    rest = [a for a in sys.argv[2:]]
+    # optional: --media-dir DIR [--media-ref PREFIX] extracts embedded images
+    # instead of stripping them (see save_media_payload)
+    i = 0
+    positional = []
+    while i < len(rest):
+        if rest[i] == '--media-dir' and i + 1 < len(rest):
+            MEDIA_DIR = rest[i + 1]; i += 2
+        elif rest[i] == '--media-ref' and i + 1 < len(rest):
+            MEDIA_REF = rest[i + 1]; i += 2
+        else:
+            positional.append(rest[i]); i += 1
+    output_path = positional[0] if positional else None
 
     convert_jsonl_to_markdown(input_path, output_path)
