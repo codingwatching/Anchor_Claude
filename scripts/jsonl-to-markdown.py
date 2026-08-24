@@ -6,6 +6,10 @@ Supports:
   - **Cursor (Composer) agent** — messages use ``role`` (``user`` / ``assistant``) and
     ``message.content`` parts (``text``, ``tool_use``). Tool results are often not
     embedded in exports; tool calls are listed for context.
+  - **Codex** - rollout files under ``~/.codex/sessions/.../rollout-*.jsonl`` with
+    ``response_item`` entries for messages, tool calls, and tool results.
+  - **Grok** — ``~/.grok/sessions/<cwd>/<id>/chat_history.jsonl`` with ``type``
+    in ``system`` / ``user`` / ``assistant`` / ``reasoning`` / ``tool_result``.
 """
 
 import json
@@ -13,6 +17,9 @@ import os
 import sys
 import re
 from datetime import datetime
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 def is_cursor_transcript(jsonl_path):
     """True if file is Cursor agent JSONL (``role``-based lines)."""
@@ -27,6 +34,66 @@ def is_cursor_transcript(jsonl_path):
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         pass
     return False
+
+
+def is_codex_transcript(jsonl_path):
+    """True if file is a Codex rollout JSONL transcript."""
+    try:
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                msg_type = msg.get('type')
+                if msg_type == 'session_meta':
+                    return True
+                if msg_type in ('response_item', 'turn_context', 'event_msg') and 'payload' in msg:
+                    return True
+                return False
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return False
+
+
+def is_grok_transcript(jsonl_path):
+    """True if file is a Grok chat_history.jsonl transcript."""
+    normalized = jsonl_path.replace('\\', '/')
+    if '/.grok/sessions/' in normalized and normalized.endswith('chat_history.jsonl'):
+        return True
+    try:
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                msg_type = msg.get('type')
+                if msg_type in ('reasoning', 'tool_result') and 'message' not in msg:
+                    return True
+                if msg_type in ('system', 'user', 'assistant') and 'content' in msg and 'message' not in msg:
+                    if msg_type == 'assistant' and 'tool_calls' in msg:
+                        return True
+                    if msg_type == 'system' and isinstance(msg.get('content'), str):
+                        return True
+                return False
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return False
+
+
+def codex_text_parts(content):
+    """Yield displayable text parts from Codex message content."""
+    if isinstance(content, str):
+        yield content
+    elif isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get('type') in ('input_text', 'output_text', 'text'):
+                text = item.get('text')
+                if text:
+                    yield text
 
 
 def extract_user_query_text(text):
@@ -85,16 +152,59 @@ def format_cursor_tool_input(tool_name, tool_input):
     return f"({raw})"
 
 
+def format_codex_tool_input(tool_name, arguments):
+    """Format Codex tool call arguments for display."""
+    parsed = None
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+        except json.JSONDecodeError:
+            parsed = None
+    elif isinstance(arguments, dict):
+        parsed = arguments
+
+    if isinstance(parsed, dict):
+        if tool_name == 'shell_command':
+            command = parsed.get('command', '')
+            if len(command) > 80:
+                command = command[:80] + '...'
+            return f"({command})"
+        if tool_name == 'apply_patch':
+            return "(patch)"
+        if tool_name in ('read_mcp_resource', 'view_image'):
+            return f"({parsed.get('uri', parsed.get('path', ''))})"
+        raw = json.dumps(parsed, ensure_ascii=False)
+        if len(raw) > 120:
+            raw = raw[:117] + '...'
+        return f"({raw})"
+
+    if isinstance(arguments, str):
+        text = arguments.replace('\n', ' ')
+        if len(text) > 120:
+            text = text[:117] + '...'
+        return f"({text})"
+
+    return ""
+
+
 def format_tool_input(tool_name, tool_input):
-    """Format tool input for display."""
+    """Format tool input for display.
+
+    Every tool gets a non-empty summary: known tools show their most telling
+    argument; anything unknown falls back to a truncated JSON dump of the
+    input (same design as the Grok formatter) so no summary line is ever
+    blank in the published log.
+    """
+    if not isinstance(tool_input, dict):
+        return ""
     if tool_name == "Read":
         return f"({tool_input.get('file_path', '')})"
     elif tool_name == "Write":
         return f"({tool_input.get('file_path', '')})"
     elif tool_name == "Edit":
         return f"({tool_input.get('file_path', '')})"
-    elif tool_name == "Bash":
-        cmd = tool_input.get('command', '')
+    elif tool_name in ("Bash", "PowerShell"):
+        cmd = ' '.join(tool_input.get('command', '').split())
         if len(cmd) > 80:
             cmd = cmd[:80] + "..."
         return f"({cmd})"
@@ -106,10 +216,41 @@ def format_tool_input(tool_name, tool_input):
         return f"({tool_input.get('pattern', '')})"
     elif tool_name == "Glob":
         return f"({tool_input.get('pattern', '')})"
-    elif tool_name == "Task":
+    elif tool_name in ("Task", "Agent"):
         return f"({tool_input.get('description', '')})"
+    elif tool_name == "Skill":
+        skill = tool_input.get('skill', '')
+        args = tool_input.get('args', '')
+        return f"({skill} {args})" if args else f"({skill})"
+    elif tool_name == "SendUserFile":
+        files = tool_input.get('files', [])
+        if isinstance(files, list):
+            names = ', '.join(str(f) for f in files)
+        else:
+            names = str(files)
+        if len(names) > 100:
+            names = names[:100] + '...'
+        return f"({names})"
+    elif tool_name == "ToolSearch":
+        return f"({tool_input.get('query', '')})"
+    elif tool_name == "TodoWrite":
+        todos = tool_input.get('todos', [])
+        return f"({len(todos)} todos)" if isinstance(todos, list) else ""
+    elif tool_name == "AskUserQuestion":
+        questions = tool_input.get('questions', [])
+        first = ''
+        if isinstance(questions, list) and questions and isinstance(questions[0], dict):
+            first = questions[0].get('question', '')
+        if len(first) > 80:
+            first = first[:80] + '...'
+        return f"({first})"
+    elif tool_name == "NotebookEdit":
+        return f"({tool_input.get('notebook_path', '')})"
     else:
-        return ""
+        raw = json.dumps(tool_input, ensure_ascii=False)
+        if len(raw) > 120:
+            raw = raw[:117] + '...'
+        return f"({raw})" if raw != '{}' else ""
 
 def get_fence(content):
     """Get a code fence that won't conflict with content."""
@@ -159,6 +300,47 @@ IMAGE_PAYLOAD_RE = re.compile(r'[A-Za-z0-9+/=]{500,}')
 MEDIA_DIR = None
 MEDIA_REF = 'media'
 MEDIA_COUNT = 0
+
+# --replays <gamedir>: weave replay markers into the transcript. Any .apr in
+# <gamedir>/replays/ whose recording START time falls inside the session's
+# message window gets a `::replay(<game> <file> <MB>)` directive inserted at
+# the transcript position where the run began (between the last message before
+# launch and the first message after). Filenames carry LOCAL time; jsonl
+# timestamps are UTC - both are converted to epoch for comparison. The site's
+# convert.lua renders the directive as a playable card (released games) or a
+# sealed line. Matched files are printed so end-session can copy them.
+REPLAYS_DIR = None
+
+def collect_replays():
+    import glob as _glob, time as _time
+    if not REPLAYS_DIR:
+        return []
+    out = []
+    game = os.path.basename(os.path.normpath(REPLAYS_DIR))
+    for f in sorted(_glob.glob(os.path.join(REPLAYS_DIR, 'replays', '*.apr'))):
+        name = os.path.basename(f)
+        m = re.match(r'^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.apr$', name)
+        if not m:
+            continue
+        parts = [int(x) for x in m.groups()]
+        try:
+            epoch = _time.mktime((parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], -1, -1, -1))
+        except (OverflowError, ValueError):
+            continue
+        mb = os.path.getsize(f) / 1e6
+        out.append({'epoch': epoch, 'file': name, 'game': game, 'mb': mb, 'emitted': False})
+    return out
+
+
+def msg_epoch(msg):
+    ts = msg.get('timestamp')
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        return dt.timestamp()
+    except ValueError:
+        return None
 
 def save_media_payload(b64, media_type=None):
     global MEDIA_COUNT
@@ -237,6 +419,57 @@ def is_system_message(content):
         if re.search(pattern, content):
             return True
     return False
+
+def format_skill_injection(text):
+    """Collapse skill-content injections into a details block.
+
+    When a skill is invoked, the harness injects the full SKILL.md as a user
+    message ("Base directory for this skill: <path>\\n\\n<content>"). Rendered
+    as a blockquote that's hundreds of visible lines of reference material;
+    fold it behind a [skill: <name>] summary instead. Returns markdown or None
+    when the text is not a skill injection.
+    """
+    if not isinstance(text, str):
+        return None
+    m = re.match(r"\s*Base directory for this skill:\s*(\S+)\s*\n(.*)$", text, re.DOTALL)
+    if not m:
+        return None
+    name = re.split(r"[\\/]+", m.group(1).rstrip("\\/"))[-1]
+    body = html_escape(m.group(2).strip())
+    return (f"<details>\n<summary><code>[skill: {html_escape(name)}]</code></summary>\n\n"
+            f"<pre><code>{body}</code></pre>\n\n</details>\n\n")
+
+
+def format_local_command(content):
+    """Render Claude Code local-command blocks (/model, /clear, ...) compactly.
+
+    Returns markdown to emit, '' to drop the item entirely, or None when the
+    content is not a local-command block (caller falls through to its normal
+    handling). Replaces the old behavior of dumping the raw <command-name>/
+    <local-command-stdout> XML into a visible fenced block.
+    """
+    if not isinstance(content, str):
+        return None
+    stripped = content.lstrip()
+    if stripped.startswith('<local-command-caveat>') or stripped.startswith('Caveat:'):
+        return ''
+    m = re.search(r'<command-name>(.*?)</command-name>', content, re.DOTALL)
+    if m:
+        name = m.group(1).strip()
+        args_m = re.search(r'<command-args>(.*?)</command-args>', content, re.DOTALL)
+        args = args_m.group(1).strip() if args_m else ''
+        label = f"{name} {args}".strip()
+        return f"> `{label}`\n\n"
+    m = re.search(r'<local-command-stdout>(.*?)</local-command-stdout>', content, re.DOTALL)
+    if m:
+        out = m.group(1).strip()
+        if not out:
+            return ''
+        escaped = html_escape(format_tool_result(out))
+        return (f"<details>\n<summary><code>[command output]</code></summary>\n\n"
+                f"<pre><code>{escaped}</code></pre>\n\n</details>\n\n")
+    return None
+
 
 def filter_rewound_messages(messages):
     """Filter out rewound messages by resolving branch points.
@@ -448,17 +681,34 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
     output = header
     pending_tools = {}  # tool_id -> (tool_name, formatted_input)
 
+    replays = collect_replays()
+
     for msg in messages:
         msg_type = msg.get('type')
         content = msg.get('message', {}).get('content')
+
+        # replay markers: a run that started before this message lands here
+        ep = msg_epoch(msg)
+        if ep is not None:
+            for r in replays:
+                if not r['emitted'] and r['epoch'] <= ep:
+                    r['emitted'] = True
+                    output += '::replay(%s %s %.0f)' % (r['game'], r['file'], r['mb']) + chr(10) + chr(10)
+                    print("replay marker: %s/%s (%.0f MB)" % (r['game'], r['file'], r['mb']))
 
         if not content:
             continue
 
         # User message (plain text)
         if msg_type == 'user' and isinstance(content, str):
+            skill = format_skill_injection(content)
+            local = format_local_command(content)
             # Check if it's internal system output
-            if is_system_message(content):
+            if skill is not None:
+                output += skill
+            elif local is not None:
+                output += local
+            elif is_system_message(content):
                 fence = get_fence(content)
                 output += f"{fence}\n{content}\n{fence}\n\n"
             # Check if it's HTML content (pasted HTML)
@@ -488,7 +738,17 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
 
                     if tool_info:
                         tool_name, formatted_input, tool_input_data = tool_info
-                        result_text = format_tool_result(result)
+
+                        # TodoWrite: the harness result is boilerplate; the list
+                        # itself lives in the tool INPUT — render it as a
+                        # status checklist instead
+                        if tool_name == 'TodoWrite':
+                            todos = tool_input_data.get('todos', [])
+                            result_text = '\n'.join(
+                                f"- [{t.get('status', '?')}] {t.get('content', '')}"
+                                for t in todos if isinstance(t, dict))
+                        else:
+                            result_text = format_tool_result(result)
 
                         # Strip message previews from find-recent-session output
                         if tool_name == 'Bash' and 'find-recent-session' in tool_input_data.get('command', ''):
@@ -497,7 +757,7 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
                         if result_text:
                             # Use HTML pre/code since markdown isn't processed inside HTML blocks
                             escaped = html_escape(result_text)
-                            output += f"<details>\n<summary><code>{tool_name} {formatted_input}</code></summary>\n\n"
+                            output += f"<details>\n<summary><code>{html_escape(tool_name)} {html_escape(formatted_input)}</code></summary>\n\n"
                             output += f"<pre><code>{escaped}</code></pre>\n\n"
                             output += "</details>\n\n"
                         else:
@@ -513,7 +773,13 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
                     # Text content in a list
                     text = item.get('text', '')
                     if text:
-                        if is_system_message(text):
+                        skill = format_skill_injection(text)
+                        local = format_local_command(text)
+                        if skill is not None:
+                            output += skill
+                        elif local is not None:
+                            output += local
+                        elif is_system_message(text):
                             fence = get_fence(text)
                             output += f"{fence}\n{text}\n{fence}\n\n"
                         else:
@@ -526,7 +792,17 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
             for item in content:
                 item_type = item.get('type')
 
-                if item_type == 'text':
+                if item_type == 'thinking':
+                    # Full thinking trace, collapsed — same [Think] rendering
+                    # as the Grok converter (which is the whole reason it
+                    # exists there: the traces read as the session's inner
+                    # narration). Claude stores them untruncated.
+                    think = item.get('thinking', '')
+                    if think and isinstance(think, str):
+                        escaped = html_escape(think)
+                        output += f"<details>\n<summary>[Think]</summary>\n\n<pre><code>{escaped}</code></pre>\n\n</details>\n\n"
+
+                elif item_type == 'text':
                     text = item.get('text', '')
                     if text:
                         output += f"{text}\n\n"
@@ -553,8 +829,293 @@ def convert_claude_jsonl_to_markdown(jsonl_path, output_path=None):
     return output
 
 
+def convert_codex_jsonl_to_markdown(jsonl_path, output_path=None):
+    """Convert Codex rollout JSONL to Markdown."""
+    messages = []
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    start_time = None
+    for msg in messages:
+        if msg.get('type') == 'session_meta':
+            start_time = msg.get('payload', {}).get('timestamp') or msg.get('timestamp')
+            break
+        if msg.get('timestamp'):
+            start_time = msg['timestamp']
+            break
+
+    if start_time:
+        dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        header = f"# Session {dt.strftime('%Y-%m-%d %H:%M')}\n\n---\n\n"
+    else:
+        header = "# Session\n\n---\n\n"
+
+    output = header
+    pending_tools = {}
+
+    for msg in messages:
+        if msg.get('type') != 'response_item':
+            continue
+
+        payload = msg.get('payload', {})
+        payload_type = payload.get('type')
+
+        if payload_type == 'message':
+            role = payload.get('role')
+            if role == 'user':
+                for text in codex_text_parts(payload.get('content')):
+                    if text.lstrip().startswith('<environment_context>'):
+                        continue
+                    if is_system_message(text):
+                        fence = get_fence(text)
+                        output += f"{fence}\n{text}\n{fence}\n\n"
+                    else:
+                        lines = text.split('\n')
+                        quoted = '\n'.join(f"> {line}" for line in lines)
+                        output += f"{quoted}\n\n"
+
+            elif role == 'assistant':
+                for text in codex_text_parts(payload.get('content')):
+                    output += f"{text}\n\n"
+
+        elif payload_type == 'function_call':
+            call_id = payload.get('call_id')
+            tool_name = payload.get('name', 'Unknown')
+            arguments = payload.get('arguments', '')
+            if call_id:
+                pending_tools[call_id] = (tool_name, format_codex_tool_input(tool_name, arguments))
+
+        elif payload_type == 'function_call_output':
+            call_id = payload.get('call_id')
+            tool_info = pending_tools.pop(call_id, None)
+            result = payload.get('output', '')
+
+            if tool_info:
+                tool_name, formatted_input = tool_info
+            else:
+                tool_name, formatted_input = 'Tool', ''
+
+            result_text = format_tool_result(result)
+            if result_text:
+                escaped = html_escape(result_text)
+                output += f"<details>\n<summary><code>{tool_name} {formatted_input}</code></summary>\n\n"
+                output += f"<pre><code>{escaped}</code></pre>\n\n"
+                output += "</details>\n\n"
+            else:
+                output += f"> `{tool_name} {formatted_input}`\n\n"
+
+    if output_path:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            output = strip_binary_payloads(output)
+            f.write(output)
+        print(f"Written to {output_path}")
+    else:
+        print(strip_binary_payloads(output))
+
+    return output
+
+
+def format_grok_tool_input(tool_name, arguments):
+    """Format Grok tool_calls arguments for display."""
+    parsed = None
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+        except json.JSONDecodeError:
+            parsed = None
+    elif isinstance(arguments, dict):
+        parsed = arguments
+
+    if not isinstance(parsed, dict):
+        raw = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+        if len(raw) > 120:
+            raw = raw[:117] + '...'
+        return f"({raw})" if raw else ""
+
+    if tool_name in ('read_file', 'Read'):
+        return f"({parsed.get('target_file', parsed.get('file_path', ''))})"
+    if tool_name in ('search_replace', 'Write', 'Edit', 'StrReplace'):
+        return f"({parsed.get('file_path', parsed.get('path', parsed.get('target_file', '')))})"
+    if tool_name in ('run_terminal_command', 'Bash', 'Shell'):
+        cmd = parsed.get('command', '')
+        if len(cmd) > 80:
+            cmd = cmd[:80] + '...'
+        return f"({cmd})"
+    if tool_name in ('grep', 'Grep'):
+        return f"({parsed.get('pattern', '')})"
+    if tool_name in ('list_dir', 'Glob'):
+        return f"({parsed.get('target_directory', parsed.get('glob_pattern', parsed.get('pattern', '')))})"
+    if tool_name in ('web_search', 'WebSearch'):
+        return f"({parsed.get('query', parsed.get('search_term', ''))})"
+    if tool_name in ('web_fetch', 'WebFetch', 'open_page'):
+        return f"({parsed.get('url', '')})"
+    if tool_name in ('spawn_subagent', 'Task'):
+        return f"({parsed.get('description', parsed.get('prompt', '')[:80])})"
+    raw = json.dumps(parsed, ensure_ascii=False)
+    if len(raw) > 120:
+        raw = raw[:117] + '...'
+    return f"({raw})"
+
+
+def grok_text_parts(content):
+    """Yield text strings from a Grok message content field."""
+    if isinstance(content, str):
+        if content:
+            yield content
+    elif isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get('type') in ('text', 'input_text', 'output_text'):
+                text = item.get('text')
+                if text:
+                    yield text
+
+
+def grok_user_visible_text(msg):
+    """Return the user-facing text from a Grok user/system message, or None to skip."""
+    if msg.get('synthetic_reason') == 'system_reminder':
+        return None
+    text = '\n'.join(grok_text_parts(msg.get('content')))
+    if not text:
+        return None
+    extracted = extract_user_query_text(text)
+    if extracted != text:
+        return extracted.strip() or None
+    stripped = text.lstrip()
+    if stripped.startswith(('<user_info>', '<system-reminder>', '<rules>', '<always_applied_workspace_rules>')):
+        return None
+    if msg.get('type') == 'system':
+        return None
+    return text.strip() or None
+
+
+def convert_grok_jsonl_to_markdown(jsonl_path, output_path=None):
+    """Convert a Grok chat_history.jsonl transcript to Markdown."""
+    messages = []
+    with open(jsonl_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                messages.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    try:
+        summary_path = os.path.join(os.path.dirname(jsonl_path), 'summary.json')
+        start_time = None
+        if os.path.isfile(summary_path):
+            with open(summary_path, 'r', encoding='utf-8') as sf:
+                summary = json.load(sf)
+            start_time = summary.get('created_at')
+        if start_time:
+            dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            header = f"# Session {dt.strftime('%Y-%m-%d %H:%M')}\n\n---\n\n"
+        else:
+            mtime = os.path.getmtime(jsonl_path)
+            dt = datetime.fromtimestamp(mtime)
+            header = f"# Session {dt.strftime('%Y-%m-%d %H:%M')} (file mtime)\n\n---\n\n"
+    except (OSError, json.JSONDecodeError, ValueError):
+        header = "# Session\n\n---\n\n"
+
+    output = header
+    pending_tools = {}
+
+    for msg in messages:
+        msg_type = msg.get('type')
+
+        if msg_type == 'system':
+            continue
+
+        if msg_type == 'user':
+            text = grok_user_visible_text(msg)
+            if not text:
+                continue
+            if is_system_message(text):
+                fence = get_fence(text)
+                output += f"{fence}\n{text}\n{fence}\n\n"
+            else:
+                quoted = '\n'.join(f"> {line}" for line in text.split('\n'))
+                output += f"{quoted}\n\n"
+            continue
+
+        if msg_type == 'reasoning':
+            summaries = []
+            for item in msg.get('summary') or []:
+                if isinstance(item, dict) and item.get('text'):
+                    summaries.append(item['text'])
+            think = '\n'.join(summaries).strip()
+            if think:
+                escaped = html_escape(think)
+                output += f"<details>\n<summary>[Think]</summary>\n\n<pre><code>{escaped}</code></pre>\n\n</details>\n\n"
+            continue
+
+        if msg_type == 'assistant':
+            text = '\n'.join(grok_text_parts(msg.get('content'))).strip()
+            if text:
+                output += f"{text}\n\n"
+            for call in msg.get('tool_calls') or []:
+                call_id = call.get('id')
+                tool_name = call.get('name', 'Unknown')
+                arguments = call.get('arguments', '')
+                formatted = format_grok_tool_input(tool_name, arguments)
+                if call_id:
+                    pending_tools[call_id] = (tool_name, formatted, arguments)
+                else:
+                    output += f"<details>\n<summary><code>{html_escape(tool_name)} {html_escape(formatted)}</code></summary>\n\n"
+                    raw = arguments if isinstance(arguments, str) else json.dumps(arguments, indent=2, ensure_ascii=False)
+                    output += f"<pre><code>{html_escape(raw[:8000])}"
+                    if len(raw) > 8000:
+                        output += "\n... [truncated]"
+                    output += "</code></pre>\n\n</details>\n\n"
+            continue
+
+        if msg_type == 'tool_result':
+            call_id = msg.get('tool_call_id')
+            tool_info = pending_tools.pop(call_id, None)
+            result = msg.get('content', '')
+            if isinstance(result, list):
+                result = '\n'.join(grok_text_parts(result))
+            result_text = format_tool_result(result)
+            if tool_info:
+                tool_name, formatted_input, _arguments = tool_info
+            else:
+                tool_name, formatted_input = 'Tool', ''
+            if result_text:
+                escaped = html_escape(result_text)
+                output += f"<details>\n<summary><code>{html_escape(tool_name)} {html_escape(formatted_input)}</code></summary>\n\n"
+                output += f"<pre><code>{escaped}</code></pre>\n\n"
+                output += "</details>\n\n"
+            else:
+                output += f"> `{tool_name} {formatted_input}`\n\n"
+            continue
+
+    if output_path:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            output = strip_binary_payloads(output)
+            f.write(output)
+        print(f"Written to {output_path}")
+    else:
+        print(strip_binary_payloads(output))
+
+    return output
+
+
 def convert_jsonl_to_markdown(jsonl_path, output_path=None):
-    """Auto-detect Claude Code vs Cursor / Composer and convert to Markdown."""
+    """Auto-detect Claude Code, Cursor / Composer, Codex, or Grok and convert to Markdown."""
+    if is_grok_transcript(jsonl_path):
+        return convert_grok_jsonl_to_markdown(jsonl_path, output_path)
+    if is_codex_transcript(jsonl_path):
+        return convert_codex_jsonl_to_markdown(jsonl_path, output_path)
     if is_cursor_transcript(jsonl_path):
         return convert_cursor_jsonl_to_markdown(jsonl_path, output_path)
     return convert_claude_jsonl_to_markdown(jsonl_path, output_path)
@@ -576,6 +1137,8 @@ if __name__ == "__main__":
             MEDIA_DIR = rest[i + 1]; i += 2
         elif rest[i] == '--media-ref' and i + 1 < len(rest):
             MEDIA_REF = rest[i + 1]; i += 2
+        elif rest[i] == '--replays' and i + 1 < len(rest):
+            REPLAYS_DIR = rest[i + 1]; i += 2
         else:
             positional.append(rest[i]); i += 1
     output_path = positional[0] if positional else None
